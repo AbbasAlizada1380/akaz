@@ -1,35 +1,31 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
-
-function App() {
-  const [count, setCount] = useState(0)
-
+import { BrowserRouter, Route, Routes } from "react-router-dom";
+import DashboardPage from "./pages/dashboard/DashboardPage";
+import OnlyAdminPrivateRoute from "./components/common/OnlyAdmin";
+import ScrollTop from "./components/common/ScrollTop";
+import Signin from "./features/authentication/components/Signin";
+// import NotFound from "./pages/NotFound";
+import PrivateRoute from "./components/common/PrivateRoute";
+import EmailEntry from "./pages/dashboard/reset_password/EmailEntery";
+import ResetPassword from "./pages/dashboard/reset_password/ResetPassword";
+// import HomePage from "./pages/home/HomePage";
+export default function App() {
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div>
+      <BrowserRouter>
+        <ScrollTop />
+        <Routes>
+          {/* public routes all users */}
+          {/* <Route path="/" element={<HomePage />} /> */}
+          <Route path="/forgot_password" element={<EmailEntry />} />
+          <Route path="/reset-password/:token" element={<ResetPassword />} />
+          <Route path="/" element={<Signin />} />
+          <Route path="*" element={<Signin />} />
+          <Route element={<PrivateRoute />}>
+            <Route path="/dashboard" element={<DashboardPage />} />
+          </Route>
+          <Route element={<OnlyAdminPrivateRoute />}></Route>
+        </Routes>
+      </BrowserRouter>
+    </div>
+  );
 }
-
-export default App
