@@ -40,10 +40,10 @@ const Sidebar = ({ setActiveComponent }) => {
   };
   const AllComponents = [
     { name: "Home Page", value: "home", icon: <MdOutlineDashboardCustomize /> },
-    { name: "سفارشات جدید", value: "Orders", icon: <MdAddShoppingCart /> },
-    { name: "لیست سفارشات ", value: "OrdersList", icon: <FaList /> },
+    { name: "Departmentt", value: "department", icon: <MdAddShoppingCart /> },
+    { name: "Members", value: "memberManager", icon: <FaList /> },
     {
-      name: " ثبت کاربر جدید",
+      name: "User Management",
       value: "AddUser",
       icon: <LucideUserRoundPlus />,
     },
@@ -91,7 +91,7 @@ const Sidebar = ({ setActiveComponent }) => {
         </div>
 
         <span className="text-lg font-bold rounded-full text-gray-900 whitespace-nowrap">
-      AKAZ
+      ZANJERA OMID
         </span>
       </header>
 

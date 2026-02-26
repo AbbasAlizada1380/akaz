@@ -2,9 +2,12 @@
 import Dashboard from "./pages/dashboard";
 // import S_Transaction from "./pages/RentManager";
 import Report from "./pages/reports";
-import Orders from "./pages/Orders";
-import OrdersList from "./pages/OrdersList";
+import Orders from "./pages/DepartmentManager";
+import OrdersList from "./pages/MemberManager";
 import AddUser from "./pages/AddUser";
+import DepartmentManager from "./pages/DepartmentManager";
+import MemberManager from "./pages/MemberManager";
+import MemberManagement from "./pages/MemberManager";
 const MainContent = ({ activeComponent }) => {
   const renderContent = () => {
     switch (activeComponent) {
@@ -26,10 +29,10 @@ const MainContent = ({ activeComponent }) => {
         return <ServiceManager />;
       case "Fees":
         return <Fees />;
-      case "Orders":
-        return <Orders />;
-      case "OrdersList":
-        return <OrdersList />;
+      case "department":
+        return <DepartmentManager />;
+      case "memberManager":
+        return <MemberManagement />;
       case "AddUser":
         return <AddUser />;
 

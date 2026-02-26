@@ -4,6 +4,8 @@ import userrouter from "./Routes/userRout.js";
 import sequelize from "./dbconnection.js";
 import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
+import DepartmentRoute from "./Routes/DepartmentRoute.js";
+import MemberRoute from "./Routes/MemberRoute.js";
 const FRONT_URL = process.env.FRONT_URL
 const port = 8038;
 const app = express();
@@ -48,6 +50,8 @@ app.use("/uploads", express.static(uploadsDirectory));
 
 // Routes
 app.use("/users", userrouter);
+app.use("/department", DepartmentRoute);
+app.use("/member", MemberRoute);
 
 // Sync database and start server
 sequelize
