@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { LuUsers, LuPlus, LuTrash2 } from "react-icons/lu";
-
+import Pagination from "../pagination/Pagination.jsx";
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const DepartmentManager = () => {
@@ -13,34 +13,46 @@ const DepartmentManager = () => {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [limit] = useState(10); // items per page
   // Holdings as an array for add/remove functionality
   const [holdings, setHoldings] = useState([]);
 
-  // ✅ Fetch Departments
-  const fetchDepartments = async () => {
+  const fetchDepartments = async (page = 1) => {
     try {
-      const { data } = await axios.get(`${BASE_URL}/department`);
+      const { data } = await axios.get(
+        `${BASE_URL}/department?page=${page}&limit=${limit}`
+      );
+
       setDepartments(data.data || []);
+      setCurrentPage(data.currentPage);
+      setTotalPages(data.totalPages);
     } catch (error) {
       console.error("Error fetching departments:", error);
     }
   };
 
-  // ✅ Fetch Members
+  // ✅ New - Fetch from /users
   const fetchMembers = async () => {
     try {
-      const { data } = await axios.get(`${BASE_URL}/member`);
-      setMembers(data.data || []);
+      const res = await axios.get(`${BASE_URL}/users`);
+      setMembers(res.data || []); // because your API returns array directly
     } catch (error) {
-      console.error("Error fetching members:", error);
+      console.error("Error fetching users:", error);
     }
   };
 
   useEffect(() => {
-    fetchDepartments();
+    fetchDepartments(currentPage);
     fetchMembers();
-  }, []);
+  }, [currentPage]);
+
+  const handlePageChange = (page) => {
+    if (page >= 1 && page <= totalPages) {
+      setCurrentPage(page);
+    }
+  };
 
   // ✅ Create or Update Department
   const handleSubmit = async (e) => {
@@ -305,7 +317,7 @@ const DepartmentManager = () => {
                                 disabled={!isAvailable && holding.memberId !== member.id}
                                 className={!isAvailable && holding.memberId !== member.id ? 'text-gray-400' : ''}
                               >
-                                {member.name} {!isAvailable && holding.memberId !== member.id ? '(selected)' : ''}
+                                {member.fullname} {!isAvailable && holding.memberId !== member.id ? '(selected)' : ''}
                               </option>
                             );
                           })}
@@ -422,7 +434,7 @@ const DepartmentManager = () => {
               </div>
             </div>
 
-          
+
 
             {/* Table */}
             <div className="overflow-hidden border border-gray-200 rounded-lg">
@@ -460,7 +472,7 @@ const DepartmentManager = () => {
                                     key={memberId}
                                     className="inline-flex items-center gap-1 px-2 py-1 bg-primary/10   rounded-md text-xs"
                                   >
-                                    <span>{member?.name || 'Unknown'}:</span>
+                                    <span>{member?.fullname || 'Unknown'}:</span>
                                     <span className="font-bold">{percent}%</span>
                                   </span>
                                 );
@@ -507,11 +519,18 @@ const DepartmentManager = () => {
                     </tr>
                   )}
                 </tbody>
-              </table>
+              </table>      {(
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={handlePageChange}
+        />
+      )}
             </div>
           </div>
         </div>
       </div>
+
     </div>
   );
 };

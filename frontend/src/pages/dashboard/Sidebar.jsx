@@ -40,8 +40,10 @@ const Sidebar = ({ setActiveComponent }) => {
   };
   const AllComponents = [
     { name: "Home Page", value: "home", icon: <MdOutlineDashboardCustomize /> },
-    { name: "Departmentt", value: "department", icon: <MdAddShoppingCart /> },
-    { name: "Members", value: "memberManager", icon: <FaList /> },
+    { name: "Department  ", value: "department", icon: <MdAddShoppingCart /> },
+    { name: "Customer ", value: "customer", icon: <MdAddShoppingCart /> },
+    { name: "Expense ", value: "expense", icon: <MdAddShoppingCart /> },
+    // { name: "Members", value: "memberManager", icon: <FaList /> },
     {
       name: "User Management",
       value: "AddUser",

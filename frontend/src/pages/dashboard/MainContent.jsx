@@ -8,19 +8,21 @@ import AddUser from "./pages/AddUser";
 import DepartmentManager from "./pages/DepartmentManager";
 import MemberManager from "./pages/MemberManager";
 import MemberManagement from "./pages/MemberManager";
+import Customers from "./pages/Customers";
+import ExpenseManager from "./pages/expense/ExpenseManages";
 const MainContent = ({ activeComponent }) => {
   const renderContent = () => {
     switch (activeComponent) {
       case "dashboard":
         return <Dashboard />;
-      case "ActiveAthletes":
-        return <ActiveAthletes />;
+      case "customer":
+        return <Customers />;
       case "BlockManager":
         return <BlockManager />;
       case "user managements":
         return <UserManagement />;
-      case "report":
-        return <Report />;
+      case "expense":
+        return <ExpenseManager />;
       case "Salaries":
         return <Salaries />;
       case "setting":

@@ -30,26 +30,37 @@ export const createDepartment = async (req, res) => {
   }
 };
 
-// ✅ Get All Departments
+// ✅ Get All Departments (Paginated)
 export const getAllDepartments = async (req, res) => {
   try {
-    const { active } = req.query;
+    const { active, page = 1, limit = 10 } = req.query;
+
+    const currentPage = parseInt(page);
+    const pageSize = parseInt(limit);
+    const offset = (currentPage - 1) * pageSize;
 
     const whereClause = {};
+
     if (active !== undefined) {
       whereClause.isActive = active === "true";
     }
 
-    const departments = await Department.findAll({
+    const { count, rows } = await Department.findAndCountAll({
       where: whereClause,
+      limit: pageSize,
+      offset,
       order: [["createdAt", "DESC"]],
     });
 
-    res.json({
+    res.status(200).json({
       message: "Departments fetched successfully",
-      count: departments.length,
-      data: departments,
+      totalItems: count,
+      totalPages: Math.ceil(count / pageSize),
+      currentPage,
+      pageSize,
+      data: rows,
     });
+
   } catch (error) {
     res.status(500).json({
       message: "Error fetching departments",

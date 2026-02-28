@@ -6,6 +6,8 @@ import path, { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import DepartmentRoute from "./Routes/DepartmentRoute.js";
 import MemberRoute from "./Routes/MemberRoute.js";
+import CustomerRoute from "./Routes/CustomersRoute.js";
+import ExpenseRoute from "./Routes/ExpenseRoute.js";
 const FRONT_URL = process.env.FRONT_URL
 const port = 8038;
 const app = express();
@@ -52,7 +54,8 @@ app.use("/uploads", express.static(uploadsDirectory));
 app.use("/users", userrouter);
 app.use("/department", DepartmentRoute);
 app.use("/member", MemberRoute);
-
+app.use("/customer", CustomerRoute);
+app.use("/expense", ExpenseRoute);
 // Sync database and start server
 sequelize
   .sync({ alter: true })

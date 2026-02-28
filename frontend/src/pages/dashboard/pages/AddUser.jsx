@@ -133,8 +133,8 @@ const AddUser = () => {
         {/* Add User Form */}
         <div className="bg-gray-100 max-w-4xl mx-auto rounded-lg shadow-lg p-6 border">
           <div className="flex items-center gap-3 mb-6 pb-4 border-b">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <svg className="w-6 h-6 text-cyan-800" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <svg className="w-6 h-6   " fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
             </div>
@@ -157,7 +157,7 @@ const AddUser = () => {
                   name="fullname"
                   value={form.fullname}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-cyan-800 focus:outline-none"
+                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                   placeholder="Enter full name"
                   required
                 />
@@ -173,7 +173,7 @@ const AddUser = () => {
                   name="email"
                   value={form.email}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-cyan-800 focus:outline-none"
+                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                   placeholder="example@email.com"
                   required
                 />
@@ -189,7 +189,7 @@ const AddUser = () => {
                   name="password"
                   value={form.password}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-cyan-800 focus:outline-none"
+                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                   placeholder="Enter password"
                   required
                 />
@@ -205,7 +205,7 @@ const AddUser = () => {
                   name="confirmPassword"
                   value={form.confirmPassword}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-cyan-800 focus:outline-none"
+                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                   placeholder="Re-enter password"
                   required
                 />
@@ -220,7 +220,7 @@ const AddUser = () => {
                   name="role"
                   value={form.role}
                   onChange={handleChange}
-                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-cyan-800 focus:outline-none"
+                  className="w-full px-4 py-3 border rounded-md focus:ring-2 focus:ring-primary focus:outline-none"
                   required
                 >
                   <option value="">Select Role</option>
@@ -236,7 +236,7 @@ const AddUser = () => {
             <div className="flex justify-center">
               <button
                 type="submit"
-                className="bg-cyan-800 px-6 py-3 text-white rounded-xl font-semibold hover:bg-cyan-700 transition-all"
+                className="bg-primary px-6 py-3 text-white rounded-xl font-semibold hover:bg-primary/90 transition-all"
               >
                 Add User
               </button>
@@ -248,16 +248,16 @@ const AddUser = () => {
         <div className="mt-10">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <LuUsers size={24} className="text-cyan-800" />
+              <LuUsers size={24} className="  " />
               <h2 className="text-xl font-bold">Users List</h2>
-              <span className="bg-blue-100 text-cyan-800 text-sm px-3 py-1 rounded-full">
+              <span className="bg-primary/10    text-sm px-3 py-1 rounded-full">
                 {filteredUsers.length} of {users.length} users
               </span>
             </div>
 
             <button
               onClick={fetchUsers}
-              className="px-4 py-2 bg-cyan-800 text-white rounded-lg hover:bg-cyan-700"
+              className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90"
             >
               Refresh
             </button>
@@ -265,12 +265,12 @@ const AddUser = () => {
 
           {loading ? (
             <div className="flex justify-center py-10">
-              <div className="animate-spin h-10 w-10 border-b-2 border-cyan-800 rounded-full"></div>
+              <div className="animate-spin h-10 w-10 border-b-2 border-primary rounded-full"></div>
             </div>
           ) : (
             <div className="overflow-hidden border rounded-lg">
               <table className="w-full">
-                <thead className="bg-cyan-800 text-white">
+                <thead className="bg-primary text-white">
                   <tr>
                     <th className="px-6 py-4 text-left">#</th>
                     <th className="px-6 py-4 text-left">Full Name</th>
@@ -286,7 +286,7 @@ const AddUser = () => {
                         <td className="px-6 py-4 font-medium">{user.fullname}</td>
                         <td className="px-6 py-4">{user.email}</td>
                         <td className="px-6 py-4">
-                          <span className="px-3 py-1 rounded-full text-xs bg-cyan-800 text-white">
+                          <span className="px-3 py-1 rounded-full text-xs bg-primary text-white">
                             {user.role}
                           </span>
                         </td>
