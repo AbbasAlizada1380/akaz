@@ -1,13 +1,20 @@
 import { DataTypes } from "sequelize";
 import sequelize from "../dbconnection.js";
 
-const Member = sequelize.define(
-  "Member",
+const Seller = sequelize.define(
+  "Seller",
   {
-    name: {
+    fullname: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    phoneNumber: {
       type: DataTypes.STRING,
     },
-    description: {
+    address: {
+      type: DataTypes.STRING,
+    },
+    department: {
       type: DataTypes.STRING,
     },
     isActive: {
@@ -19,4 +26,4 @@ const Member = sequelize.define(
   }
 );
 
-export default Member;
+export default Seller;
