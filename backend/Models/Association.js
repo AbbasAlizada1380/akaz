@@ -1,25 +1,87 @@
+import sequelize from '../dbconnection.js';
+import Department from './Department.js';
+import Seller from './Seller/Seller.js';
+import StockIncome from './Stock/StockIncome.js';
+import SellerAccount from './Seller/SellerAccount.js';
+import Sells from './Stock/Sells.js';
 
-import Department from '../Models/Department.js';
-import Seller from '../Models/Seller.js';
-import StockIncome from '../Models/Stock/StockIncome.js';
+const models = {
+  Department,
+  Seller,
+  StockIncome,
+  SellerAccount,
+  Sells
+};
 
-export const setupAssociations = () => {
-  // StockIncome associations
-  StockIncome.belongsTo(Department, {
+/* ===============================
+   Associate Methods
+================================ */
+
+StockIncome.associate = (models) => {
+  StockIncome.belongsTo(models.Department, {
     foreignKey: "departmentId",
     as: "department",
   });
 
-  StockIncome.belongsTo(Seller, {
+  StockIncome.belongsTo(models.Seller, {
     foreignKey: "sellerId",
     as: "seller",
   });
 
-  // Department associations (if any)
-  // Department.hasMany(StockIncome, { ... });
+  StockIncome.hasMany(models.Sells, {
+    foreignKey: "stockIncome",
+    as: "sells",
+  });
+};
 
-  // Seller associations (if any)
-  // Seller.hasMany(StockIncome, { ... });
+Department.associate = (models) => {
+  Department.hasMany(models.StockIncome, {
+    foreignKey: "departmentId",
+    as: "stockIncomes"
+  });
+};
 
-  console.log('✅ Associations set up successfully');
+Seller.associate = (models) => {
+  Seller.hasMany(models.StockIncome, {
+    foreignKey: "sellerId",
+    as: "stockIncomes"
+  });
+
+  Seller.hasMany(models.SellerAccount, {
+    foreignKey: "sellerId",
+    as: "accounts"
+  });
+};
+
+SellerAccount.associate = (models) => {
+  SellerAccount.belongsTo(models.Seller, {
+    foreignKey: "sellerId",
+    as: "seller"
+  });
+};
+
+Sells.associate = (models) => {
+  Sells.belongsTo(models.StockIncome, {
+    foreignKey: "stockIncome",
+    as: "stock",
+  });
+};
+
+/* ===============================
+   Setup associations
+================================ */
+
+Object.keys(models).forEach(modelName => {
+  if (models[modelName].associate) {
+    models[modelName].associate(models);
+  }
+});
+
+export {
+  sequelize,
+  Department,
+  Seller,
+  StockIncome,
+  SellerAccount,
+  Sells
 };

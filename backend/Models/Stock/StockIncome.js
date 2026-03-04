@@ -38,7 +38,12 @@ const StockIncome = sequelize.define(
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 0,
     },
-
+    // In your StockIncome model definition
+    soldQuantity: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false
+    },
     specifications: {
       type: DataTypes.JSON,
       allowNull: true,
@@ -78,7 +83,7 @@ export const setupStockIncomeAssociations = (models) => {
       as: "seller",
     });
   }
-  
+
   return StockIncome;
 };
 

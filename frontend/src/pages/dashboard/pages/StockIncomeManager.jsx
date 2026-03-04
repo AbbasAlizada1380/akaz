@@ -1,6 +1,8 @@
 // components/StockIncomeManager.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { FiPlus, FiTrash2, FiEdit2, FiSave, FiX } from 'react-icons/fi';
+
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const StockIncomeManager = () => {
@@ -14,6 +16,12 @@ const StockIncomeManager = () => {
     const [editingRecord, setEditingRecord] = useState(null);
     const [viewingRecord, setViewingRecord] = useState(null);
     const [deleteId, setDeleteId] = useState(null);
+
+    // Specifications state
+    const [specs, setSpecs] = useState([]);
+    const [editingSpec, setEditingSpec] = useState(null);
+    const [newSpec, setNewSpec] = useState({ key: '', value: '' });
+
     const [formData, setFormData] = useState({
         name: '',
         type: '',
@@ -22,10 +30,59 @@ const StockIncomeManager = () => {
         received: 0,
         departmentId: '',
         sellerId: '',
-        specifications: ''
     });
     const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
     const [filters, setFilters] = useState({ department: null, type: null });
+
+    // Specifications helper functions
+    const handleAddSpec = () => {
+        if (newSpec.key.trim() && newSpec.value.trim()) {
+            if (editingSpec !== null) {
+                // Update existing spec
+                const updatedSpecs = [...specs];
+                updatedSpecs[editingSpec] = newSpec;
+                setSpecs(updatedSpecs);
+                setEditingSpec(null);
+            } else {
+                // Add new spec
+                setSpecs([...specs, newSpec]);
+            }
+            setNewSpec({ key: '', value: '' });
+        }
+    };
+
+    const handleEditSpec = (index) => {
+        setNewSpec(specs[index]);
+        setEditingSpec(index);
+    };
+
+    const handleRemoveSpec = (index) => {
+        setSpecs(specs.filter((_, i) => i !== index));
+        if (editingSpec === index) {
+            setEditingSpec(null);
+            setNewSpec({ key: '', value: '' });
+        }
+    };
+
+    const handleCancelEdit = () => {
+        setEditingSpec(null);
+        setNewSpec({ key: '', value: '' });
+    };
+
+    const specsToJSON = () => {
+        const jsonObj = {};
+        specs.forEach(spec => {
+            if (spec.key && spec.value) {
+                jsonObj[spec.key] = spec.value;
+            }
+        });
+        return jsonObj;
+    };
+
+    const jsonToSpecs = (json) => {
+        if (!json) return [];
+        return Object.entries(json).map(([key, value]) => ({ key, value }));
+    };
 
     // Fetch all data on component mount
     useEffect(() => {
@@ -41,7 +98,6 @@ const StockIncomeManager = () => {
             const response = await axios.get(`${BASE_URL}/stockIncome`);
             setStockIncomes(response.data);
             console.log(response.data);
-
         } catch (error) {
             showNotification('Failed to fetch stock incomes', 'error');
             console.error('Error:', error);
@@ -56,7 +112,6 @@ const StockIncomeManager = () => {
             const response = await axios.get(`${BASE_URL}/department`);
             setDepartments(response.data.data);
             console.log(response.data);
-
         } catch (error) {
             console.error('Error fetching departments:', error);
         }
@@ -68,7 +123,6 @@ const StockIncomeManager = () => {
             const response = await axios.get(`${BASE_URL}/seller`);
             setSellers(response.data.data);
             console.log(response.data);
-
         } catch (error) {
             console.error('Error fetching sellers:', error);
         }
@@ -76,7 +130,6 @@ const StockIncomeManager = () => {
 
     // Show notification
     const showNotification = (message, type = 'success') => {
-        // You can replace this with a proper toast notification library
         alert(message);
     };
 
@@ -132,11 +185,15 @@ const StockIncomeManager = () => {
         }
 
         try {
-            const calculatedValues = calculateTotals(formData);
+            const specifications = specsToJSON();
+            const calculatedValues = calculateTotals({
+                ...formData,
+                specifications
+            });
 
             if (editingRecord) {
                 // Update
-                await axios.put(`/api/stock-incomes/${editingRecord.id}`, calculatedValues);
+                await axios.put(`${BASE_URL}/stockIncome/${editingRecord.id}`, calculatedValues);
                 showNotification('Stock income updated successfully');
             } else {
                 // Create
@@ -156,7 +213,7 @@ const StockIncomeManager = () => {
     // Handle delete
     const handleDelete = async () => {
         try {
-            await axios.delete(`/api/stock-incomes/${deleteId}`);
+            await axios.delete(`${BASE_URL}/stockIncome/${deleteId}`);
             showNotification('Stock income deleted successfully');
             setDeleteModalVisible(false);
             setDeleteId(null);
@@ -178,8 +235,8 @@ const StockIncomeManager = () => {
             received: record.received || 0,
             departmentId: record.departmentId || '',
             sellerId: record.sellerId || '',
-            specifications: record.specifications ? JSON.stringify(record.specifications) : ''
         });
+        setSpecs(jsonToSpecs(record.specifications));
         setModalVisible(true);
     };
 
@@ -205,8 +262,10 @@ const StockIncomeManager = () => {
             received: 0,
             departmentId: '',
             sellerId: '',
-            specifications: ''
         });
+        setSpecs([]);
+        setNewSpec({ key: '', value: '' });
+        setEditingSpec(null);
         setEditingRecord(null);
     };
 
@@ -263,32 +322,33 @@ const StockIncomeManager = () => {
     // Table header component with sorting
     const SortableHeader = ({ label, sortKey }) => (
         <th
-            className="px-6 py-3 text-left text-sm font-bol   uppercase tracking-wider cursor-pointer"
+            className="px-6 py-3 text-left text-sm font-bold text-white uppercase tracking-wider cursor-pointer hover:bg-primary"
             onClick={() => requestSort(sortKey)}
         >
             <div className="flex items-center gap-1">
                 {label}
+                {sortConfig.key === sortKey && (
+                    <span>{sortConfig.direction === 'asc' ? '↑' : '↓'}</span>
+                )}
             </div>
         </th>
     );
-
     return (
         <div className="p-6 max-w-7xl mx-auto">
             {/* Header with gradient background */}
             <div className="mb-8 relative">
-                {/* Decorative background element */}
-                <div className="absolute inset-0 bg-gradient-to-r from-indigo-50 to-transparent rounded-2xl -z-10"></div>
+                <div className="absolute inset-0 bg-gradient-to-r from-primary to-transparent rounded-2xl -z-10"></div>
 
                 <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-3">
                         <div className="p-3 bg-primary rounded-xl">
-                            <svg className="w-6 h-6 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
                             </svg>
                         </div>
                         <div>
-                            <h1 className="text-3xl font-bold  ">Stock Income Management</h1>
-                            <p className="text-sm   mt-1">Track and manage all stock income transactions</p>
+                            <h1 className="text-3xl font-bold text-gray-900">Stock Income Management</h1>
+                            <p className="text-sm text-gray-500 mt-1">Track and manage all stock income transactions</p>
                         </div>
                     </div>
 
@@ -297,7 +357,7 @@ const StockIncomeManager = () => {
                             resetForm();
                             setModalVisible(true);
                         }}
-                        className="bg-primary px-6 py-3 rounded-xl flex items-center gap-2 transition-all transform hover:scale-105 hover:shadow-lg group"
+                        className="bg-primary text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all transform hover:scale-105 hover:shadow-lg group"
                     >
                         <svg className="w-5 h-5 group-hover:rotate-90 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -306,10 +366,11 @@ const StockIncomeManager = () => {
                     </button>
                 </div>
             </div>
+
             {/* Table with improved styling */}
-            <div className="bg-white    rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+            <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="  divide-y divide-gray-200">
+                    <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-primary">
                             <tr>
                                 <SortableHeader label="Name" sortKey="name" />
@@ -321,7 +382,7 @@ const StockIncomeManager = () => {
                                 <SortableHeader label="Remaining" sortKey="remaining" />
                                 <SortableHeader label="Department" sortKey="department" />
                                 <SortableHeader label="Seller" sortKey="seller" />
-                                <th className="px-6 py-4 text-left text-sm font-bold     uppercase tracking-wider">
+                                <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wider">
                                     Actions
                                 </th>
                             </tr>
@@ -344,63 +405,63 @@ const StockIncomeManager = () => {
                                 <tr>
                                     <td colSpan="10" className="px-6 py-16 text-center">
                                         <div className="flex flex-col items-center gap-3">
-                                            <svg className="w-16 h-16  " fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <svg className="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
                                             </svg>
-                                            <p className="  text-lg">No stock incomes found</p>
-                                            <p className="  text-sm">Try adjusting your filters or add a new one</p>
+                                            <p className="text-gray-500 text-lg">No stock incomes found</p>
+                                            <p className="text-gray-400 text-sm">Try adjusting your filters or add a new one</p>
                                         </div>
                                     </td>
                                 </tr>
                             ) : (
-                                filteredAndSortedData.map((item, index) => (
+                                filteredAndSortedData.map((item) => (
                                     <tr
                                         key={item.id}
-                                        className="hover:bg-indigo-50/50 transition-colors group"
+                                        className="hover:bg-primary/50 transition-colors group"
                                     >
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center gap-3">
-                                                <span className="text-sm font-medium   group-hover:text-primary transition-colors">
-                                                    {item.name  }
+                                                <span className="text-sm font-medium text-gray-900 group-hover: transition-colors">
+                                                    {item.name}
                                                 </span>
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className="px-3 py-1 bg-indigo-50 text-primary rounded-full text-xs font-medium">
+                                            <span className="px-3 py-1 bg-primary  rounded-full text-xs font-medium">
                                                 {item.type || '-'}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm   font-medium">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium">
                                             {item.quantity}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm  ">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                             ${Number(item.unitPrice).toFixed(2)}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium  ">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                                             ${Number(item.total).toFixed(2)}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm  ">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                             ${Number(item.received).toFixed(2)}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-3 py-1 rounded-full text-xs font-medium ${item.remaining > 0
-                                                ? 'bg-yellow-100 text-yellow-700'
-                                                : 'bg-green-100 text-green-700'
+                                                    ? 'bg-yellow-100 text-yellow-700'
+                                                    : 'bg-green-100 text-green-700'
                                                 }`}>
                                                 ${Number(item.remaining).toFixed(2)}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm  ">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                             {item.department?.name || 'N/A'}
                                         </td>
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm  ">
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                                             {item.seller?.fullname || 'N/A'}
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex gap-2">
                                                 <button
                                                     onClick={() => handleView(item)}
-                                                    className="p-2 text-primary hover:bg-indigo-50 rounded-lg transition-all"
+                                                    className="p-2  hover:bg-primary rounded-lg transition-all"
                                                     title="View"
                                                 >
                                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -436,7 +497,7 @@ const StockIncomeManager = () => {
                 </div>
             </div>
 
-            {/* Create/Edit Modal with primary color theme */}
+            {/* Create/Edit Modal with dynamic specifications */}
             {modalVisible && (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
                     <div className="relative top-20 mx-auto p-0 border w-full max-w-2xl shadow-2xl rounded-xl bg-white overflow-hidden">
@@ -463,8 +524,8 @@ const StockIncomeManager = () => {
                         <form onSubmit={handleSubmit} className="p-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
-                                    <label className="block text-sm font-medium   mb-1">
-                                        Name <span className="text-primary">*</span>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Name <span className="">*</span>
                                     </label>
                                     <input
                                         type="text"
@@ -478,7 +539,7 @@ const StockIncomeManager = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium   mb-1">Type</label>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
                                     <select
                                         name="type"
                                         value={formData.type}
@@ -486,15 +547,15 @@ const StockIncomeManager = () => {
                                         className="w-full border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
                                     >
                                         <option value="">Select type</option>
-                                        <option value="raw">Raw Material</option>
-                                        <option value="finished">Finished Product</option>
-                                        <option value="consumable">Consumable</option>
+                                        <option value="Quantity">Quantity</option>
+                                        <option value="weight">Weight</option>
+                                        <option value="length">Length</option>
                                     </select>
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium   mb-1">
-                                        Quantity <span className="text-primary">*</span>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Quantity <span className="">*</span>
                                     </label>
                                     <input
                                         type="number"
@@ -507,11 +568,11 @@ const StockIncomeManager = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium   mb-1">
-                                        Unit Price <span className="text-primary">*</span>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Unit Price <span className="">*</span>
                                     </label>
                                     <div className="relative">
-                                        <span className="absolute left-3 top-3  ">$</span>
+                                        <span className="absolute left-3 top-3 text-gray-500">$</span>
                                         <input
                                             type="number"
                                             min="0"
@@ -525,11 +586,11 @@ const StockIncomeManager = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium   mb-1">
-                                        Received Amount <span className="text-primary">*</span>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Received Amount <span className="">*</span>
                                     </label>
                                     <div className="relative">
-                                        <span className="absolute left-3 top-3  ">$</span>
+                                        <span className="absolute left-3 top-3 text-gray-500">$</span>
                                         <input
                                             type="number"
                                             min="0"
@@ -543,8 +604,8 @@ const StockIncomeManager = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium   mb-1">
-                                        Department <span className="text-primary">*</span>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Department <span className="">*</span>
                                     </label>
                                     <select
                                         value={formData.departmentId}
@@ -560,8 +621,8 @@ const StockIncomeManager = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-sm font-medium   mb-1">
-                                        Seller <span className="text-primary">*</span>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                                        Seller <span className="">*</span>
                                     </label>
                                     <select
                                         value={formData.sellerId}
@@ -576,16 +637,86 @@ const StockIncomeManager = () => {
                                     </select>
                                 </div>
 
+                                {/* Dynamic Specifications Section */}
                                 <div className="md:col-span-2">
-                                    <label className="block text-sm font-medium   mb-1">Specifications</label>
-                                    <textarea
-                                        name="specifications"
-                                        rows="4"
-                                        value={formData.specifications}
-                                        onChange={handleInputChange}
-                                        className="w-full border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
-                                        placeholder="Enter specifications (JSON format)"
-                                    />
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                                        Specifications
+                                        <span className="text-xs text-gray-500 ml-2">(Add key-value pairs)</span>
+                                    </label>
+
+                                    {/* Key-Value Input Row */}
+                                    <div className="flex gap-2 mb-3">
+                                        <input
+                                            type="text"
+                                            placeholder="Key (e.g., color)"
+                                            value={newSpec.key}
+                                            onChange={(e) => setNewSpec({ ...newSpec, key: e.target.value })}
+                                            className="flex-1 border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
+                                        />
+                                        <input
+                                            type="text"
+                                            placeholder="Value (e.g., red)"
+                                            value={newSpec.value}
+                                            onChange={(e) => setNewSpec({ ...newSpec, value: e.target.value })}
+                                            className="flex-1 border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={handleAddSpec}
+                                            className="px-4 py-2.5 bg-primary text-white rounded-lg hover:bg-primary transition-colors flex items-center gap-2"
+                                            disabled={!newSpec.key.trim() || !newSpec.value.trim()}
+                                        >
+                                            {editingSpec !== null ? <FiSave /> : <FiPlus />}
+                                            {editingSpec !== null ? 'Update' : 'Add'}
+                                        </button>
+                                        {editingSpec !== null && (
+                                            <button
+                                                type="button"
+                                                onClick={handleCancelEdit}
+                                                className="px-4 py-2.5 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+                                            >
+                                                <FiX />
+                                            </button>
+                                        )}
+                                    </div>
+
+                                    {/* Specifications List */}
+                                    {specs.length > 0 && (
+                                        <div className="mt-4 space-y-2">
+                                            <p className="text-sm font-medium text-gray-700">Added Specifications:</p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {specs.map((spec, index) => (
+                                                    <div
+                                                        key={index}
+                                                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border border-gray-200 group hover:border-primary transition-colors"
+                                                    >
+                                                        <div className="flex-1">
+                                                            <span className="text-sm font-medium text-gray-700">{spec.key}:</span>
+                                                            <span className="text-sm text-gray-600 ml-2">{spec.value}</span>
+                                                        </div>
+                                                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleEditSpec(index)}
+                                                                className="p-1 text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                                                                title="Edit"
+                                                            >
+                                                                <FiEdit2 size={14} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveSpec(index)}
+                                                                className="p-1 text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                                title="Remove"
+                                                            >
+                                                                <FiTrash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
@@ -596,7 +727,7 @@ const StockIncomeManager = () => {
                                         setModalVisible(false);
                                         resetForm();
                                     }}
-                                    className="px-6 py-2.5 border border-gray-300 rounded-lg   hover:bg-gray-50 transition-colors font-medium"
+                                    className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium"
                                 >
                                     Cancel
                                 </button>
@@ -612,7 +743,7 @@ const StockIncomeManager = () => {
                 </div>
             )}
 
-            {/* View Modal with primary color accents */}
+            {/* View Modal with specifications */}
             {viewModalVisible && viewingRecord && (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
                     <div className="relative top-20 mx-auto p-0 border w-full max-w-2xl shadow-2xl rounded-xl bg-white overflow-hidden">
@@ -633,56 +764,69 @@ const StockIncomeManager = () => {
                         <div className="p-6">
                             <div className="grid grid-cols-2 gap-6">
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Name</p>
-                                    <p className="font-semibold  ">{viewingRecord.name}</p>
+                                    <p className="text-xs text-gray-500 mb-1">Name</p>
+                                    <p className="font-semibold text-gray-900">{viewingRecord.name}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Type</p>
-                                    <p className="font-semibold  ">{viewingRecord.type || 'N/A'}</p>
+                                    <p className="text-xs text-gray-500 mb-1">Type</p>
+                                    <p className="font-semibold text-gray-900">{viewingRecord.type || 'N/A'}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Quantity</p>
-                                    <p className="font-semibold  ">{viewingRecord.quantity}</p>
+                                    <p className="text-xs text-gray-500 mb-1">Quantity</p>
+                                    <p className="font-semibold text-gray-900">{viewingRecord.quantity}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Unit Price</p>
-                                    <p className="font-semibold text-primary">${Number(viewingRecord.unitPrice).toFixed(2)}</p>
+                                    <p className="text-xs text-gray-500 mb-1">Unit Price</p>
+                                    <p className="font-semibold ">${Number(viewingRecord.unitPrice).toFixed(2)}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Total</p>
-                                    <p className="font-semibold  ">${Number(viewingRecord.total).toFixed(2)}</p>
+                                    <p className="text-xs text-gray-500 mb-1">Total</p>
+                                    <p className="font-semibold text-gray-900">${Number(viewingRecord.total).toFixed(2)}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Received</p>
+                                    <p className="text-xs text-gray-500 mb-1">Received</p>
                                     <p className="font-semibold text-green-600">${Number(viewingRecord.received).toFixed(2)}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Remaining</p>
+                                    <p className="text-xs text-gray-500 mb-1">Remaining</p>
                                     <p className={`font-semibold ${viewingRecord.remaining > 0 ? 'text-yellow-600' : 'text-green-600'}`}>
                                         ${Number(viewingRecord.remaining).toFixed(2)}
                                     </p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Department</p>
-                                    <p className="font-semibold  ">{viewingRecord.department?.name || 'N/A'}</p>
+                                    <p className="text-xs text-gray-500 mb-1">Department</p>
+                                    <p className="font-semibold text-gray-900">{viewingRecord.department?.name || 'N/A'}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Seller</p>
-                                    <p className="font-semibold  ">{viewingRecord.seller?.name || 'N/A'}</p>
+                                    <p className="text-xs text-gray-500 mb-1">Seller</p>
+                                    <p className="font-semibold text-gray-900">{viewingRecord.seller?.fullname || 'N/A'}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Created</p>
-                                    <p className="font-semibold  ">{new Date(viewingRecord.createdAt).toLocaleString()}</p>
+                                    <p className="text-xs text-gray-500 mb-1">Created</p>
+                                    <p className="font-semibold text-gray-900">{new Date(viewingRecord.createdAt).toLocaleString()}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
-                                    <p className="text-xs   mb-1">Last Updated</p>
-                                    <p className="font-semibold  ">{new Date(viewingRecord.updatedAt).toLocaleString()}</p>
+                                    <p className="text-xs text-gray-500 mb-1">Last Updated</p>
+                                    <p className="font-semibold text-gray-900">{new Date(viewingRecord.updatedAt).toLocaleString()}</p>
                                 </div>
+
+                                {/* Specifications Display */}
                                 <div className="col-span-2">
-                                    <p className="text-xs   mb-2">Specifications</p>
-                                    <pre className="bg-gray-50 p-4 rounded-lg text-sm overflow-auto max-h-40 border border-gray-200">
-                                        {JSON.stringify(viewingRecord.specifications, null, 2)}
-                                    </pre>
+                                    <p className="text-xs text-gray-500 mb-2">Specifications</p>
+                                    {viewingRecord.specifications && Object.keys(viewingRecord.specifications).length > 0 ? (
+                                        <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                            <div className="grid grid-cols-2 gap-3">
+                                                {Object.entries(viewingRecord.specifications).map(([key, value], index) => (
+                                                    <div key={index} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100">
+                                                        <span className="text-xs font-medium text-gray-500">{key}:</span>
+                                                        <span className="text-sm font-semibold ">{value}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <p className="text-sm text-gray-400 italic">No specifications added</p>
+                                    )}
                                 </div>
                             </div>
 
@@ -699,7 +843,7 @@ const StockIncomeManager = () => {
                 </div>
             )}
 
-            {/* Delete Confirmation Modal with primary color theme */}
+            {/* Delete Confirmation Modal */}
             {deleteModalVisible && (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
                     <div className="relative top-20 mx-auto p-0 border w-96 shadow-2xl rounded-xl bg-white overflow-hidden">
@@ -713,13 +857,13 @@ const StockIncomeManager = () => {
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                     </svg>
                                 </div>
-                                <p className="  mb-6">
+                                <p className="text-gray-600 mb-6">
                                     Are you sure you want to delete this item? This action cannot be undone.
                                 </p>
                                 <div className="flex justify-center gap-3">
                                     <button
                                         onClick={() => setDeleteModalVisible(false)}
-                                        className="px-4 py-2 border border-gray-300 rounded-lg   hover:bg-gray-50 transition-colors font-medium"
+                                        className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors font-medium"
                                     >
                                         Cancel
                                     </button>

@@ -1,8 +1,7 @@
 import { useState } from "react";
 import StockIncomManager from "./StockIncomeManager"
-import Outgoing from "./Outgoing";
 import ExistingStock from "./ExistingStock";
-
+import SellManager from "./SellManager";
 const Stock = () => {
   const [activeTab, setActiveTab] = useState("incoming");
 
@@ -96,7 +95,7 @@ const Stock = () => {
             )}
             {activeTab === "outgoing" && (
               <div className="animate-fadeIn">
-                <Outgoing />
+                <SellManager />
               </div>
             )}
             {activeTab === "existed" && (

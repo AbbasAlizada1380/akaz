@@ -1,4 +1,4 @@
-import Seller from "../Models/Seller.js";
+import Seller from "../Models/Seller/Seller.js";
 
 /* =========================
    CREATE SELLER
