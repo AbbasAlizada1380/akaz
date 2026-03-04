@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { FiPlus, FiTrash2, FiEdit2, FiSave, FiX, FiEye } from 'react-icons/fi';
-
+import { useSelector } from "react-redux";
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const SellManager = () => {
+  const { accessToken } = useSelector((state) => state.user);
   const [sells, setSells] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [stockIncomes, setStockIncomes] = useState([]);
@@ -42,6 +43,7 @@ const SellManager = () => {
     }
   };
 
+
   const fetchStockIncomes = async () => {
     try {
       const res = await axios.get(`${BASE_URL}/stockincome`);
@@ -54,11 +56,16 @@ const SellManager = () => {
   const fetchSells = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${BASE_URL}/sells`);
+      const res = await axios.get(`${BASE_URL}/sells`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
       setSells(res.data);
     } catch (error) {
       console.error("Error fetching sells:", error);
-      showNotification('Failed to fetch sells', 'error');
+      showNotification("Failed to fetch sells", "error");
     } finally {
       setLoading(false);
     }
@@ -83,10 +90,10 @@ const SellManager = () => {
   const handleStockIncomeChange = (e) => {
     const selectedId = e.target.value;
     setFormData(prev => ({ ...prev, stockIncome: selectedId }));
-    
+
     const selected = stockIncomes.find(item => item.id === parseInt(selectedId));
     setSelectedStockIncome(selected || null);
-    
+
     if (selected) {
       setFormData(prev => ({ ...prev, unitPrice: selected.unitPrice }));
     }
@@ -160,7 +167,7 @@ const SellManager = () => {
       unitPrice: record.unitPrice,
       received: record.received,
     });
-    
+
     const selected = stockIncomes.find(item => item.id === parseInt(record.stockIncome));
     setSelectedStockIncome(selected || null);
     setModalVisible(true);
@@ -257,7 +264,7 @@ const SellManager = () => {
       {/* Header with gradient background */}
       <div className="mb-8 relative">
         <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary/70 rounded-2xl -z-10"></div>
-        
+
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-primary rounded-xl">
@@ -366,11 +373,10 @@ const SellManager = () => {
                         <span className="text-sm text-green-600 font-medium">${parseFloat(sell.received).toFixed(2)}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                          parseFloat(sell.remained) > 0 
-                            ? 'bg-yellow-100 text-yellow-700' 
-                            : 'bg-green-100 text-green-700'
-                        }`}>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${parseFloat(sell.remained) > 0
+                          ? 'bg-yellow-100 text-yellow-700'
+                          : 'bg-green-100 text-green-700'
+                          }`}>
                           ${parseFloat(sell.remained).toFixed(2)}
                         </span>
                       </td>

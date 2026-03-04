@@ -1,10 +1,12 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import User from "../Models/user.js";
+import Department from "../Models/Department.js";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret_key";
 const frontUrl = process.env.FRONT_URL;
+import { Op } from "sequelize";
 import dotenv from "dotenv";
 dotenv.config();
 // ✅ Register new user
@@ -42,21 +44,45 @@ export const registerUser = async (req, res) => {
   }
 };
 
-// ✅ Login
+
 export const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
+
     const user = await User.findOne({ where: { email } });
 
-    if (!user) return res.status(404).json({ message: "User not found." });
+    if (!user)
+      return res.status(404).json({ message: "User not found." });
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch)
       return res.status(401).json({ message: "Invalid credentials." });
 
-    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, {
-      expiresIn: "1d",
-    });
+    // ✅ Find departments where user exists inside holding JSON
+    const departments = await Department.findAll();
+
+    // Filter departments where this user has holding
+    const userDepartments = departments
+      .map((dept) => {
+        const holding = dept.holding || {};
+
+        if (holding[user.id]) {
+          return {
+            id: dept.id,
+            name: dept.name,
+            holdingPercentage: holding[user.id],
+          };
+        }
+        return null;
+      })
+      .filter((dept) => dept !== null);
+
+    // ✅ Create token
+    const token = jwt.sign(
+      { id: user.id, role: user.role, departments: userDepartments },
+      JWT_SECRET,
+      { expiresIn: "1d" }
+    );
 
     res.json({
       message: "Login successful",
@@ -67,8 +93,11 @@ export const loginUser = async (req, res) => {
         email: user.email,
         role: user.role,
         isActive: user.isActive,
+        departments: userDepartments,
       },
+      // ✅ send departments to frontend
     });
+
   } catch (err) {
     console.error("Error logging in:", err);
     res.status(500).json({ message: "Server error" });
