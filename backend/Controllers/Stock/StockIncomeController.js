@@ -1,17 +1,19 @@
 // controllers/stockIncomeController.js
 import { Department, Seller, StockIncome } from '../../Models/Association.js';
+import StockExist from "../../Models/Stock/stockExist.js";
+import sequelize from "../../dbconnection.js";
 
 export const getAllStockIncome = async (req, res) => {
   try {
     const incomes = await StockIncome.findAll({
       include: [
-        { 
-          model: Department, 
+        {
+          model: Department,
           as: "department",
           attributes: ['id', 'name', 'holding', 'isActive'] // Select only needed fields
         },
-        { 
-          model: Seller, 
+        {
+          model: Seller,
           as: "seller",
           attributes: ['id', 'fullname', 'phoneNumber', 'address'] // Select only needed fields
         },
@@ -29,9 +31,9 @@ export const getAllStockIncome = async (req, res) => {
     res.json(transformedIncomes);
   } catch (error) {
     console.error('Error fetching stock incomes:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: "Failed to fetch stock incomes",
-      error: error.message 
+      error: error.message
     });
   }
 };
@@ -42,13 +44,13 @@ export const getStockIncomeById = async (req, res) => {
     const { id } = req.params;
     const income = await StockIncome.findByPk(id, {
       include: [
-        { 
-          model: Department, 
-          as: "department" 
+        {
+          model: Department,
+          as: "department"
         },
-        { 
-          model: Seller, 
-          as: "seller" 
+        {
+          model: Seller,
+          as: "seller"
         },
       ],
     });
@@ -64,12 +66,53 @@ export const getStockIncomeById = async (req, res) => {
   }
 };
 
-// Create stock income
+
+
 export const createStockIncome = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
   try {
-    const income = await StockIncome.create(req.body);
-    
-    // Fetch the created record with associations
+    const income = await StockIncome.create(req.body, { transaction });
+
+    const departmentId = income.departmentId;
+
+    // Find StockExist record for this department
+    let stockExist = await StockExist.findOne({
+      where: { departmentId },
+      transaction,
+    });
+
+    // If department record does not exist → create one
+    if (!stockExist) {
+      stockExist = await StockExist.create(
+        {
+          departmentId,
+          allStockIds: [income.id],
+          soldStockIds: [],
+          remainingStockIds: [income.id],
+        },
+        { transaction }
+      );
+    } else {
+      // Update existing arrays
+      const allStockIds = stockExist.allStockIds || [];
+      const remainingStockIds = stockExist.remainingStockIds || [];
+
+      allStockIds.push(income.id);
+      remainingStockIds.push(income.id);
+
+      await stockExist.update(
+        {
+          allStockIds,
+          remainingStockIds,
+        },
+        { transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    // Fetch created income with associations
     const newIncome = await StockIncome.findByPk(income.id, {
       include: [
         { model: Department, as: "department" },
@@ -79,6 +122,7 @@ export const createStockIncome = async (req, res) => {
 
     res.status(201).json(newIncome);
   } catch (error) {
+    await transaction.rollback();
     console.error(error);
     res.status(500).json({ message: error.message });
   }
