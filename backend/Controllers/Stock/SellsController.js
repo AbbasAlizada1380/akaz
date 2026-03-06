@@ -1,6 +1,7 @@
 import Sell from "../../Models/Stock/Sells.js";
 import StockIncome from "../../Models/Stock/StockIncome.js";
 import sequelize from "../../dbconnection.js";
+import Customer from "../../Models/Customers.js"
 
 /* =================================
    CREATE SELL
@@ -94,17 +95,15 @@ export const getAllSells = async (req, res) => {
   try {
     const sells = await Sell.findAll({
       include: [
-        {
-          model: StockIncome,
-          as: "stock",
-        },
+        { model: StockIncome, as: "stock" }
       ],
       order: [["createdAt", "DESC"]],
     });
 
     res.json(sells);
   } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
+    console.error(error);
+    res.status(500).json({ message: "Failed to fetch sells" });
   }
 };
 
