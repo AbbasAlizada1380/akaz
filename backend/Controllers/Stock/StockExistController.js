@@ -1,5 +1,5 @@
-import StockExist from "../../Models/Stock/stockExist.js";
-
+import StockExist from "../../Models/Stock/StockExist.js";
+import Department from "../../Models/Department.js";
 /* =========================
    Create StockExist
 ========================= */
@@ -17,16 +17,27 @@ export const createStockExist = async (req, res) => {
 /* =========================
    Get All StockExist
 ========================= */
+
 export const getAllStockExist = async (req, res) => {
   try {
     const stocks = await StockExist.findAll({
+      include: [
+        {
+          model: Department,
+          as: "department",
+          attributes: ["id", "name"], // فقط فیلدهای مهم
+        },
+      ],
       order: [["createdAt", "DESC"]],
     });
 
-    res.json(stocks);
+    res.status(200).json(stocks);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: error.message });
+    console.error("Error fetching stock exist:", error);
+    res.status(500).json({
+      message: "Failed to fetch stock exist",
+      error: error.message,
+    });
   }
 };
 

@@ -135,8 +135,8 @@ const StockExistViewer = () => {
 
                       <td className="p-4 font-medium text-gray-800">
                         <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 bg-primary rounded-full flex items-center justify-center   font-bold text-sm">
-                            {stock.departmentId || "D"}
+                          <div className="  flex items-center justify-center   font-bold text-sm">
+                            {stock.department.name || "D"}
                           </div>
                         </div>
                       </td>

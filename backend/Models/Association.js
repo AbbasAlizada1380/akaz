@@ -4,13 +4,15 @@ import Seller from './Seller/Seller.js';
 import StockIncome from './Stock/StockIncome.js';
 import SellerAccount from './Seller/SellerAccount.js';
 import Sells from './Stock/Sells.js';
+import StockExist from './Stock/StockExist.js';   // ✅ اضافه شود
 
 const models = {
   Department,
   Seller,
   StockIncome,
   SellerAccount,
-  Sells
+  Sells,
+  StockExist,   // ✅ اضافه شود
 };
 
 /* ===============================
@@ -37,26 +39,32 @@ StockIncome.associate = (models) => {
 Department.associate = (models) => {
   Department.hasMany(models.StockIncome, {
     foreignKey: "departmentId",
-    as: "stockIncomes"
+    as: "stockIncomes",
+  });
+
+  // ✅ relation with StockExist
+  Department.hasMany(models.StockExist, {
+    foreignKey: "departmentId",
+    as: "stockExists",
   });
 };
 
 Seller.associate = (models) => {
   Seller.hasMany(models.StockIncome, {
     foreignKey: "sellerId",
-    as: "stockIncomes"
+    as: "stockIncomes",
   });
 
   Seller.hasMany(models.SellerAccount, {
     foreignKey: "sellerId",
-    as: "accounts"
+    as: "accounts",
   });
 };
 
 SellerAccount.associate = (models) => {
   SellerAccount.belongsTo(models.Seller, {
     foreignKey: "sellerId",
-    as: "seller"
+    as: "seller",
   });
 };
 
@@ -64,6 +72,14 @@ Sells.associate = (models) => {
   Sells.belongsTo(models.StockIncome, {
     foreignKey: "stockIncome",
     as: "stock",
+  });
+};
+
+// ✅ relation from StockExist side
+StockExist.associate = (models) => {
+  StockExist.belongsTo(models.Department, {
+    foreignKey: "departmentId",
+    as: "department",
   });
 };
 
@@ -83,5 +99,6 @@ export {
   Seller,
   StockIncome,
   SellerAccount,
-  Sells
+  Sells,
+  StockExist,   // ✅ export
 };
