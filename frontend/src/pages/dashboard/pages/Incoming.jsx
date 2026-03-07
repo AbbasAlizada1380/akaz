@@ -405,14 +405,7 @@ const Incoming = () => {
       </div>
 
       {/* Incomes List */}
-      <div className="bg-white rounded-xl shadow-md overflow-hidden">
-        <div className="p-4 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="text-lg font-bold text-cyan-800">لیست درآمدها ({totalItems} مورد)</h3>
-          <span className="text-sm text-gray-600">
-            صفحه {currentPage} از {totalPages}
-          </span>
-        </div>
-
+      <div className="bg-white rounded-xl shadow-md ">
         {loading ? (
           <div className="p-8 text-center">
             <p className="text-gray-500">در حال بارگذاری...</p>
@@ -423,8 +416,8 @@ const Incoming = () => {
           </div>
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-center">
+            <div className="">
+              <table className=" text-center">
                 <thead className="bg-cyan-50 text-cyan-800">
                   <tr>
                     <th className="p-3 border-b font-semibold">#</th>

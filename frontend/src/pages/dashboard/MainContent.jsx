@@ -9,8 +9,9 @@ import DepartmentManager from "./pages/DepartmentManager";
 import MemberManager from "./pages/MemberManager";
 import MemberManagement from "./pages/MemberManager";
 import ExpenseManager from "./pages/expense/ExpenseManages";
-import Stock  from "./pages/Stock";
+import Stock from "./pages/Stock";
 import BusinessManagement from "./pages/BusinessManagement.jsx";
+import Finance from "./pages/finance/Finance.jsx";
 const MainContent = ({ activeComponent }) => {
   const renderContent = () => {
     switch (activeComponent) {
@@ -30,8 +31,8 @@ const MainContent = ({ activeComponent }) => {
         return <Setting />;
       case "ServiceManager":
         return <ServiceManager />;
-      case "Fees":
-        return <Fees />;
+      case "finance":
+        return <Finance />;
       case "department":
         return <DepartmentManager />;
       case "memberManager":

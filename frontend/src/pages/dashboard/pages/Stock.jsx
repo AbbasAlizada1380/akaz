@@ -86,7 +86,7 @@ const Stock = () => {
         </div>
 
         {/* Active Tab Content with Smooth Transition */}
-        <div className="px-4 md:px-6 pb-6 md:pb-8">
+        <div className=" ">
           <div className="transition-all duration-500 ease-in-out">
             {activeTab === "incoming" && (
               <div className="animate-fadeIn">

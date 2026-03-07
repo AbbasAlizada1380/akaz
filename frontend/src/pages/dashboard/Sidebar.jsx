@@ -43,6 +43,7 @@ const Sidebar = ({ setActiveComponent }) => {
     { name: "Department  ", value: "department", icon: <MdAddShoppingCart /> },
     { name: "Stake Holders ", value: "stakeHolders", icon: <MdAddShoppingCart /> },
     { name: "Stock ", value: "stock", icon: <MdAddShoppingCart /> },
+    { name: "Finance ", value: "finance", icon: <MdAddShoppingCart /> },
     { name: "Expense ", value: "expense", icon: <MdAddShoppingCart /> },
     // { name: "Members", value: "memberManager", icon: <FaList /> },
     {
@@ -86,7 +87,7 @@ const Sidebar = ({ setActiveComponent }) => {
 
   return (
     <div
-      className={`h-full transition-all duration-300 ease-in-out w-64 bg-orange-200 overflow-y-hidden `}
+      className={`h-full transition-all duration-300 ease-in-out w-64 bg-primary overflow-y-hidden `}
     >
       <header className="flex items-center gap-5 p-5 text-white font-bold text-xl">
         <div className="flex items-center justify-center p-1 bg-white rounded-full">
