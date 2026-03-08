@@ -5,11 +5,13 @@ import {
   getSellerById,
   updateSeller,
   deleteSeller,
-} from "../Controllers/SellerController.js";
+  getSellersWithUnpaidStockIncome,
+} from "../Controllers/Seller/SellerController.js";
 
 const SellerRoute = express.Router();
 
 SellerRoute.post("/", createSeller);
+SellerRoute.get("/dept", getSellersWithUnpaidStockIncome);
 SellerRoute.get("/", getAllSellers);
 SellerRoute.get("/:id", getSellerById);
 SellerRoute.put("/:id", updateSeller);

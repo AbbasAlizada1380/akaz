@@ -1,5 +1,57 @@
-import Seller from "../Models/Seller/Seller.js";
+import Seller from "../../Models/Seller/Seller.js";
+import StockIncome from "../../Models/Stock/StockIncome.js";
+import { Sequelize } from "sequelize";
 
+/* =========================
+   GET SELLERS WITH UNPAID STOCKINCOME
+========================= */
+export const getSellersWithUnpaidStockIncome = async (req, res) => {
+  try {
+
+    const sellers = await Seller.findAll({
+      attributes: [
+        "id",
+        "fullname",
+        "phoneNumber",
+        "department",
+        "isActive",
+        [
+          Sequelize.fn("SUM", Sequelize.col("stockIncomes.remaining")),
+          "totalUnpaidAmount"
+        ]
+      ],
+      include: [
+        {
+          model: StockIncome,
+          as: "stockIncomes",
+          attributes: [],
+          where: {
+            remaining: {
+              [Sequelize.Op.gt]: 0
+            }
+          },
+          required: true
+        }
+      ],
+      group: ["Seller.id"],
+      order: [[Sequelize.literal("totalUnpaidAmount"), "DESC"]]
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: sellers.length,
+      data: sellers
+    });
+
+  } catch (error) {
+    console.error("Error fetching unpaid sellers:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching unpaid sellers"
+    });
+  }
+};
 /* =========================
    CREATE SELLER
 ========================= */
