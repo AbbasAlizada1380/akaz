@@ -47,57 +47,6 @@ const StockExistViewer = () => {
           </p>
         </div>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-
-          <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm">Total Departments</p>
-                <p className="text-2xl font-bold  ">{stocks.length}</p>
-              </div>
-              <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5  " fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" />
-                </svg>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm">Total Stock</p>
-                <p className="text-2xl font-bold  ">
-                  {stocks.reduce((sum, stock) => sum + (stock.allStockIds?.length || 0), 0)}
-                </p>
-              </div>
-              <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5  " fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                </svg>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-4 border border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-gray-500 text-sm">Current Remaining</p>
-                <p className="text-2xl font-bold  ">
-                  {stocks.reduce((sum, stock) => sum + (stock.remainingStockIds?.length || 0), 0)}
-                </p>
-              </div>
-              <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
-                <svg className="w-5 h-5  " fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-            </div>
-          </div>
-
-        </div>
-
         {/* Table */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
           <div className="overflow-x-auto">
@@ -121,7 +70,7 @@ const StockExistViewer = () => {
                       </div>
                     </td>
                   </tr>
-                ) : (
+                ) : (Array.isArray(stocks) &&
                   stocks.map((stock) => (
                     <tr
                       key={stock.id}
@@ -143,19 +92,19 @@ const StockExistViewer = () => {
 
                       <td className="p-4">
                         <span className="bg-primary   px-3 py-1 rounded-full text-sm font-medium">
-                          {stock.allStockIds?.length || 0}
+                          {stock.allStockIds || 0}
                         </span>
                       </td>
 
                       <td className="p-4">
                         <span className="bg-red-50 text-red-600 px-3 py-1 rounded-full text-sm font-medium">
-                          {stock.soldStockIds?.length || 0}
+                          {stock.soldStockIds || 0}
                         </span>
                       </td>
 
                       <td className="p-4">
                         <span className="bg-green-50 text-green-600 px-3 py-1 rounded-full text-sm font-medium">
-                          {stock.remainingStockIds?.length || 0}
+                          {stock.remainingStockIds || 0}
                         </span>
                       </td>
                     </tr>

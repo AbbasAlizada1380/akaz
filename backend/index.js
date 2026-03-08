@@ -11,6 +11,7 @@ import SellerRoute from "./Routes/SellerRoute.js";
 import StockIncomeRoute from "./Routes/Stock/StockIcomeRoute.js";
 import SellsRoute from "./Routes/Stock/SellsRoute.js";
 import StockExistRoute from "./Routes/Stock/StockExistRoute.js";
+import PayRoute from "./Routes/Finance/PayRoute.js";
 const FRONT_URL = process.env.FRONT_URL
 const port = 8038;
 const app = express();
@@ -61,6 +62,7 @@ app.use("/expense", ExpenseRoute);
 app.use("/stockIncome", StockIncomeRoute);
 app.use("/sells", SellsRoute);
 app.use("/stockExist", StockExistRoute);
+app.use("/pay", PayRoute);
 // Sync database and start server
 sequelize
   .sync({ alter: true })

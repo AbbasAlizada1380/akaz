@@ -5,14 +5,15 @@ import StockIncome from './Stock/StockIncome.js';
 import SellerAccount from './Seller/SellerAccount.js';
 import Sells from './Stock/Sells.js';
 import StockExist from './Stock/StockExist.js';   // ✅ اضافه شود
-
+import Pay from './Finance/Pay.js';
 const models = {
   Department,
   Seller,
   StockIncome,
   SellerAccount,
   Sells,
-  StockExist,   // ✅ اضافه شود
+  StockExist,
+  Pay,
 };
 
 /* ===============================
@@ -59,6 +60,11 @@ Seller.associate = (models) => {
     foreignKey: "sellerId",
     as: "accounts",
   });
+
+  Seller.hasMany(models.Pay, {
+    foreignKey: "seller",
+    as: "payments",
+  });
 };
 
 SellerAccount.associate = (models) => {
@@ -82,7 +88,12 @@ StockExist.associate = (models) => {
     as: "department",
   });
 };
-
+Pay.associate = (models) => {
+  Pay.belongsTo(models.Seller, {
+    foreignKey: "seller",
+    as: "sellerInfo",
+  });
+};
 /* ===============================
    Setup associations
 ================================ */
@@ -100,5 +111,6 @@ export {
   StockIncome,
   SellerAccount,
   Sells,
-  StockExist,   // ✅ export
+  StockExist, 
+  Pay,
 };

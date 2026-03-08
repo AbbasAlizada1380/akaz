@@ -237,11 +237,191 @@ const Customers = ({ onStatsUpdate }) => {
      Format Date
   ====================== */
   const formatDate = (date) => {
-    return moment(date).format("jYYYY/jMM/jDD");
+    return moment(date).format("YYYY/MM/DD");
   };
 
   return (
     <div className="p-4 md:p-6">
+      {isModalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-lg rounded-xl shadow-lg">
+
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="font-bold text-lg">
+                {editingId ? "Edit Customer" : "Add Customer"}
+              </h2>
+
+              <button onClick={resetForm}>
+                <FaTimes />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+
+              <input
+                type="text"
+                placeholder="Full Name"
+                value={form.fullname}
+                onChange={(e) =>
+                  setForm({ ...form, fullname: e.target.value })
+                }
+                className="w-full border px-3 py-2 rounded"
+                required
+              />
+
+              <input
+                type="text"
+                placeholder="Phone Number"
+                value={form.phoneNumber}
+                onChange={(e) =>
+                  setForm({ ...form, phoneNumber: e.target.value })
+                }
+                className="w-full border px-3 py-2 rounded"
+              />
+
+              <input
+                type="text"
+                placeholder="Address"
+                value={form.address}
+                onChange={(e) =>
+                  setForm({ ...form, address: e.target.value })
+                }
+                className="w-full border px-3 py-2 rounded"
+              />
+
+              <select
+                value={form.department}
+                onChange={(e) =>
+                  setForm({ ...form, department: e.target.value })
+                }
+                className="w-full border px-3 py-2 rounded"
+              >
+                <option value="">Select Department</option>
+
+                {departments.map((d) => (
+                  <option key={d.id} value={d.name}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.isActive}
+                  onChange={(e) =>
+                    setForm({ ...form, isActive: e.target.checked })
+                  }
+                />
+                Active
+              </label>
+
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  className="border px-4 py-2 rounded"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="bg-primary text-white px-4 py-2 rounded flex items-center gap-2"
+                >
+                  {submitting && <FaSpinner className="animate-spin" />}
+                  {editingId ? "Update" : "Create"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}{isDetailsModalOpen && selectedCustomer && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-lg">
+
+            {/* Header */}
+            <div className="flex justify-between items-center p-4 border-b">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                <FaUser />
+                Customer Details
+              </h2>
+
+              <button
+                onClick={() => setIsDetailsModalOpen(false)}
+                className="text-gray-500 hover:text-red-500"
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="p-6 space-y-4">
+
+              <div className="flex items-center gap-3">
+                <FaIdCard className="text-gray-400" />
+                <span className="font-medium">ID:</span>
+                <span>{selectedCustomer.id}</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <FaUser className="text-gray-400" />
+                <span className="font-medium">Full Name:</span>
+                <span>{selectedCustomer.fullname}</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <FaPhone className="text-gray-400" />
+                <span className="font-medium">Phone:</span>
+                <span>{selectedCustomer.phoneNumber || "—"}</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <FaMapMarkerAlt className="text-gray-400" />
+                <span className="font-medium">Address:</span>
+                <span>{selectedCustomer.address || "—"}</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <FaBuilding className="text-gray-400" />
+                <span className="font-medium">Department:</span>
+                <span>{getDepartmentName(selectedCustomer.department)}</span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                {selectedCustomer.isActive ? (
+                  <FaCheck className="text-green-500" />
+                ) : (
+                  <FaTimes className="text-red-500" />
+                )}
+                <span className="font-medium">Status:</span>
+                <span>
+                  {selectedCustomer.isActive ? "Active" : "Inactive"}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <FaCalendarAlt className="text-gray-400" />
+                <span className="font-medium">Created:</span>
+                <span>{formatDate(selectedCustomer.createdAt)}</span>
+              </div>
+
+            </div>
+
+            {/* Footer */}
+            <div className="flex justify-end p-4 border-t">
+              <button
+                onClick={() => setIsDetailsModalOpen(false)}
+                className="px-4 py-2 bg-primary text-white rounded-lg"
+              >
+                Close
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
       {/* Customers Table */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
 
@@ -332,8 +512,8 @@ const Customers = ({ onStatsUpdate }) => {
                       <button
                         onClick={() => handleToggleStatus(customer)}
                         className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1 mx-auto ${customer.isActive
-                            ? "bg-primary text-white"
-                            : "bg-red-100 text-red-800 hover:bg-red-200"
+                          ? "bg-primary text-white"
+                          : "bg-red-100 text-red-800 hover:bg-red-200"
                           }`}
                       >
                         {customer.isActive ? <FaToggleOn /> : <FaToggleOff />}
