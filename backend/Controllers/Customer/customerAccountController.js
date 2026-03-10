@@ -180,7 +180,6 @@ export const getCustomersWithUnpaid = async (req, res) => {
             raw: true,
         });
 
-        // If no accounts found, return empty list
         if (!accountsWithUnpaid.length) {
             return res.status(200).json({
                 success: true,
@@ -195,7 +194,7 @@ export const getCustomersWithUnpaid = async (req, res) => {
         // 2. Fetch customer details
         const customers = await Customer.findAll({
             where: { id: customerIds },
-            attributes: ['id', 'fullname'  ], // include whatever fields you need
+            attributes: ['id', 'fullname'],
             raw: true,
         });
 
@@ -206,8 +205,8 @@ export const getCustomersWithUnpaid = async (req, res) => {
                 [sequelize.fn('SUM', sequelize.col('remained')), 'totalDue'],
             ],
             where: {
-                customer: customerIds,
-                remained: { [Op.gt]: 0 }, // only unpaid sells
+                customer: customerIds.map(id => String(id)), // customer is STRING in Sell model
+                remained: { [Op.gt]: 0 },
             },
             group: ['customer'],
             raw: true,
@@ -217,10 +216,10 @@ export const getCustomersWithUnpaid = async (req, res) => {
         const dueMap = new Map();
         results.forEach((r) => dueMap.set(r.customer, parseFloat(r.totalDue) || 0));
 
-        // Combine customer info with total due
+        // Combine customer info with total due only
         const responseData = customers.map((cust) => ({
             customer: cust,
-            totalDue: dueMap.get(cust.id) || 0,
+            totalDue: dueMap.get(String(cust.id)) || 0, // ensure key as string
         }));
 
         return res.status(200).json({
@@ -228,10 +227,10 @@ export const getCustomersWithUnpaid = async (req, res) => {
             data: responseData,
         });
     } catch (error) {
-        console.error("Error fetching customers with unpaid sells:", error);
+        console.error('Error fetching customers with unpaid sells:', error);
         return res.status(500).json({
             success: false,
-            message: "Server error",
+            message: 'Server error',
             error: error.message,
         });
     }
