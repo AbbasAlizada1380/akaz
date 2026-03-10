@@ -9,7 +9,7 @@ import {
   deleteCustomer,
   searchCustomers,
   getActiveCustomers,
-} from "../Controllers/CustomersController.js";
+} from "../../Controllers/Customer/CustomersController.js";
 
 const CustomerRoute = express.Router();
 

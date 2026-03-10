@@ -6,6 +6,10 @@ import SellerAccount from './Seller/SellerAccount.js';
 import Sells from './Stock/Sells.js';
 import StockExist from './Stock/StockExist.js';   // ✅ اضافه شود
 import Pay from './Finance/Pay.js';
+import Receive from './Finance/Receive.js';
+import Customer from '../Models/Customer/Customers.js';
+import CustomerAccount from '../Models/Customer/CustomerAccount.js'; // ✅ add CustomerAccount model
+
 const models = {
   Department,
   Seller,
@@ -14,6 +18,9 @@ const models = {
   Sells,
   StockExist,
   Pay,
+  Receive,     
+  Customer,    
+  CustomerAccount,
 };
 
 /* ===============================
@@ -67,6 +74,34 @@ Seller.associate = (models) => {
   });
 };
 
+Receive.associate = (models) => {
+  Receive.belongsTo(models.Customer, {
+    foreignKey: "customer",
+    as: "customerInfo",
+  });
+};
+
+Customer.associate = (models) => {
+  Customer.hasMany(models.Receive, {
+    foreignKey: "customer",
+    as: "receives",
+  });
+
+  // ✅ relation with CustomerAccount
+  Customer.hasMany(models.CustomerAccount, {
+    foreignKey: "customerId",
+    as: "accounts",
+  });
+};
+
+// ✅ CustomerAccount associations
+CustomerAccount.associate = (models) => {
+  CustomerAccount.belongsTo(models.Customer, {
+    foreignKey: "customerId",
+    as: "customer",
+  });
+};
+
 SellerAccount.associate = (models) => {
   SellerAccount.belongsTo(models.Seller, {
     foreignKey: "sellerId",
@@ -88,12 +123,14 @@ StockExist.associate = (models) => {
     as: "department",
   });
 };
+
 Pay.associate = (models) => {
   Pay.belongsTo(models.Seller, {
     foreignKey: "seller",
     as: "sellerInfo",
   });
 };
+
 /* ===============================
    Setup associations
 ================================ */
@@ -111,6 +148,9 @@ export {
   StockIncome,
   SellerAccount,
   Sells,
-  StockExist, 
+  StockExist,
   Pay,
+  Receive,      
+  Customer,     
+  CustomerAccount, 
 };

@@ -172,28 +172,28 @@ export default function Pay() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary-50 to-primary-100 p-4 md:p-6">
+    <div className="min-h-screen  p-4 md:p-6">
       <div className="max-w-7xl mx-auto">
 
         {/* Header with decorative elements */}
         <div className="mb-8 relative">
           <div className="absolute inset-0 flex items-center" aria-hidden="true">
-            <div className="w-full border-t border-primary-300"></div>
+            <div className="w-full border-t border-primary"></div>
           </div>
           <div className="relative flex justify-start">
-            <span className="pr-4 bg-gradient-to-br from-primary-50 to-primary-100 text-3xl font-bold text-primary-800">
+            <span className="pr-4 text-3xl font-bold  ">
               Seller Payments
             </span>
           </div>
-          <p className="text-primary-600 mt-2 ml-1">
+          <p className="  mt-2 ml-1">
             Manage and track all seller payments efficiently
           </p>
         </div>
 
         {/* ================= FORM ================= */}
-        <div className="bg-white rounded-2xl shadow-xl overflow-hidden mb-8 border border-primary-100">
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden mb-8 border border-primary">
           {/* Form Header with primary gradient */}
-          <div className="bg-gradient-to-r from-primary-600 to-primary-700 px-6 py-5">
+          <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
             <div className="flex items-center space-x-3">
               <div className="p-2 bg-white/20 rounded-lg">
                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -212,7 +212,7 @@ export default function Pay() {
               {/* Seller Select with better styling */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">
-                  Select Seller <span className="text-primary-600">*</span>
+                  Select Seller <span className=" ">*</span>
                 </label>
                 <div className="relative">
                   <select
@@ -220,7 +220,7 @@ export default function Pay() {
                     value={form.seller}
                     onChange={handleChange}
                     required
-                    className="w-full border-2 border-gray-200 rounded-xl px-4 py-3.5 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none bg-white appearance-none"
+                    className="w-full border-2 border-gray-200 rounded-xl px-4 py-3.5 focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none bg-white appearance-none"
                   >
                     <option value="">Choose a seller...</option>
                     {Array.isArray(sellers) && sellers.map((s) => (
@@ -229,18 +229,13 @@ export default function Pay() {
                       </option>
                     ))}
                   </select>
-                  <div className="absolute inset-y-0 right-0 flex items-center px-3 pointer-events-none text-primary-500">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
-                    </svg>
-                  </div>
                 </div>
               </div>
 
               {/* Amount Input with primary accent */}
               <div className="space-y-2">
                 <label className="block text-sm font-semibold text-gray-700">
-                  Amount <span className="text-primary-600">*</span>
+                  Amount <span className=" ">*</span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
@@ -253,7 +248,7 @@ export default function Pay() {
                     required
                     min="0"
                     step="0.01"
-                    className="w-full border-2 border-gray-200 rounded-xl pl-8 pr-4 py-3.5 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none"
+                    className="w-full border-2 border-gray-200 rounded-xl pl-8 pr-4 py-3.5 focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none"
                   />
                 </div>
               </div>
@@ -269,7 +264,7 @@ export default function Pay() {
                   onChange={handleChange}
                   placeholder="Enter payment description or notes..."
                   rows="3"
-                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-3.5 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition-all outline-none resize-none"
+                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-3.5 focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none resize-none"
                 />
               </div>
             </div>
@@ -279,9 +274,9 @@ export default function Pay() {
               <button
                 type="submit"
                 disabled={loading}
-                className={`px-8 py-3.5 bg-primary-600 text-white font-semibold rounded-xl transition-all transform hover:scale-105 hover:shadow-lg ${loading
+                className={`px-8 py-3.5 bg-primary text-white font-semibold rounded-xl transition-all transform hover:scale-105 hover:shadow-lg ${loading
                   ? 'opacity-50 cursor-not-allowed hover:scale-100'
-                  : 'hover:bg-primary-700'
+                  : 'hover:bg-primary'
                   }`}
               >
                 {loading ? (
@@ -313,9 +308,9 @@ export default function Pay() {
         </div>
 
         {/* ================= TABLE ================= */}
-        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary-100">
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary">
           {/* Table Header with primary gradient */}
-          <div className="bg-gradient-to-r from-primary-700 to-primary-800 px-6 py-5">
+          <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
             <div className="flex justify-between items-center">
               <div className="flex items-center space-x-3">
                 <div className="p-2 bg-white/20 rounded-lg">
@@ -336,28 +331,28 @@ export default function Pay() {
           {/* Table */}
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-primary-50">
+              <thead className="bg-primary">
                 <tr>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-primary-800">#</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-primary-800">Seller</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-primary-800">Amount</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-primary-800">Description</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-primary-800">Date</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-primary-800">Actions</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold  ">#</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold  ">Seller</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold  ">Amount</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold  ">Description</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold  ">Date</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold  ">Actions</th>
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-primary-100">
+              <tbody className="divide-y divide-primary">
                 {loading && pays.length === 0 ? (
                   <tr>
                     <td colSpan="6" className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center justify-center space-y-4">
                         <div className="flex space-x-2">
-                          <div className="w-3 h-3 bg-primary-600 rounded-full animate-bounce"></div>
-                          <div className="w-3 h-3 bg-primary-600 rounded-full animate-bounce [animation-delay:-0.1s]"></div>
-                          <div className="w-3 h-3 bg-primary-600 rounded-full animate-bounce [animation-delay:-0.2s]"></div>
+                          <div className="w-3 h-3 bg-primary rounded-full animate-bounce"></div>
+                          <div className="w-3 h-3 bg-primary rounded-full animate-bounce [animation-delay:-0.1s]"></div>
+                          <div className="w-3 h-3 bg-primary rounded-full animate-bounce [animation-delay:-0.2s]"></div>
                         </div>
-                        <p className="text-primary-600 font-medium">Loading payments...</p>
+                        <p className="  font-medium">Loading payments...</p>
                       </div>
                     </td>
                   </tr>
@@ -365,31 +360,28 @@ export default function Pay() {
                   <tr>
                     <td colSpan="6" className="px-6 py-16 text-center">
                       <div className="flex flex-col items-center">
-                        <div className="p-4 bg-primary-100 rounded-full mb-4">
-                          <svg className="w-12 h-12 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <div className="p-4 bg-primary rounded-full mb-4">
+                          <svg className="w-12 h-12  " fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
                           </svg>
                         </div>
                         <p className="text-lg font-medium text-gray-900">No payments found</p>
-                        <p className="text-sm text-primary-500 mt-1">Create your first payment using the form above</p>
+                        <p className="text-sm   mt-1">Create your first payment using the form above</p>
                       </div>
                     </td>
                   </tr>
                 ) : (
                   pays.map((pay, index) => (
-                    <tr key={pay.id} className="hover:bg-primary-50 transition-all duration-200 group">
-                      <td className="px-6 py-4 text-sm font-medium text-primary-600">
-                        #{String(index + 1 + (page - 1) * limit).padStart(2, '0')}
+                    <tr key={pay.id} className="group">
+                      <td className="px-6 py-4 text-sm font-medium  ">
+                        {String(index + 1 + (page - 1) * limit).padStart(2, '0')}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center text-primary-700 font-semibold">
-                            {pay.sellerInfo?.fullname?.charAt(0) || '?'}
-                          </div>
                           <div>
                             <div className="font-semibold text-gray-900">{pay.sellerInfo?.fullname || 'Unknown Seller'}</div>
                             {pay.sellerInfo?.phoneNumber && (
-                              <div className="text-xs text-primary-600">{pay.sellerInfo.phoneNumber}</div>
+                              <div className="text-xs  ">{pay.sellerInfo.phoneNumber}</div>
                             )}
                           </div>
                         </div>
@@ -401,14 +393,11 @@ export default function Pay() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="max-w-xs text-gray-600" title={pay.description}>
-                          {pay.description || <span className="text-primary-400 italic">No description</span>}
+                          {pay.description || <span className="  italic">No description</span>}
                         </div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-2 text-sm text-gray-600">
-                          <svg className="w-4 h-4 text-primary-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                          </svg>
                           <span>{formatDate(pay.createdAt)}</span>
                         </div>
                       </td>
@@ -416,7 +405,7 @@ export default function Pay() {
                         <div className="flex space-x-2">
                           <button
                             onClick={() => handleEdit(pay)}
-                            className="p-2 bg-primary-100 text-primary-700 rounded-lg hover:bg-primary-200 transition-all transform hover:scale-105"
+                            className="p-2 rounded-lg  transition-all transform hover:scale-105"
                             title="Edit payment"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -425,7 +414,7 @@ export default function Pay() {
                           </button>
                           <button
                             onClick={() => handleDelete(pay.id)}
-                            className="p-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-all transform hover:scale-105"
+                            className="p-2 text-red-700 rounded-lg hover:bg-red-200 transition-all transform hover:scale-105"
                             title="Delete payment"
                           >
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -443,7 +432,7 @@ export default function Pay() {
 
           {/* Pagination with primary styling */}
           {totalPages > 1 && (
-            <div className="border-t border-primary-100 px-6 py-4 bg-primary-50/50">
+            <div className="border-t border-primary px-6 py-4 bg-primary/50">
               <Pagination
                 currentPage={page}
                 totalPages={totalPages}

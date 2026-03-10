@@ -8,6 +8,7 @@ const SellManager = () => {
   const { accessToken } = useSelector((state) => state.user);
   const [sells, setSells] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [stockIncomes, setStockIncomes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -19,7 +20,7 @@ const SellManager = () => {
 
   const [formData, setFormData] = useState({
     stockIncome: "",
-    customer: "",
+    customer: {},
     amount: "",
     unitPrice: "",
     received: "",
@@ -104,7 +105,15 @@ const SellManager = () => {
   ========================== */
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    if (name === "customer") {
+      // When customer dropdown changes, find the full customer object by ID
+      const customerObj = customers.find(c => c.id === parseInt(value));
+      setSelectedCustomer(customerObj);
+      // Optionally store the ID in formData if needed elsewhere
+      setFormData(prev => ({ ...prev, customer: value })); // keep ID for reference
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
 
   const handleNumberChange = (name, value) => {
@@ -121,7 +130,7 @@ const SellManager = () => {
 
     const data = {
       stockIncome: formData.stockIncome,
-      customer: formData.customer,
+      customer: selectedCustomer,
       amount: parseInt(formData.amount),
       unitPrice: parseFloat(formData.unitPrice),
       received: parseFloat(formData.received) || 0,
@@ -139,6 +148,7 @@ const SellManager = () => {
       setModalVisible(false);
       resetForm();
       fetchSells();
+      fetchStockIncomes()
     } catch (error) {
       console.error("Error submitting form:", error);
       showNotification('Operation failed', 'error');
@@ -186,7 +196,7 @@ const SellManager = () => {
   const resetForm = () => {
     setFormData({
       stockIncome: "",
-      customer: "",
+      customer: [],
       amount: "",
       unitPrice: "",
       received: "",
@@ -509,19 +519,20 @@ const SellManager = () => {
                   </label>
                   <select
                     name="customer"
-                    value={formData.customer}
+                    value={formData.customer} // store the ID for controlled component
                     onChange={handleInputChange}
                     className="w-full border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
                     required
                   >
                     <option value="">Select Customer</option>
                     {customers.map((cust) => (
-                      <option key={cust.id} value={cust.fullname}>
+                      <option key={cust.id} value={cust.id}> {/* value is ID, not object */}
                         {cust.fullname} - {cust.phoneNumber}
                       </option>
                     ))}
                   </select>
                 </div>
+
 
                 {/* Amount */}
                 <div>

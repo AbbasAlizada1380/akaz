@@ -1,33 +1,48 @@
 import Sell from "../../Models/Stock/Sells.js";
 import StockIncome from "../../Models/Stock/StockIncome.js";
+import StockExist from "../../Models/Stock/StockExist.js";
 import sequelize from "../../dbconnection.js";
-import Customer from "../../Models/Customers.js"
+import Customer from "../../Models/Customer/Customers.js"
+import { Receive } from "../../Models/Association.js";
+import CustomerAccount from "../../Models/Customer/CustomerAccount.js"; // adjust import path
 
-/* =================================
-   CREATE SELL
-================================= */
 export const createSell = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
     const { stockIncome, customer, amount, unitPrice, received } = req.body;
 
+    // --- Validation (unchanged) ---
     if (!stockIncome) {
       return res.status(400).json({ message: "StockIncome ID is required" });
     }
-
     if (!customer) {
       return res.status(400).json({ message: "Customer is required" });
     }
-
     if (!amount || amount <= 0) {
       return res.status(400).json({ message: "Amount must be greater than 0" });
     }
-
     if (!unitPrice || unitPrice < 0) {
       return res.status(400).json({ message: "Unit price is required" });
     }
 
+    // --- Extract customer ID (unchanged) ---
+    let customerId;
+    if (typeof customer === 'object' && customer !== null) {
+      if (!customer.id) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Customer object must contain an id" });
+      }
+      customerId = customer.id;
+    } else {
+      customerId = parseInt(customer, 10);
+      if (isNaN(customerId)) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Customer must be a valid ID or an object with id" });
+      }
+    }
+
+    // --- Fetch stock (unchanged) ---
     const stock = await StockIncome.findByPk(stockIncome, {
       transaction,
       lock: transaction.LOCK.UPDATE,
@@ -38,8 +53,6 @@ export const createSell = async (req, res) => {
       return res.status(404).json({ message: "StockIncome not found" });
     }
 
-    /* ========= USE quantity NOT amount ========= */
-
     if (parseFloat(stock.quantity) < parseFloat(amount)) {
       await transaction.rollback();
       return res.status(400).json({
@@ -47,23 +60,41 @@ export const createSell = async (req, res) => {
       });
     }
 
+    // --- Calculate financials (unchanged) ---
     const total = parseFloat(amount) * parseFloat(unitPrice);
     const receivedAmount = received ? parseFloat(received) : 0;
     const remained = total - receivedAmount;
 
-    /* ========= Reduce Stock Quantity ========= */
+    // --- Reduce stock (unchanged) ---
     stock.quantity = parseFloat(stock.quantity) - parseFloat(amount);
-
-    /* Optional: track soldQuantity */
-    stock.soldQuantity =
-      parseFloat(stock.soldQuantity || 0) + parseFloat(amount);
-
+    stock.soldQuantity = parseFloat(stock.soldQuantity || 0) + parseFloat(amount);
     await stock.save({ transaction });
 
+    // --- Update StockExist (unchanged) ---
+    if (stock.quantity === 0) {
+      const stockExist = await StockExist.findOne({
+        where: { departmentId: stock.departmentId },
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+
+      if (stockExist) {
+        const stockId = Number(stockIncome);
+        stockExist.remainingStockIds = stockExist.remainingStockIds.filter(
+          id => Number(id) !== stockId
+        );
+        if (!stockExist.soldStockIds.map(Number).includes(stockId)) {
+          stockExist.soldStockIds = [...stockExist.soldStockIds, stockId];
+        }
+        await stockExist.save({ transaction });
+      }
+    }
+
+    // --- Create Sell record ---
     const newSell = await Sell.create(
       {
         stockIncome,
-        customer,
+        customer: customerId,
         amount,
         unitPrice,
         total,
@@ -73,6 +104,88 @@ export const createSell = async (req, res) => {
       { transaction }
     );
 
+    // --- Create Receive record if payment exists ---
+    let newReceive = null;
+    if (receivedAmount > 0) {
+      newReceive = await Receive.create(
+        {
+          customer: customerId,
+          amount: receivedAmount,
+          description: `Payment received for sale #${newSell.id}`,
+        },
+        { transaction }
+      );
+    }
+
+    // --- UPDATE CUSTOMER ACCOUNT (always, using SELL ID) ---
+    // Find or create CustomerAccount with lock
+    let customerAccount = await CustomerAccount.findOne({
+      where: { customerId },
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    // Determine if this sale is fully paid at creation
+    const isFullyPaid = remained === 0;
+
+    if (!customerAccount) {
+      // Create new account with initial arrays containing the sell ID
+      customerAccount = await CustomerAccount.create(
+        {
+          customerId,
+          paid: isFullyPaid ? [newSell.id] : [],
+          unpaid: !isFullyPaid ? [newSell.id] : [],
+          total: [newSell.id],
+        },
+        { transaction }
+      );
+    } else {
+      // Existing account – update arrays carefully
+
+      // Ensure we work with real arrays (in case they are stored as JSON strings)
+      const currentPaid = Array.isArray(customerAccount.paid) ? [...customerAccount.paid] : [];
+      const currentUnpaid = Array.isArray(customerAccount.unpaid) ? [...customerAccount.unpaid] : [];
+      const currentTotal = Array.isArray(customerAccount.total) ? [...customerAccount.total] : [];
+
+      // Always add sell ID to total (if not already present)
+      if (!currentTotal.includes(newSell.id)) {
+        currentTotal.push(newSell.id);
+      }
+
+      if (isFullyPaid) {
+        // Fully paid sale → belongs in paid array
+        if (!currentPaid.includes(newSell.id)) {
+          currentPaid.push(newSell.id);
+        }
+        // Remove from unpaid if it was there (in case of previous partial payments – should not happen for a new sell, but safe)
+        const unpaidIndex = currentUnpaid.indexOf(newSell.id);
+        if (unpaidIndex > -1) {
+          currentUnpaid.splice(unpaidIndex, 1);
+        }
+      } else {
+        // Partially paid or unpaid sale → belongs in unpaid array
+        if (!currentUnpaid.includes(newSell.id)) {
+          currentUnpaid.push(newSell.id);
+        }
+        // Remove from paid if it was there (shouldn't happen, but safe)
+        const paidIndex = currentPaid.indexOf(newSell.id);
+        if (paidIndex > -1) {
+          currentPaid.splice(paidIndex, 1);
+        }
+      }
+
+      // Save updated arrays
+      await customerAccount.update(
+        {
+          paid: currentPaid,
+          unpaid: currentUnpaid,
+          total: currentTotal,
+        },
+        { transaction }
+      );
+    }
+
+    // --- Commit transaction ---
     await transaction.commit();
 
     res.status(201).json({
