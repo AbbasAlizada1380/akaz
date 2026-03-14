@@ -218,6 +218,68 @@ export const createStockIncome = async (req, res) => {
     });
   }
 };
+
+export const undoCreateStockIncome = async (req, res) => {
+  const { id } = req.params; // expects the stock income ID in the URL, e.g. /api/stock-income/:id/undo
+  const transaction = await sequelize.transaction();
+
+  try {
+    // 1. Find the stock income to be undone
+    const income = await StockIncome.findByPk(id, { transaction });
+    if (!income) {
+      await transaction.rollback();
+      return res.status(404).json({ success: false, message: 'Stock income not found' });
+    }
+
+    const { departmentId, sellerId, received = 0 } = income;
+
+    // 2. Update StockExist: remove the income ID from allStockIds and remainingStockIds
+    const stockExist = await StockExist.findOne({ where: { departmentId }, transaction });
+    if (stockExist) {
+      const allStockIds = (stockExist.allStockIds || []).filter(stockId => stockId !== income.id);
+      const remainingStockIds = (stockExist.remainingStockIds || []).filter(stockId => stockId !== income.id);
+      await stockExist.update({ allStockIds, remainingStockIds }, { transaction });
+    }
+
+    // 3. Delete the associated Pay record(s)
+    // The original controller creates a Pay with description containing "stock income #{id}"
+    const payRecords = await Pay.findAll({
+      where: {
+        amount: received,
+        seller: sellerId,
+        description: { [Op.like]: `%stock income #${income.id}%` }
+      },
+      transaction
+    });
+    for (const pay of payRecords) {
+      await pay.destroy({ transaction });
+    }
+
+    // 4. Update SellerAccount: remove income ID from paid, unpaid, and total arrays
+    const sellerAccount = await SellerAccount.findOne({ where: { sellerId }, transaction });
+    if (sellerAccount) {
+      const paid = (sellerAccount.paid || []).filter(id => id !== income.id);
+      const unpaid = (sellerAccount.unpaid || []).filter(id => id !== income.id);
+      const total = (sellerAccount.total || []).filter(id => id !== income.id);
+      await sellerAccount.update({ paid, unpaid, total }, { transaction });
+    }
+
+    // 5. Delete the stock income record itself
+    await income.destroy({ transaction });
+
+    await transaction.commit();
+
+    res.status(200).json({
+      success: true,
+      message: 'Stock income undone successfully'
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error undoing stock income:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 // Update stock income
 export const updateStockIncome = async (req, res) => {
   try {
@@ -262,3 +324,4 @@ export const deleteStockIncome = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+

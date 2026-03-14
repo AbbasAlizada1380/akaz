@@ -33,6 +33,11 @@ const CustomerAccount = sequelize.define(
       allowNull: false,
       defaultValue: [],
     },
+    returned: {
+      type: DataTypes.JSON,   // ✅ use JSON instead of ARRAY
+      allowNull: false,
+      defaultValue: [],
+    },
   },
   {
     timestamps: true,

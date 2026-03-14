@@ -58,7 +58,7 @@ export const getCustomerAccounts = async (req, res) => {
                 {
                     model: Customer,
                     as: 'customer', // ensure this alias matches the association
-                    attributes: ['id', 'fullname', 'phoneNumberNumberNumber', 'address'],
+                    attributes: ['id', 'fullname', 'phoneNumber', 'address'],
                 },
             ],
             order: [['createdAt', 'DESC']],
@@ -233,5 +233,74 @@ export const getCustomersWithUnpaid = async (req, res) => {
             message: 'Server error',
             error: error.message,
         });
+    }
+};
+// @desc    Get all sells for a customer based on the total array in their customer account
+// @route   GET /api/customer-account/:customerId/sells
+// @access  Private
+// @desc    Get all sells for a customer based on the total array in their customer account (with pagination)
+// @route   GET /api/customer-account/:customerId/sells
+// @access  Private
+export const getCustomerSellsFromTotal = async (req, res) => {
+    try {
+        const { customerId } = req.params;
+        // Pagination query params: page and limit (defaults: page=1, limit=10)
+        let page = parseInt(req.query.page) || 1;
+        let limit = parseInt(req.query.limit) || 10;
+        // Ensure positive values
+        if (page < 1) page = 1;
+        if (limit < 1) limit = 10;
+
+        const offset = (page - 1) * limit;
+
+        // Find the customer account for this customer
+        const account = await CustomerAccount.findOne({
+            where: { customerId },
+        });
+
+        if (!account) {
+            return res.status(404).json({ message: 'Customer account not found' });
+        }
+
+        // The total array contains the sell IDs
+        const sellIds = account.total || [];
+        const totalItems = sellIds.length;
+
+        if (totalItems === 0) {
+            return res.status(200).json({
+                data: [],
+                pagination: {
+                    page,
+                    limit,
+                    totalItems: 0,
+                    totalPages: 0,
+                },
+            });
+        }
+
+        // Fetch sells with those IDs, applying pagination
+        const sells = await Sell.findAll({
+            where: {
+                id: sellIds,
+            },
+            order: [['createdAt', 'DESC']],
+            offset,
+            limit,
+        });
+
+        const totalPages = Math.ceil(totalItems / limit);
+
+        res.status(200).json({
+            data: sells,
+            pagination: {
+                page,
+                limit,
+                totalItems,
+                totalPages,
+            },
+        });
+    } catch (error) {
+        console.error('Error fetching customer sells from total:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
