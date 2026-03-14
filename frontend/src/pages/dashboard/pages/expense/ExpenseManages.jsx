@@ -97,7 +97,7 @@ const ExpenseManager = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6 space-y-8">
-      
+
       {/* Header */}
       <div className="text-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">
@@ -120,9 +120,9 @@ const ExpenseManager = () => {
 
       {/* Form Section */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        
+
         {/* Form Header */}
-        <div className="bg-gray-200 text-black p-4">
+        <div className="bg-primary text-white p-4">
           <h2 className="text-xl font-bold">
             {editingId ? "Edit Expense" : "Add New Expense"}
           </h2>
@@ -136,9 +136,9 @@ const ExpenseManager = () => {
         {/* Form Content */}
         <div className="p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
-            
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
+
               {/* Purpose */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -228,8 +228,8 @@ const ExpenseManager = () => {
                 {submitting
                   ? "Saving..."
                   : editingId
-                  ? "Save Changes"
-                  : "Save Expense"}
+                    ? "Save Changes"
+                    : "Save Expense"}
               </button>
             </div>
           </form>

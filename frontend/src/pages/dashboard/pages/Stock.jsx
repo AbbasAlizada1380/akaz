@@ -2,9 +2,10 @@ import { useState } from "react";
 import StockIncomManager from "./StockIncomeManager"
 import ExistingStock from "./ExistingStock";
 import SellManager from "./SellManager";
+import { useUserDepartments } from "../../../utils/useUserDepartment";
 const Stock = () => {
-  const [activeTab, setActiveTab] = useState("incoming");
-
+  const [activeTab, setActiveTab] = useState("outgoing");
+  const departments = useUserDepartments();
   return (
     <div className="bg-gradient-to-br from-gray-50 to-blue-50 p-4 md:p-6">
 

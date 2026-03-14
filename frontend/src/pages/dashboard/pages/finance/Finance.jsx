@@ -36,40 +36,12 @@ const Finance = () => {
         {/* Navigation Tabs */}
         <div className="px-6 pt-6 pb-2">
           <div className="flex flex-col sm:flex-row gap-3">
-
-            {/* Pay Tab */}
-            <button
-              className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${
-                activeTab === "pay"
-                  ? "bg-primary text-black shadow-lg shadow-primary/20"
-                  : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
-              }`}
-              onClick={() => setActiveTab("pay")}
-            >
-              <div className={`p-2 rounded-lg ${activeTab === "pay" ? "bg-white/20" : "bg-primary/10"}`}>
-                <svg className={`w-5 h-5 ${activeTab === "pay" ? "text-black" : "text-primary"}`}
-                  fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                    d="M5 10l7-7m0 0l7 7m-7-7v18">
-                  </path>
-                </svg>
-              </div>
-
-              <span className="text-sm md:text-base">Pay</span>
-
-              {activeTab === "pay" && (
-                <div className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-t-lg"></div>
-              )}
-            </button>
-
-
             {/* Receive Tab */}
             <button
-              className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${
-                activeTab === "receive"
-                  ? "bg-primary text-black shadow-lg shadow-primary/20"
-                  : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
-              }`}
+              className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "receive"
+                ? "bg-primary text-black shadow-lg shadow-primary/20"
+                : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
+                }`}
               onClick={() => setActiveTab("receive")}
             >
               <div className={`p-2 rounded-lg ${activeTab === "receive" ? "bg-white/20" : "bg-primary/10"}`}>
@@ -84,6 +56,29 @@ const Finance = () => {
               <span className="text-sm md:text-base">Receive</span>
 
               {activeTab === "receive" && (
+                <div className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-t-lg"></div>
+              )}
+            </button>
+            {/* Pay Tab */}
+            <button
+              className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "pay"
+                ? "bg-primary text-black shadow-lg shadow-primary/20"
+                : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
+                }`}
+              onClick={() => setActiveTab("pay")}
+            >
+              <div className={`p-2 rounded-lg ${activeTab === "pay" ? "bg-white/20" : "bg-primary/10"}`}>
+                <svg className={`w-5 h-5 ${activeTab === "pay" ? "text-black" : "text-primary"}`}
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                    d="M5 10l7-7m0 0l7 7m-7-7v18">
+                  </path>
+                </svg>
+              </div>
+
+              <span className="text-sm md:text-base">Pay</span>
+
+              {activeTab === "pay" && (
                 <div className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-t-lg"></div>
               )}
             </button>

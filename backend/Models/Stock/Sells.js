@@ -40,6 +40,10 @@ const Sell = sequelize.define(
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 0,
     },
+    is_returned:{
+      type:DataTypes.BOOLEAN,
+      defaultValue:false,
+    }
   },
   {
     timestamps: true,

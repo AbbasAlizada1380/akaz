@@ -10,7 +10,8 @@ const StockExistViewer = () => {
   const fetchStockExist = async () => {
     try {
       const res = await axios.get(`${BASE_URL}/stockExist`);
-      setStocks(res.data);
+      setStocks(res.data.data);
+      log
     } catch (error) {
       console.error("Error fetching stock exist:", error);
     } finally {
