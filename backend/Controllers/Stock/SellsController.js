@@ -406,3 +406,144 @@ export const deleteSell = async (req, res) => {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
+
+
+
+export const returnSell = async (req, res) => {
+  const transaction = await sequelize.transaction();
+
+  try {
+    const { unitPrice, quantity, refundedMoney, returnSell } = req.body;
+    console.log(unitPrice, quantity, refundedMoney, returnSell);
+
+
+    // --- Basic validation ---
+    if (!quantity || !refundedMoney || !returnSell?.id) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const returnedQty = parseFloat(quantity);
+    const refund = parseFloat(refundedMoney);
+
+    if (isNaN(returnedQty) || returnedQty <= 0) {
+      return res.status(400).json({ error: 'Returned quantity must be a positive number' });
+    }
+    if (isNaN(refund) || refund < 0) {
+      return res.status(400).json({ error: 'Refunded money must be a non‑negative number' });
+    }
+
+    // --- Find the original sell record ---
+    const originalSell = await Sell.findByPk(returnSell.id, { transaction });
+    if (!originalSell) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Original sell record not found' });
+    }
+
+    // --- Check that returned quantity does not exceed original quantity ---
+    if (returnedQty > originalSell.quantity) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: `Cannot return more than the original quantity (${originalSell.quantity})`
+      });
+    }
+
+    // --- Find the related StockIncome ---
+    const stockIncome = await StockIncome.findByPk(originalSell.stockIncome, { transaction });
+    if (!stockIncome) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'StockIncome record not found' });
+    }
+
+    const customerId = parseInt(originalSell.customer, 10);
+    if (isNaN(customerId)) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid customer ID in sell record' });
+    }
+    const customer = await Customer.findByPk(customerId, { transaction });
+    if (!customer) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+
+    if (!customer) {
+      await transaction.rollback();
+      return res.status(404).json({ error: 'Customer not found' });
+    }
+
+
+
+    const total = returnedQty * unitPrice;
+
+    // Optional: prevent refund exceeding the total value of returned items
+    if (refund > total) {
+      await transaction.rollback();
+      return res.status(400).json({
+        error: `Refunded quantity (${refund}) cannot exceed the value of returned items (${total})`
+      });
+    }
+
+    const received = refund;
+    const remained = total - received;
+
+    // --- 1. Create the new return sell record ---
+    const newReturnSell = await Sell.create({
+      stockIncome: originalSell.stockIncome,
+      customer: originalSell.customer,
+      amount: returnedQty,
+      unitPrice: unitPrice,
+      total: total,
+      received: received,
+      remained: remained,
+      is_returned: true, // marks this as a return transaction
+    }, { transaction });
+
+
+    // --- 2. Add the new sell's ID to the customer account's `returned` array ---
+    // --- Find or create the CustomerAccount for this customer ---
+    let customerAccount = await CustomerAccount.findOne({
+      where: { customerId: customer.id },
+      transaction
+    });
+
+    if (!customerAccount) {
+      // Create a new account with empty arrays
+      customerAccount = await CustomerAccount.create({
+        customerId: customer.id,
+        paid: [],
+        unpaid: [],
+        total: [],
+        returned: []
+      }, { transaction });
+    }
+    else {
+      // --- Now add the new return sell ID to the returned array ---
+      const currentReturned = customerAccount.returned || [];
+      currentReturned.push(newReturnSell.id);
+      await customerAccount.update({ returned: currentReturned }, { transaction });
+
+    }
+    // --- 3. Update StockIncome: decrease soldQuantity by the returned amount ---
+    // (assuming soldQuantity tracks how many have been sold)
+    const newSoldQuantity = stockIncome.soldQuantity - returnedQty;
+    if (newSoldQuantity < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Return would make sold quantity negative' });
+    }
+    await stockIncome.update({ soldQuantity: newSoldQuantity, quantity: stockIncome.quantity + returnedQty }, { transaction });
+
+    // --- Commit transaction ---
+    await transaction.commit();
+
+    // --- Respond with the newly created return sell ---
+    res.status(201).json({
+      message: 'Return processed successfully',
+      returnSell: newReturnSell
+    });
+
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error('Error processing return:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};

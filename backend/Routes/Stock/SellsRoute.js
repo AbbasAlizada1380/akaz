@@ -5,6 +5,7 @@ import {
     getSellById,
     updateSell,
     deleteSell,
+    returnSell,
 } from "../../Controllers/Stock/SellsController.js";
 
 const SellsRoute = express.Router();
@@ -15,6 +16,7 @@ const SellsRoute = express.Router();
 
 // Create
 SellsRoute.post("/create", createSell);
+SellsRoute.post("/return", returnSell);
 
 // Get All
 SellsRoute.get("/", getAllSells);

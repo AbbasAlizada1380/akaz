@@ -235,12 +235,8 @@ export const getCustomersWithUnpaid = async (req, res) => {
         });
     }
 };
-// @desc    Get all sells for a customer based on the total array in their customer account
-// @route   GET /api/customer-account/:customerId/sells
-// @access  Private
-// @desc    Get all sells for a customer based on the total array in their customer account (with pagination)
-// @route   GET /api/customer-account/:customerId/sells
-// @access  Private
+
+
 export const getCustomerSellsFromTotal = async (req, res) => {
     try {
         const { customerId } = req.params;
