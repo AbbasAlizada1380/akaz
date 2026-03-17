@@ -94,8 +94,8 @@ const Sidebar = ({ setActiveComponent }) => {
           <img src="/logo.png" alt="Logo" className="h-12 w-12 rounded-full " />
         </div>
 
-        <span className="text-lg font-bold rounded-full text-gray-900 whitespace-nowrap">
-      ZANJERA OMID
+        <span className="text-lg font-bold rounded-full text-secondry whitespace-nowrap">
+          ZANJERA OMID
         </span>
       </header>
 
@@ -106,11 +106,10 @@ const Sidebar = ({ setActiveComponent }) => {
               <a
                 onClick={handleSignOut}
                 className={`relative flex items-center w-full px-6 py-3 transition-all duration-300   
-                ${
-                  activeC === component.value
+                ${activeC === component.value
                     ? "bg-white text-gray-800"
-                    : "hover:bg-red-500 hover:text-white text-gray-900"
-                }`}
+                    : "hover:bg-red-500 hover:text-white text-secondry"
+                  }`}
               >
                 <span className="text-xl">{component.icon}</span>
 
@@ -128,11 +127,10 @@ const Sidebar = ({ setActiveComponent }) => {
                 onMouseEnter={() => setActiveC(component.value)}
                 onMouseLeave={() => setActiveC(selectedC)}
                 className={`relative flex items-center w-full px-6 py-3 transition-all duration-300  
-                ${
-                  activeC === component.value
+                ${activeC === component.value
                     ? "bg-white text-gray-800"
-                    : "hover:bg-white hover:bg-opacity-20 text-gray-900"
-                }`}
+                    : "hover:bg-white hover:bg-opacity-20 text-secondry"
+                  }`}
               >
                 <span className="text-xl">{component.icon}</span>
 

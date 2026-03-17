@@ -39,9 +39,9 @@ const Finance = () => {
 
             {/* Receive */}
             <button
-              className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "receive"
-                ? "bg-primary text-black shadow-lg shadow-primary/20"
-                : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
+              className={` group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "receive"
+                ? "text-white bg-primary shadow-lg shadow-primary/20"
+                : " bg-gray-50 hover:bg-gray-100 border border-gray-200"
                 }`}
               onClick={() => setActiveTab("receive")}
             >
@@ -60,7 +60,7 @@ const Finance = () => {
             {/* Pay */}
             <button
               className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "pay"
-                ? "bg-primary text-black shadow-lg shadow-primary/20"
+                ? "text-white bg-primary text-black shadow-lg shadow-primary/20"
                 : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
                 }`}
               onClick={() => setActiveTab("pay")}

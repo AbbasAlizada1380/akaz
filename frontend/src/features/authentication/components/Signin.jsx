@@ -16,16 +16,16 @@ const Signin = () => {
   const isActive = currentUser?.isActive;
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-orange-200 p-4 relative overflow-hidden" >   {/* Top-Right Light Effect */}
-      <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-orange-400 via-transparent to-transparent rounded-full blur-3xl opacity-20 animate-pulse"></div>
+    <div className="flex justify-center items-center min-h-screen bg-primary   p-4 relative overflow-hidden" >   {/* Top-Right Light Effect */}
+      <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-bl from-primary via-transparent to-transparent rounded-full blur-3xl opacity-20 animate-pulse"></div>
 
       {/* Bottom-Left Light Effect */}
-      <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-orange-400 via-transparent to-transparent rounded-full blur-3xl opacity-20 animate-pulse"></div>
+      <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-primary via-transparent to-transparent rounded-full blur-3xl opacity-20 animate-pulse"></div>
 
       {/* Additional floating elements for depth */}
-      <div className="absolute top-20 right-20 w-32 h-32 bg-orange-300 rounded-full blur-2xl opacity-10 animate-bounce"></div>
+      <div className="absolute top-20 right-20 w-32 h-32 bg-primary rounded-full blur-2xl opacity-10 animate-bounce"></div>
       <div
-        className="absolute bottom-20 left-20 w-32 h-32 bg-orange-300 rounded-full blur-2xl opacity-10 animate-bounce"
+        className="absolute bottom-20 left-20 w-32 h-32 bg-primary rounded-full blur-2xl opacity-10 animate-bounce"
         style={{ animationDelay: "2s" }}
       ></div>
 
@@ -41,12 +41,12 @@ const Signin = () => {
                 <img
                   src="logo.png"
                   alt="logo"
-                  className="h-14 w-14 rounded-full border-2 border-orange-800 shadow-lg"
+                  className="h-14 w-14 rounded-full border-2 border-primary shadow-lg"
                 />
-                <div className="absolute -inset-1 bg-orange-400 rounded-full blur opacity-30 animate-ping"></div>
+                <div className="absolute -inset-1 bg-primary rounded-full blur opacity-30 animate-ping"></div>
               </div>
-              <h1 className="text-3xl font-bold text-orange-400 drop-shadow-sm">
-                AKAZ
+              <h1 className="text-3xl font-bold text-primary drop-shadow-sm">
+         Zanjera Omid
               </h1>
             </div><p className="text-gray-600 mt-2">Please enter your details</p>
           </div>
@@ -62,7 +62,7 @@ const Signin = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="example@email.com"
-                className="w-full px-4 py-3 pr-5 focus:outline-none rounded-lg border border-gray-300 focus:ring-2 focus:ring-orange-800 focus:border-orange-800 transition-all duration-200 bg-gray-50 text-left hover:bg-white shadow-sm"
+                className="w-full px-4 py-3 pr-5 focus:outline-none rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200 bg-gray-50 text-left hover:bg-white shadow-sm"
                 dir="ltr"
               />
             </div>
@@ -79,7 +79,7 @@ const Signin = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full px-4 py-3 pr-5 focus:outline-none rounded-lg border border-gray-300 focus:ring-2 focus:ring-orange-800 focus:border-orange-800 transition-all duration-200 bg-gray-50 text-left hover:bg-white shadow-sm"
+                className="w-full px-4 py-3 pr-5 focus:outline-none rounded-lg border border-gray-300 focus:ring-2 focus:ring-primary focus:border-primary transition-all duration-200 bg-gray-50 text-left hover:bg-white shadow-sm"
                 dir="ltr"
               />
             </div>
@@ -89,7 +89,7 @@ const Signin = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full bg-orange-200 text-black py-4 rounded-xl font-semibold text-lg transform hover:scale-105 hover:from-orange-700 hover:to-orange-600 transition-all duration-200 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none cursor-pointer relative overflow-hidden group"
+            className="w-full bg-primary text-white py-4 rounded-xl font-semibold text-lg transform hover:scale-105 hover:from-primary hover:to-primary transition-all duration-200 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none cursor-pointer relative overflow-hidden group"
           >
             {/* Button shine effect */}
             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -skew-x-12 transform translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
@@ -152,10 +152,10 @@ const Signin = () => {
           {/* Footer */}
           <div className="text-center pt-4 border-t border-gray-100">
             <p className="text-gray-600 text-sm">
-              AKAZ - High Quality Products
+           Zanjera Omid- High Quality Products
             </p>
             <p className="text-gray-500 text-xs mt-1">
-              Arash Khan Afghan Zone
+             ZANJERA OMID LTD
             </p>
           </div>
         </form>

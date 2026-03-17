@@ -34,7 +34,7 @@ const Stock = () => {
             {/* Outgoing Products Tab */}
             <button
               className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "outgoing"
-                ? "bg-primary text-black shadow-lg shadow-primary/20"
+                ? "text-white bg-primary text-black shadow-lg shadow-primary/20"
                 : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
                 }`}
               onClick={() => setActiveTab("outgoing")}
@@ -51,7 +51,7 @@ const Stock = () => {
             {/* Incoming Products Tab */}
             <button
               className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "incoming"
-                ? "bg-primary text-black shadow-lg shadow-primary/20"
+                ? "text-white bg-primary text-black shadow-lg shadow-primary/20"
                 : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
                 }`}
               onClick={() => setActiveTab("incoming")}
@@ -68,7 +68,7 @@ const Stock = () => {
             {/* Existing Stock Tab */}
             <button
               className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "existed"
-                ? "bg-primary text-black shadow-lg shadow-primary/20"
+                ? "text-white bg-primary text-black shadow-lg shadow-primary/20"
                 : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
                 }`}
               onClick={() => setActiveTab("existed")}
@@ -84,7 +84,7 @@ const Stock = () => {
 
             <button
               className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "returnManager"
-                ? "bg-primary text-black shadow-lg shadow-primary/20"
+                ? "text-white bg-primary text-black shadow-lg shadow-primary/20"
                 : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
                 }`}
               onClick={() => setActiveTab("returnManager")}
