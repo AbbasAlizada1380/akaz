@@ -184,6 +184,7 @@ export const getCustomersWithUnpaid = async (req, res) => {
             return res.status(200).json({
                 success: true,
                 data: [],
+                total: 0,
                 message: "No customers with unpaid entries",
             });
         }
@@ -198,14 +199,14 @@ export const getCustomersWithUnpaid = async (req, res) => {
             raw: true,
         });
 
-        // 3. Sum the remained amount for each customer from the Sell table
+        // 3. Sum remained amount per customer
         const results = await Sell.findAll({
             attributes: [
                 'customer',
                 [sequelize.fn('SUM', sequelize.col('remained')), 'totalDue'],
             ],
             where: {
-                customer: customerIds.map(id => String(id)), // customer is STRING in Sell model
+                customer: customerIds.map(id => String(id)),
                 remained: { [Op.gt]: 0 },
             },
             group: ['customer'],
@@ -216,16 +217,21 @@ export const getCustomersWithUnpaid = async (req, res) => {
         const dueMap = new Map();
         results.forEach((r) => dueMap.set(r.customer, parseFloat(r.totalDue) || 0));
 
-        // Combine customer info with total due only
+        // Combine customer info with total due
         const responseData = customers.map((cust) => ({
             customer: cust,
-            totalDue: dueMap.get(String(cust.id)) || 0, // ensure key as string
+            totalDue: dueMap.get(String(cust.id)) || 0,
         }));
+
+        // ✅ Calculate total due of all customers
+        const total = responseData.reduce((sum, item) => sum + item.totalDue, 0);
 
         return res.status(200).json({
             success: true,
             data: responseData,
+            total: total,   // 👈 added total property
         });
+
     } catch (error) {
         console.error('Error fetching customers with unpaid sells:', error);
         return res.status(500).json({

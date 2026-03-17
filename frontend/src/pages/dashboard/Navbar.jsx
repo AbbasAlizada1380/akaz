@@ -91,7 +91,7 @@ const Navbar = () => {
         {/* Left Section - Brand */}
         <div className="flex items-center">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-orange-300 rounded-xl shadow-lg">
+            <div className="p-2 bg-primary rounded-xl shadow-lg">
               <MdDashboard size={20} className="text-white" />
             </div>
             <div className="hidden sm:block">
@@ -108,7 +108,7 @@ const Navbar = () => {
         {/* Center Section - Date */}
         <div className="hidden md:flex items-center justify-center">
           <div className="text-center flex items-center gap-x-3">
-            <p className="text-xl font-bold text-orange-400">
+            <p className="text-xl font-bold text-primary">
               {dateInfo.day}
             </p>
             <p className="text-sm text-gray-600 font-medium">
@@ -122,7 +122,7 @@ const Navbar = () => {
 
           {/* Notifications */}
           <div className="relative">
-            <button className="relative p-2 text-gray-600 hover:text-orange-600 hover:bg-orange-50 rounded-xl transition-all duration-200">
+            <button className="relative p-2 text-gray-600 hover:text-primary hover:bg-primary rounded-xl transition-all duration-200">
               <FaBell size={18} />
               {notificationCount > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center animate-pulse">
@@ -135,7 +135,7 @@ const Navbar = () => {
           {/* Profile Dropdown */}
           <div ref={profileDropdownRef} className="relative">
             <button
-              className="flex items-center gap-3 bg-white hover:bg-gray-50 rounded-2xl px-3 py-2 transition-all duration-200 border hover:border-orange-200"
+              className="flex items-center gap-3 bg-white hover:bg-gray-50 rounded-2xl px-3 py-2 transition-all duration-200 border hover:border-primary"
               onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
             >
               {currentUser?.profile_picture ? (
@@ -145,7 +145,7 @@ const Navbar = () => {
                   className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
                 />
               ) : currentUser?.first_name || currentUser?.last_name ? (
-                <div className="w-10 h-10 rounded-full bg-gradient-to-r from-orange-500 to-orange-600 flex items-center justify-center text-white font-bold text-sm">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-r from-primary0 to-primary flex items-center justify-center text-white font-bold text-sm">
                   {getInitials(currentUser.first_name, currentUser.last_name)}
                 </div>
               ) : (
@@ -192,7 +192,7 @@ const Navbar = () => {
                   <div className="p-2 space-y-1">
                     <button
                       onClick={handleOpenProfileModal}
-                      className="w-full flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-orange-50 rounded-xl transition-all duration-200"
+                      className="w-full flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-primary rounded-xl transition-all duration-200"
                     >
                       <FaUser className="mr-3 text-gray-500" />
                       Profile

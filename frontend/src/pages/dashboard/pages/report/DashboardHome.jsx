@@ -6,18 +6,14 @@ import {
   FaClock,
   FaCheckCircle,
   FaChartLine,
-  FaCalendarAlt,
-  FaSync,
   FaBoxOpen,
   FaWallet,
   FaExclamationTriangle,
-  FaDownload,
-  FaFilter,
-  FaFileExcel,
-  FaFilePdf,
+  FaSync,
 } from "react-icons/fa";
 import OrderDownload from "./OrderDownload.jsx";
 import { useSelector } from "react-redux";
+
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const DashboardHome = () => {
@@ -25,20 +21,104 @@ const DashboardHome = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [startDate, setStartDate] = useState(null);
-  const [endDate, setEndDate] = useState(null);
-  const [showFilters, setShowFilters] = useState(false);
-  const [reportType, setReportType] = useState("all"); // all, delivered, pending
+  const [selectedMetricIndex, setSelectedMetricIndex] = useState(null); // index of selected card
   const { currentUser } = useSelector((state) => state.user);
-  const fetchReportData = async (start = null, end = null, type = "all") => {
+
+  // Helper to build metrics based on reportData and user role
+  const buildMetrics = (data) => {
+    if (!data) return [];
+
+    const {
+      totalRemainedMoney,
+      deliveredOrdersCount,
+      notDeliveredOrdersCount,
+      totalReceivedMoney,
+      totalPendingMoney,
+      totalOrdersCount,
+    } = data;
+
+    const deliveryRate =
+      totalOrdersCount > 0 ? (deliveredOrdersCount / totalOrdersCount) * 100 : 0;
+
+    const metrics = [
+      // Admin only metrics (if needed)
+      // ... you can add more here
+    ];
+
+    // Common metrics (shown to all roles, but you can filter by role later)
+    const commonMetrics = [
+      {
+        title: "تعداد کل سفارشات",
+        key: "totalOrdersCount",
+        value: totalOrdersCount,
+        icon: FaBoxOpen,
+        color: "bg-purple-600",
+        description: "تعداد کل سفارشات",
+        formatter: (val) => new Intl.NumberFormat("fa-AF").format(val),
+        role: "reception",
+      },
+      {
+        title: "مجموع پول دریافتی",
+        key: "totalReceivedMoney",
+        value: totalReceivedMoney,
+        icon: FaWallet,
+        color: "bg-emerald-600",
+        description: "کل مبالغ دریافت شده",
+        formatter: (val) => new Intl.NumberFormat("fa-AF").format(val) + " افغانی",
+        role: "admin",
+      },
+      {
+        title: "مجموع پول باقیمانده",
+        key: "totalRemainedMoney",
+        value: totalRemainedMoney,
+        icon: FaMoneyBillWave,
+        color: "bg-cyan-800",
+        description: "کل مبلغ باقیمانده از سفارشات",
+        formatter: (val) => new Intl.NumberFormat("fa-AF").format(val) + " افغانی",
+        role: "admin",
+      },
+      {
+        title: "مانده در انتظار",
+        key: "totalPendingMoney",
+        value: totalPendingMoney,
+        icon: FaClock,
+        color: "bg-orange-600",
+        description: "مبلغ سفارشات تحویل‌نشده",
+        formatter: (val) => new Intl.NumberFormat("fa-AF").format(val) + " افغانی",
+        role: "admin",
+      },
+      {
+        title: "درصد تحویل",
+        key: "deliveryRate",
+        value: deliveryRate,
+        icon: FaChartLine,
+        color: "bg-cyan-600",
+        description: "نرخ تحویل سفارشات",
+        formatter: (val) => val.toFixed(1) + "%",
+        role: "reception",
+      },
+      // Combined card for delivered/pending (special handling)
+      {
+        title: "وضعیت سفارشات",
+        key: "orderStatus",
+        isCombined: true,
+        delivered: deliveredOrdersCount,
+        pending: notDeliveredOrdersCount,
+        icon: FaBoxOpen,
+        color: "bg-gradient-to-r from-blue-600 to-purple-600",
+        role: "reception",
+      },
+    ];
+
+    return commonMetrics.filter(
+      (metric) => metric.role === currentUser.role || currentUser.role === "admin"
+    );
+  };
+
+  const fetchReportData = async () => {
     try {
       setLoading(true);
-      const params = {};
-      if (start) params.startDate = start.toISOString().split("T")[0];
-      if (end) params.endDate = end.toISOString().split("T")[0];
-      if (type !== "all") params.type = type;
-
-      const response = await axios.get(`${BASE_URL}/report`, { params });
+      const response = await axios.get(`${BASE_URL}/report`);
       setReportData(response.data.data);
       setLastUpdated(new Date());
       setError(null);
@@ -54,13 +134,7 @@ const DashboardHome = () => {
     fetchReportData();
   }, []);
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat("fa-AF").format(amount) + " افغانی";
-  };
-
-  const formatNumber = (number) => {
-    return new Intl.NumberFormat("fa-AF").format(number);
-  };
+  const formatNumber = (number) => new Intl.NumberFormat("fa-AF").format(number);
 
   if (loading) {
     return (
@@ -73,103 +147,36 @@ const DashboardHome = () => {
     );
   }
 
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-cyan-100 flex items-center justify-center">
-        <div className="text-center">
-          <FaExclamationTriangle className="text-red-500 text-4xl mx-auto mb-4" />
-          <p className="text-red-600 text-lg mb-4">{error}</p>
-          <button
-            onClick={() => fetchReportData()}
-            className="bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 flex items-center gap-2 mx-auto"
-          >
-            <FaSync />
-            تلاش مجدد
-          </button>
-        </div>
-      </div>
-    );
-  }
+  // if (error) {
+  //   return (
+  //     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-cyan-100 flex items-center justify-center">
+  //       <div className="text-center">
+  //         <FaExclamationTriangle className="text-red-500 text-4xl mx-auto mb-4" />
+  //         <p className="text-red-600 text-lg mb-4">{error}</p>
+  //         <button
+  //           onClick={fetchReportData}
+  //           className="bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 flex items-center gap-2 mx-auto"
+  //         >
+  //           <FaSync />
+  //           تلاش مجدد
+  //         </button>
+  //       </div>
+  //     </div>
+  //   );
+  // }
 
-  if (!reportData) {
-    return null;
-  }
+  if (!reportData) return null;
 
-  const {
-    totalRemainedMoney,
-    deliveredOrdersCount,
-    notDeliveredOrdersCount,
-    totalReceivedMoney,
-    totalPendingMoney,
-    totalOrdersCount,
-    timeRange,
-  } = reportData;
+  const metrics = buildMetrics(reportData);
 
-  const deliveryRate =
-    totalOrdersCount > 0 ? (deliveredOrdersCount / totalOrdersCount) * 100 : 0;
+  const handleCardClick = (index) => {
+    setSelectedMetricIndex(selectedMetricIndex === index ? null : index);
+  };
 
-  const statsCards = [
-    // {
-    //   title: "مجموع پول همه سفارشات",
-    //   value: formatCurrency(totalRemainedMoney + totalReceivedMoney),
-    //   icon: FaMoneyBillWave,
-    //   color: "bg-cyan-800",
-    //   description: "کل پول از سفارشات",
-    //   role: "admin",
-    // },
-    // {
-    //   title: "مجموع پول دریافتی",
-    //   value: formatCurrency(totalReceivedMoney),
-    //   icon: FaWallet,
-    //   color: "bg-emerald-600",
-    //   description: "کل مبالغ دریافت شده",
-    //   role: "admin",
-    // },
-    // {
-    //   title: "مجموع پول باقیمانده",
-    //   value: formatCurrency(totalRemainedMoney),
-    //   icon: FaMoneyBillWave,
-    //   color: "bg-cyan-800",
-    //   description: "کل مبلغ باقیمانده از سفارشات",
-    //   role: "admin",
-    // },
-    {
-      title: "تعداد کل سفارشات",
-      value: formatNumber(totalOrdersCount),
-      icon: FaBoxOpen,
-      color: "bg-purple-600",
-      description: "تعداد کل سفارشات",
-      role: "reception",
-    },
-    {
-      title: "وضعیت سفارشات",
-      value: `${formatNumber(deliveredOrdersCount + notDeliveredOrdersCount)} `,
-      icon: FaBoxOpen,
-      color: "bg-gradient-to-r from-blue-600 to-purple-600",
-      description: "تحویل شده / در انتظار",
-      isCombined: true,
-      delivered: deliveredOrdersCount,
-      pending: notDeliveredOrdersCount,
-      role: "reception",
-    },
-
-    {
-      title: "درصد تحویل",
-      value: `${deliveryRate.toFixed(1)}%`,
-      icon: FaChartLine,
-      color: "bg-cyan-600",
-      description: "نرخ تحویل سفارشات",
-      role: "reception",
-    },
-  ];
-  // Filter cards based on role
-  const visibleCards = statsCards.filter(
-    (card) => card.role === currentUser.role || currentUser.role === "admin"
-  );
   return (
     <div className="min-h-screen p-6">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-800 mb-2">
             داشبورد مدیریت
@@ -178,143 +185,91 @@ const DashboardHome = () => {
             خلاصه وضعیت سفارشات و مالی چاپخانه اکبر
           </p>
         </div>
-
-       
+        {lastUpdated && (
+          <div className="text-sm text-gray-500 bg-white px-4 py-2 rounded-lg shadow">
+            آخرین به‌روزرسانی: {lastUpdated.toLocaleTimeString("fa-IR")}
+          </div>
+        )}
       </div>
-      {currentUser.role == "admin" && <OrderDownload />}
-      {/* Stats Grid */}
+
+      {currentUser.role === "admin" && <OrderDownload />}
+
+      {/* Metrics Grid – only titles shown initially */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        {visibleCards.map((card, index) => (
-          <div
-            key={index}
-            className="bg-white rounded-md shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border border-gray-100 overflow-hidden"
-          >
-            <div className={`${card.color} p-4 text-white`}>
-              <div className="flex items-center justify-between">
-                <card.icon className="text-2xl opacity-90" />
-                <span className="text-sm font-semibold">{card.title}</span>
+        {metrics.map((metric, index) => {
+          const isSelected = selectedMetricIndex === index;
+          const Icon = metric.icon;
+
+          return (
+            <div
+              key={metric.key || index}
+              onClick={() => handleCardClick(index)}
+              className={`bg-white rounded-md shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border overflow-hidden cursor-pointer ${
+                isSelected ? "ring-2 ring-cyan-500 ring-offset-2" : "border-gray-100"
+              }`}
+            >
+              <div className={`${metric.color} p-4 text-white`}>
+                <div className="flex items-center justify-between">
+                  <Icon className="text-2xl opacity-90" />
+                  <span className="text-sm font-semibold">{metric.title}</span>
+                </div>
+              </div>
+
+              <div className="p-6">
+                {metric.isCombined ? (
+                  // Combined card (delivered/pending) – show only when selected
+                  isSelected ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
+                          <FaCheckCircle className="text-green-600 text-xl mx-auto mb-1" />
+                          <div className="text-lg font-bold text-green-700">
+                            {formatNumber(metric.delivered)}
+                          </div>
+                          <div className="text-green-600 text-xs">تحویل شده</div>
+                        </div>
+                        <div className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200">
+                          <FaClock className="text-orange-600 text-xl mx-auto mb-1" />
+                          <div className="text-lg font-bold text-orange-700">
+                            {formatNumber(metric.pending)}
+                          </div>
+                          <div className="text-orange-600 text-xs">در انتظار</div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    // When not selected, show a placeholder or nothing
+                    <div className="text-gray-400 text-center py-4">
+                      برای نمایش اطلاعات کلیک کنید
+                    </div>
+                  )
+                ) : (
+                  // Regular metric – show value only when selected
+                  isSelected ? (
+                    <>
+                      <div className="text-2xl font-bold text-gray-800 mb-2">
+                        {metric.formatter(metric.value)}
+                      </div>
+                      <p className="text-gray-600 text-sm">{metric.description}</p>
+                    </>
+                  ) : (
+                    <div className="text-gray-400 text-center py-4">
+                      برای نمایش اطلاعات کلیک کنید
+                    </div>
+                  )
+                )}
               </div>
             </div>
-
-            <div className="p-6">
-              {card.isCombined ? (
-                <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
-                      <FaCheckCircle className="text-green-600 text-xl mx-auto mb-1" />
-                      <div className="text-lg font-bold text-green-700">
-                        {formatNumber(card.delivered)}
-                      </div>
-                      <div className="text-green-600 text-xs">تحویل شده</div>
-                    </div>
-
-                    <div className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200">
-                      <FaClock className="text-orange-600 text-xl mx-auto mb-1" />
-                      <div className="text-lg font-bold text-orange-700">
-                        {formatNumber(card.pending)}
-                      </div>
-                      <div className="text-orange-600 text-xs">در انتظار</div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="text-2xl font-bold text-gray-800 mb-2">
-                    {card.value}
-                  </div>
-                  <p className="text-gray-600 text-sm">{card.description}</p>
-                </>
-              )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
-      {/* Detailed Financial Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Financial Summary */}
-        {/* {currentUser.role=="admin"&&<div className="bg-white rounded-lg shadow-lg p-6 border border-gray-100">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-3 bg-cyan-800 rounded-xl">
-              <FaMoneyBillWave className="text-white text-xl" />
-            </div>
-            <h2 className="text-xl font-bold text-gray-800">خلاصه مالی</h2>
-          </div>
 
-          <div className="space-y-4">
-            <div className="flex justify-between items-center py-3 border-b border-gray-100">
-              <span className="text-gray-600">مجموع دریافتی:</span>
-              <span className="font-bold text-green-600 text-lg">
-                {formatCurrency(totalReceivedMoney)}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center py-3 border-b border-gray-100">
-              <span className="text-gray-600">مجموع باقیمانده:</span>
-              <span className="font-bold text-blue-600 text-lg">
-                {formatCurrency(totalRemainedMoney)}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center py-3 border-b border-gray-100">
-              <span className="text-gray-600">مانده در انتظار:</span>
-              <span className="font-bold text-orange-600 text-lg">
-                {formatCurrency(totalPendingMoney)}
-              </span>
-            </div>
-
-            <div className="flex justify-between items-center py-3 bg-cyan-50 rounded-lg px-4">
-              <span className="text-gray-800 font-semibold">مجموع کل:</span>
-              <span className="font-bold text-cyan-800 text-lg">
-                {formatCurrency(totalRemainedMoney + totalReceivedMoney)}
-              </span>
-            </div>
-          </div>
-        </div>} */}
-
-        {/* Delivery Status */}
-        <div className="bg-white rounded-lg shadow-lg p-6 border border-gray-100">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-3 bg-gradient-to-r from-green-500 to-green-600 rounded-xl">
-              <FaTruck className="text-white text-xl" />
-            </div>
-            <h2 className="text-xl font-bold text-gray-800">وضعیت تحویل</h2>
-          </div>
-
-          <div className="space-y-6">
-            {/* Delivery Progress */}
-            <div>
-              <div className="flex justify-between text-sm text-gray-600 mb-2">
-                <span>فیصدی تحویل</span>
-                <span>{deliveryRate.toFixed(1)}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-3">
-                <div
-                  className="bg-gradient-to-r from-green-500 to-green-600 h-3 rounded-full transition-all duration-1000"
-                  style={{ width: `${deliveryRate}%` }}
-                ></div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="text-center p-4 bg-green-50 rounded-xl border border-green-200">
-                <FaCheckCircle className="text-green-600 text-2xl mx-auto mb-2" />
-                <div className="text-2xl font-bold text-green-700">
-                  {formatNumber(deliveredOrdersCount)}
-                </div>
-                <div className="text-green-600 text-sm">تحویل شده</div>
-              </div>
-
-              <div className="text-center p-4 bg-orange-50 rounded-xl border border-orange-200">
-                <FaClock className="text-orange-600 text-2xl mx-auto mb-2" />
-                <div className="text-2xl font-bold text-orange-700">
-                  {formatNumber(notDeliveredOrdersCount)}
-                </div>
-                <div className="text-orange-600 text-sm">در انتظار</div>
-              </div>
-            </div>
-          </div>
+      {/* Optional: show a hint when nothing is selected */}
+      {selectedMetricIndex === null && (
+        <div className="text-center text-gray-500 bg-gray-50 rounded-lg p-4">
+          روی هر کارت کلیک کنید تا اطلاعات مربوط به آن نمایش داده شود.
         </div>
-      </div>
+      )}
     </div>
   );
 };

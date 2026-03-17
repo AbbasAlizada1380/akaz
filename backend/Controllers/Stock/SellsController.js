@@ -5,6 +5,7 @@ import sequelize from "../../dbconnection.js";
 import Customer from "../../Models/Customer/Customers.js"
 import { Receive } from "../../Models/Association.js";
 import CustomerAccount from "../../Models/Customer/CustomerAccount.js"; // adjust import path
+import Return_Pay from "../../Models/Finance/Return_Pay.js";
 
 export const createSell = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -117,7 +118,6 @@ export const createSell = async (req, res) => {
       );
     }
 
-    // --- UPDATE CUSTOMER ACCOUNT (always, using SELL ID) ---
     // Find or create CustomerAccount with lock
     let customerAccount = await CustomerAccount.findOne({
       where: { customerId },
@@ -125,7 +125,6 @@ export const createSell = async (req, res) => {
       lock: transaction.LOCK.UPDATE,
     });
 
-    // Determine if this sale is fully paid at creation
     const isFullyPaid = remained === 0;
 
     if (!customerAccount) {
@@ -136,42 +135,44 @@ export const createSell = async (req, res) => {
           paid: isFullyPaid ? [newSell.id] : [],
           unpaid: !isFullyPaid ? [newSell.id] : [],
           total: [newSell.id],
+          receive: newReceive ? [newReceive.id] : [],   // <-- NEW: add receive ID if any
         },
         { transaction }
       );
     } else {
       // Existing account – update arrays carefully
-
-      // Ensure we work with real arrays (in case they are stored as JSON strings)
       const currentPaid = Array.isArray(customerAccount.paid) ? [...customerAccount.paid] : [];
       const currentUnpaid = Array.isArray(customerAccount.unpaid) ? [...customerAccount.unpaid] : [];
       const currentTotal = Array.isArray(customerAccount.total) ? [...customerAccount.total] : [];
+      const currentReceived = Array.isArray(customerAccount.receive) ? [...customerAccount.receive] : []; // <-- NEW
 
       // Always add sell ID to total (if not already present)
       if (!currentTotal.includes(newSell.id)) {
         currentTotal.push(newSell.id);
       }
 
+      // Handle sell ID in paid/unpaid based on payment status
       if (isFullyPaid) {
-        // Fully paid sale → belongs in paid array
         if (!currentPaid.includes(newSell.id)) {
           currentPaid.push(newSell.id);
         }
-        // Remove from unpaid if it was there (in case of previous partial payments – should not happen for a new sell, but safe)
         const unpaidIndex = currentUnpaid.indexOf(newSell.id);
         if (unpaidIndex > -1) {
           currentUnpaid.splice(unpaidIndex, 1);
         }
       } else {
-        // Partially paid or unpaid sale → belongs in unpaid array
         if (!currentUnpaid.includes(newSell.id)) {
           currentUnpaid.push(newSell.id);
         }
-        // Remove from paid if it was there (shouldn't happen, but safe)
         const paidIndex = currentPaid.indexOf(newSell.id);
         if (paidIndex > -1) {
           currentPaid.splice(paidIndex, 1);
         }
+      }
+
+      // --- NEW: Add receive ID to received array if a receive was created ---
+      if (newReceive && !currentReceived.includes(newReceive.id)) {
+        currentReceived.push(newReceive.id);
       }
 
       // Save updated arrays
@@ -180,6 +181,7 @@ export const createSell = async (req, res) => {
           paid: currentPaid,
           unpaid: currentUnpaid,
           total: currentTotal,
+          receive: currentReceived,   // <-- NEW
         },
         { transaction }
       );
@@ -411,11 +413,9 @@ export const deleteSell = async (req, res) => {
 
 export const returnSell = async (req, res) => {
   const transaction = await sequelize.transaction();
-
   try {
     const { unitPrice, quantity, refundedMoney, returnSell } = req.body;
     console.log(unitPrice, quantity, refundedMoney, returnSell);
-
 
     // --- Basic validation ---
     if (!quantity || !refundedMoney || !returnSell?.id) {
@@ -439,11 +439,11 @@ export const returnSell = async (req, res) => {
       return res.status(404).json({ error: 'Original sell record not found' });
     }
 
-    // --- Check that returned quantity does not exceed original quantity ---
-    if (returnedQty > originalSell.quantity) {
+    // --- Check that returned quantity does not exceed original amount ---
+    if (returnedQty > originalSell.amount) {
       await transaction.rollback();
       return res.status(400).json({
-        error: `Cannot return more than the original quantity (${originalSell.quantity})`
+        error: `Cannot return more than the original amount (${originalSell.amount})`
       });
     }
 
@@ -465,21 +465,14 @@ export const returnSell = async (req, res) => {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
-
-    if (!customer) {
-      await transaction.rollback();
-      return res.status(404).json({ error: 'Customer not found' });
-    }
-
-
-
+    // --- Calculate values for the new return sell record ---
     const total = returnedQty * unitPrice;
 
-    // Optional: prevent refund exceeding the total value of returned items
+    // Prevent refund exceeding the total value of returned items
     if (refund > total) {
       await transaction.rollback();
       return res.status(400).json({
-        error: `Refunded quantity (${refund}) cannot exceed the value of returned items (${total})`
+        error: `Refunded amount (${refund}) cannot exceed the value of returned items (${total})`
       });
     }
 
@@ -495,42 +488,57 @@ export const returnSell = async (req, res) => {
       total: total,
       received: received,
       remained: remained,
-      is_returned: true, // marks this as a return transaction
+      is_returned: true,
     }, { transaction });
 
-
-    // --- 2. Add the new sell's ID to the customer account's `returned` array ---
-    // --- Find or create the CustomerAccount for this customer ---
+    // --- 2. Find or create CustomerAccount ---
     let customerAccount = await CustomerAccount.findOne({
       where: { customerId: customer.id },
       transaction
     });
 
     if (!customerAccount) {
-      // Create a new account with empty arrays
       customerAccount = await CustomerAccount.create({
         customerId: customer.id,
         paid: [],
         unpaid: [],
         total: [],
-        returned: []
+        returned: [],
+        pay: [],
+        receive: []
       }, { transaction });
     }
-    else {
-      // --- Now add the new return sell ID to the returned array ---
-      const currentReturned = customerAccount.returned || [];
-      currentReturned.push(newReturnSell.id);
-      await customerAccount.update({ returned: currentReturned }, { transaction });
 
+    // --- Prepare update object for CustomerAccount ---
+    const updateData = {
+      returned: [...(customerAccount.returned || []), newReturnSell.id]
+    };
+
+    // --- 3. Create Return_Pay record if refund > 0 ---
+    if (refund > 0) {
+      const returnPay = await Return_Pay.create({
+        To: customer.fullname,
+        amount: refund,
+        description: `Refund for return of sell #${originalSell.id}`,
+      }, { transaction });
+
+      // Add the returnPay.id to the pay array (new array)
+      updateData.pay = [...(customerAccount.pay || []), returnPay.id];
     }
-    // --- 3. Update StockIncome: decrease soldQuantity by the returned amount ---
-    // (assuming soldQuantity tracks how many have been sold)
+
+    // --- Apply all CustomerAccount updates in one go ---
+    await customerAccount.update(updateData, { transaction });
+
+    // --- 4. Update StockIncome (unchanged) ---
     const newSoldQuantity = stockIncome.soldQuantity - returnedQty;
     if (newSoldQuantity < 0) {
       await transaction.rollback();
       return res.status(400).json({ error: 'Return would make sold quantity negative' });
     }
-    await stockIncome.update({ soldQuantity: newSoldQuantity, quantity: stockIncome.quantity + returnedQty }, { transaction });
+    await stockIncome.update({
+      quantity: stockIncome.quantity + returnedQty,
+      soldQuantity: newSoldQuantity
+    }, { transaction });
 
     // --- Commit transaction ---
     await transaction.commit();
