@@ -7,13 +7,14 @@ import { fileURLToPath } from "url";
 import DepartmentRoute from "./Routes/DepartmentRoute.js";
 import CustomerRoute from "./Routes/Customer/CustomersRoute.js";
 import ExpenseRoute from "./Routes/ExpenseRoute.js";
-import SellerRoute from "./Routes/SellerRoute.js";
+import SellerRoute from "./Routes/Seller/SellerRoute.js";
 import StockIncomeRoute from "./Routes/Stock/StockIcomeRoute.js";
 import SellsRoute from "./Routes/Stock/SellsRoute.js";
 import StockExistRoute from "./Routes/Stock/StockExistRoute.js";
 import PayRoute from "./Routes/Finance/PayRoute.js";
 import ReceiveRoute from "./Routes/Finance/ReceiveRoute.js";
 import CustomerAccountRoute from "./Routes/Customer/CustomerAccountRoute.js";
+import SellerAccountRoute from "./Routes/Seller/SellerAccountRoute.js";
 const FRONT_URL = process.env.FRONT_URL
 const port = 8038;
 const app = express();
@@ -67,6 +68,7 @@ app.use("/stockExist", StockExistRoute);
 app.use("/pay", PayRoute);
 app.use("/receive", ReceiveRoute);
 app.use("/customerAccount", CustomerAccountRoute);
+app.use("/sellerAccount", SellerAccountRoute);
 // Sync database and start server
 sequelize
   .sync({ alter: true })

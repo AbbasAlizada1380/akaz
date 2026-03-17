@@ -6,7 +6,7 @@ import {
   updateSeller,
   deleteSeller,
   getSellersWithUnpaidStockIncome,
-} from "../Controllers/Seller/SellerController.js";
+} from "../../Controllers/Seller/SellerController.js";
 
 const SellerRoute = express.Router();
 
