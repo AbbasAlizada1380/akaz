@@ -1,10 +1,15 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { FiPlus, FiTrash2, FiEdit2, FiSave, FiX, FiEye } from 'react-icons/fi';
+import { FaPrint } from "react-icons/fa";
 import { useSelector } from "react-redux";
+import PrintBillOrder from './PrintOrderBill';      // <-- import print component
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const SellManager = () => {
+  const [printAuto, setPrintAuto] = useState(false);   // <-- new state for auto‑print
+  const [printBillOpen, setPrintBillOpen] = useState(false);
+  const [printBillData, setPrintBillData] = useState(null);
   const { accessToken } = useSelector((state) => state.user);
   const [sells, setSells] = useState([]);
   const [customers, setCustomers] = useState([]);
@@ -31,6 +36,14 @@ const SellManager = () => {
 
   const total = formData.amount && formData.unitPrice ? formData.amount * formData.unitPrice : 0;
   const remained = total - (formData.received || 0);
+
+  // Handler to print an existing sell
+  const handlePrintSell = (sell) => {
+    console.log(sell);
+    setPrintBillData(sell);
+    setPrintAuto(false);   // manual print → no auto
+    setPrintBillOpen(true);
+  };
 
   /* =========================
      Fetch Data
@@ -413,6 +426,14 @@ const SellManager = () => {
                           >
                             <FiTrash2 className="w-5 h-5" />
                           </button>
+
+                          <button
+                            onClick={() => handlePrintSell(sell)}
+                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                            title="Print Bill"
+                          >
+                            <FaPrint className="w-5 h-5" />
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -745,6 +766,12 @@ const SellManager = () => {
           </div>
         </div>
       )}
+      <PrintBillOrder
+        isOpen={printBillOpen}
+        onClose={() => setPrintBillOpen(false)}
+        order={printBillData}
+        autoPrint={true}   // auto‑print after creation
+      />
     </div>
   );
 };
