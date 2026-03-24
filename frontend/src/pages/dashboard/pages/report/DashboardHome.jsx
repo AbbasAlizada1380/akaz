@@ -1,18 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import {
   FaMoneyBillWave,
-  FaTruck,
-  FaClock,
-  FaCheckCircle,
-  FaChartLine,
-  FaBoxOpen,
   FaWallet,
-  FaExclamationTriangle,
+  FaUndoAlt,
+  FaChartPie,
   FaSync,
+  FaExclamationTriangle,
+  FaCalendarAlt,
 } from "react-icons/fa";
-import OrderDownload from "./OrderDownload.jsx";
 import { useSelector } from "react-redux";
+import debounce from "lodash.debounce";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -21,153 +19,132 @@ const DashboardHome = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [selectedMetricIndex, setSelectedMetricIndex] = useState(null); // index of selected card
+  const [selectedMetricIndex, setSelectedMetricIndex] = useState(null);
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const { currentUser } = useSelector((state) => state.user);
 
-  // Helper to build metrics based on reportData and user role
+  // Build metrics from the report data
   const buildMetrics = (data) => {
     if (!data) return [];
 
-    const {
-      totalRemainedMoney,
-      deliveredOrdersCount,
-      notDeliveredOrdersCount,
-      totalReceivedMoney,
-      totalPendingMoney,
-      totalOrdersCount,
-    } = data;
+    const { pay, receive, return: returnAmount, combinedTotal } = data;
 
-    const deliveryRate =
-      totalOrdersCount > 0 ? (deliveredOrdersCount / totalOrdersCount) * 100 : 0;
-
-    const metrics = [
-      // Admin only metrics (if needed)
-      // ... you can add more here
-    ];
-
-    // Common metrics (shown to all roles, but you can filter by role later)
-    const commonMetrics = [
+    return [
       {
-        title: "تعداد کل سفارشات",
-        key: "totalOrdersCount",
-        value: totalOrdersCount,
-        icon: FaBoxOpen,
-        color: "bg-purple-600",
-        description: "تعداد کل سفارشات",
-        formatter: (val) => new Intl.NumberFormat("fa-AF").format(val),
-        role: "reception",
-      },
-      {
-        title: "مجموع پول دریافتی",
-        key: "totalReceivedMoney",
-        value: totalReceivedMoney,
-        icon: FaWallet,
-        color: "bg-emerald-600",
-        description: "کل مبالغ دریافت شده",
-        formatter: (val) => new Intl.NumberFormat("fa-AF").format(val) + " افغانی",
-        role: "admin",
-      },
-      {
-        title: "مجموع پول باقیمانده",
-        key: "totalRemainedMoney",
-        value: totalRemainedMoney,
+        title: "Payments",
+        key: "pay",
+        value: pay,
         icon: FaMoneyBillWave,
-        color: "bg-cyan-800",
-        description: "کل مبلغ باقیمانده از سفارشات",
-        formatter: (val) => new Intl.NumberFormat("fa-AF").format(val) + " افغانی",
-        role: "admin",
+        color: "bg-primary", // kept red for payments (distinct from primary)
+        description: "Total amount paid to suppliers",
+        formatter: (val) => new Intl.NumberFormat("en-US").format(val) + " AFN",
       },
       {
-        title: "مانده در انتظار",
-        key: "totalPendingMoney",
-        value: totalPendingMoney,
-        icon: FaClock,
-        color: "bg-orange-600",
-        description: "مبلغ سفارشات تحویل‌نشده",
-        formatter: (val) => new Intl.NumberFormat("fa-AF").format(val) + " افغانی",
-        role: "admin",
+        title: "Receipts",
+        key: "receive",
+        value: receive,
+        icon: FaWallet,
+        color: "bg-primary", // kept green for receipts
+        description: "Total amount received from customers",
+        formatter: (val) => new Intl.NumberFormat("en-US").format(val) + " AFN",
       },
       {
-        title: "درصد تحویل",
-        key: "deliveryRate",
-        value: deliveryRate,
-        icon: FaChartLine,
-        color: "bg-cyan-600",
-        description: "نرخ تحویل سفارشات",
-        formatter: (val) => val.toFixed(1) + "%",
-        role: "reception",
+        title: "Returns",
+        key: "return",
+        value: returnAmount,
+        icon: FaUndoAlt,
+        color: "bg-primary", // kept amber for returns
+        description: "Total amount returned",
+        formatter: (val) => new Intl.NumberFormat("en-US").format(val) + " AFN",
       },
-      // Combined card for delivered/pending (special handling)
       {
-        title: "وضعیت سفارشات",
-        key: "orderStatus",
-        isCombined: true,
-        delivered: deliveredOrdersCount,
-        pending: notDeliveredOrdersCount,
-        icon: FaBoxOpen,
-        color: "bg-gradient-to-r from-blue-600 to-purple-600",
-        role: "reception",
+        title: "Net Total",
+        key: "combinedTotal",
+        value: combinedTotal,
+        icon: FaChartPie,
+        color: "bg-primary", // primary color
+        description: "Receipts minus payments and returns",
+        formatter: (val) => new Intl.NumberFormat("en-US").format(val) + " AFN",
       },
     ];
-
-    return commonMetrics.filter(
-      (metric) => metric.role === currentUser.role || currentUser.role === "admin"
-    );
   };
 
-  const fetchReportData = async () => {
+  // Fetch report data with optional date filters
+  const fetchReportData = async (start, end) => {
     try {
       setLoading(true);
-      const response = await axios.get(`${BASE_URL}/report`);
-      setReportData(response.data.data);
+      const params = {};
+      if (start) params.startDate = start;
+      if (end) params.endDate = end;
+
+      const response = await axios.get(`${BASE_URL}/report`, { params });
+      setReportData(response.data);
       setLastUpdated(new Date());
       setError(null);
     } catch (err) {
-      setError("خطا در دریافت اطلاعات");
+      setError("Error fetching report data");
       console.error("Error fetching report data:", err);
     } finally {
       setLoading(false);
     }
   };
 
+  // Debounced fetch to avoid too many requests while typing
+  const debouncedFetch = useCallback(
+    debounce((start, end) => fetchReportData(start, end), 500),
+    []
+  );
+
+  // Effect to trigger fetch when dates change (with debounce)
+  useEffect(() => {
+    debouncedFetch(startDate, endDate);
+    return () => debouncedFetch.cancel();
+  }, [startDate, endDate, debouncedFetch]);
+
+  // Manual fetch without debounce (optional, use with a button)
+  const handleApplyFilter = () => {
+    fetchReportData(startDate, endDate);
+  };
+
+  // Initial fetch on mount (no dates)
   useEffect(() => {
     fetchReportData();
   }, []);
 
-  const formatNumber = (number) => new Intl.NumberFormat("fa-AF").format(number);
-
-  if (loading) {
+  if (loading && !reportData) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-cyan-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-cyan-600 mx-auto mb-4"></div>
-          <p className="text-gray-600 text-lg">در حال دریافت اطلاعات...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 text-lg">Loading data...</p>
         </div>
       </div>
     );
   }
 
-  // if (error) {
-  //   return (
-  //     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-cyan-100 flex items-center justify-center">
-  //       <div className="text-center">
-  //         <FaExclamationTriangle className="text-red-500 text-4xl mx-auto mb-4" />
-  //         <p className="text-red-600 text-lg mb-4">{error}</p>
-  //         <button
-  //           onClick={fetchReportData}
-  //           className="bg-cyan-600 hover:bg-cyan-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 flex items-center gap-2 mx-auto"
-  //         >
-  //           <FaSync />
-  //           تلاش مجدد
-  //         </button>
-  //       </div>
-  //     </div>
-  //   );
-  // }
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center">
+        <div className="text-center">
+          <FaExclamationTriangle className="text-red-500 text-4xl mx-auto mb-4" />
+          <p className="text-red-600 text-lg mb-4">{error}</p>
+          <button
+            onClick={() => fetchReportData(startDate, endDate)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 flex items-center gap-2 mx-auto"
+          >
+            <FaSync />
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!reportData) return null;
 
   const metrics = buildMetrics(reportData);
+  const { from, to } = reportData;
 
   const handleCardClick = (index) => {
     setSelectedMetricIndex(selectedMetricIndex === index ? null : index);
@@ -175,37 +152,70 @@ const DashboardHome = () => {
 
   return (
     <div className="min-h-screen p-6">
-      {/* Header */}
+      {/* Header with date filters */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 mb-6">
         <div>
           <h1 className="text-3xl font-bold text-gray-800 mb-2">
-            داشبورد مدیریت
+            Financial Dashboard
           </h1>
           <p className="text-gray-600">
-            خلاصه وضعیت سفارشات و مالی چاپخانه اکبر
+            Summary of payments, receipts, and returns
           </p>
         </div>
-        {lastUpdated && (
-          <div className="text-sm text-gray-500 bg-white px-4 py-2 rounded-lg shadow">
-            آخرین به‌روزرسانی: {lastUpdated.toLocaleTimeString("fa-IR")}
+
+        {/* Date filter controls */}
+        <div className="flex flex-col sm:flex-row items-center gap-3 bg-white p-3 rounded-lg shadow">
+          <div className="flex items-center gap-2">
+            <FaCalendarAlt className="text-gray-500" />
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="From"
+            />
+            <span className="text-gray-500">to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="To"
+            />
           </div>
-        )}
+        </div>
       </div>
 
-      {currentUser.role === "admin" && <OrderDownload />}
+      {/* Info bar */}
+      <div className="flex flex-wrap justify-between items-center mb-6 gap-2">
+        {lastUpdated && (
+          <div className="text-sm text-gray-500 bg-white px-4 py-2 rounded-lg shadow">
+            Last updated:{" "}
+            {lastUpdated.toLocaleTimeString("en-US", {
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: true,
+            })}
+          </div>
+        )}
+        <div className="text-sm text-gray-500 bg-white px-4 py-2 rounded-lg shadow">
+          Date range: {from === "earliest" ? "Earliest" : from} to{" "}
+          {to === "latest" ? "Now" : to}
+        </div>
+      </div>
 
-      {/* Metrics Grid – only titles shown initially */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
+      {/* Metrics Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {metrics.map((metric, index) => {
           const isSelected = selectedMetricIndex === index;
           const Icon = metric.icon;
 
           return (
             <div
-              key={metric.key || index}
+              key={metric.key}
               onClick={() => handleCardClick(index)}
               className={`bg-white rounded-md shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 border overflow-hidden cursor-pointer ${
-                isSelected ? "ring-2 ring-cyan-500 ring-offset-2" : "border-gray-100"
+                isSelected ? "ring-2 ring-blue-500 ring-offset-2" : "border-gray-100"
               }`}
             >
               <div className={`${metric.color} p-4 text-white`}>
@@ -216,47 +226,17 @@ const DashboardHome = () => {
               </div>
 
               <div className="p-6">
-                {metric.isCombined ? (
-                  // Combined card (delivered/pending) – show only when selected
-                  isSelected ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="text-center p-3 bg-green-50 rounded-lg border border-green-200">
-                          <FaCheckCircle className="text-green-600 text-xl mx-auto mb-1" />
-                          <div className="text-lg font-bold text-green-700">
-                            {formatNumber(metric.delivered)}
-                          </div>
-                          <div className="text-green-600 text-xs">تحویل شده</div>
-                        </div>
-                        <div className="text-center p-3 bg-orange-50 rounded-lg border border-orange-200">
-                          <FaClock className="text-orange-600 text-xl mx-auto mb-1" />
-                          <div className="text-lg font-bold text-orange-700">
-                            {formatNumber(metric.pending)}
-                          </div>
-                          <div className="text-orange-600 text-xs">در انتظار</div>
-                        </div>
-                      </div>
+                {isSelected ? (
+                  <>
+                    <div className="text-2xl font-bold text-gray-800 mb-2">
+                      {metric.formatter(metric.value)}
                     </div>
-                  ) : (
-                    // When not selected, show a placeholder or nothing
-                    <div className="text-gray-400 text-center py-4">
-                      برای نمایش اطلاعات کلیک کنید
-                    </div>
-                  )
+                    <p className="text-gray-600 text-sm">{metric.description}</p>
+                  </>
                 ) : (
-                  // Regular metric – show value only when selected
-                  isSelected ? (
-                    <>
-                      <div className="text-2xl font-bold text-gray-800 mb-2">
-                        {metric.formatter(metric.value)}
-                      </div>
-                      <p className="text-gray-600 text-sm">{metric.description}</p>
-                    </>
-                  ) : (
-                    <div className="text-gray-400 text-center py-4">
-                      برای نمایش اطلاعات کلیک کنید
-                    </div>
-                  )
+                  <div className="text-gray-400 text-center py-4">
+                    Click to view details
+                  </div>
                 )}
               </div>
             </div>
@@ -264,10 +244,10 @@ const DashboardHome = () => {
         })}
       </div>
 
-      {/* Optional: show a hint when nothing is selected */}
+      {/* Hint when nothing is selected */}
       {selectedMetricIndex === null && (
         <div className="text-center text-gray-500 bg-gray-50 rounded-lg p-4">
-          روی هر کارت کلیک کنید تا اطلاعات مربوط به آن نمایش داده شود.
+          Click any card to see the corresponding amount.
         </div>
       )}
     </div>
