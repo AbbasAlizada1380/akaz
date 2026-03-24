@@ -1,14 +1,28 @@
-// Sidebar.js (Corrected Role Handling)
-
 import React, { useState } from "react";
-import { FaBuilding, FaSignOutAlt } from "react-icons/fa";
 import { useSelector, useDispatch } from "react-redux";
 import { signOutSuccess } from "../../state/userSlice/userSlice";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import withReactContent from "sweetalert2-react-content";
-
-import { MdOutlineDashboardCustomize } from "react-icons/md";
+import { 
+  MdOutlineDashboardCustomize, 
+  MdInventory, 
+  MdAttachMoney, 
+  MdPayments, 
+  MdBusinessCenter, 
+  MdPeople,
+  MdPersonAdd 
+} from "react-icons/md";
+import { 
+  FaBoxes, 
+  FaMoneyBillWave, 
+  FaReceipt, 
+  FaBuilding, 
+  FaHandshake, 
+  FaUserTie, 
+  FaMoneyCheckAlt, 
+  FaSignOutAlt 
+} from "react-icons/fa";
 import { LucideUserRoundPlus } from "lucide-react";
 import { FaList } from "react-icons/fa";
 import { MdAddShoppingCart } from "react-icons/md";
@@ -38,21 +52,18 @@ const Sidebar = ({ setActiveComponent }) => {
       }
     });
   };
-  const AllComponents = [
-    { name: "Home Page", value: "home", icon: <MdOutlineDashboardCustomize /> },
-    { name: "Stock ", value: "stock", icon: <MdAddShoppingCart /> },
-    { name: "Finance ", value: "finance", icon: <MdAddShoppingCart /> },
-    { name: "Expense ", value: "expense", icon: <MdAddShoppingCart /> },
-    { name: "Department  ", value: "department", icon: <MdAddShoppingCart /> },
-    { name: "Stake Holders ", value: "stakeHolders", icon: <MdAddShoppingCart /> },
-    // { name: "Members", value: "memberManager", icon: <FaList /> },
-    {
-      name: "User Management",
-      value: "AddUser",
-      icon: <LucideUserRoundPlus />,
-    },
-    { name: "sign out", value: "signout", icon: <FaSignOutAlt /> },
-  ];
+const AllComponents = [
+  { name: "Home Page", value: "home", icon: <MdOutlineDashboardCustomize /> },
+  { name: "Stock", value: "stock", icon: <FaBoxes /> },
+  { name: "Finance", value: "finance", icon: <FaMoneyBillWave /> },
+  { name: "Expense", value: "expense", icon: <FaReceipt /> },
+  { name: "Department", value: "department", icon: <FaBuilding /> },
+  { name: "Stake Holders", value: "stakeHolders", icon: <FaHandshake /> },
+  { name: "Staff Management", value: "staff", icon: <FaUserTie /> },
+  { name: "Salary", value: "salary", icon: <FaMoneyCheckAlt /> },
+  { name: "User Management", value: "AddUser", icon: <LucideUserRoundPlus /> },
+  { name: "sign out", value: "signout", icon: <FaSignOutAlt /> },
+];
 
   let accessibleComponents = [];
 
