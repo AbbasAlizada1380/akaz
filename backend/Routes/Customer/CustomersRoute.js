@@ -9,6 +9,7 @@ import {
   deleteCustomer,
   searchCustomers,
   getActiveCustomers,
+  toggleCustomerStatus,
 } from "../../Controllers/Customer/CustomersController.js";
 
 const CustomerRoute = express.Router();
@@ -21,5 +22,6 @@ CustomerRoute.get("/", getCustomers);
 CustomerRoute.get("/:id", getCustomerById);
 CustomerRoute.put("/:id", updateCustomer);
 CustomerRoute.delete("/:id", deleteCustomer);
+CustomerRoute.patch("/:id/toggle-status", toggleCustomerStatus);
 
 export default CustomerRoute;

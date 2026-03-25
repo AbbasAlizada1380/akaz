@@ -11,14 +11,11 @@ export const createSell = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { stockIncome, customer, amount, unitPrice, received } = req.body;
+    const { stockIncome, customer, newCustomerName, amount, unitPrice, received } = req.body;
 
-    // --- Validation (unchanged) ---
+    // --- Validation (modified) ---
     if (!stockIncome) {
       return res.status(400).json({ message: "StockIncome ID is required" });
-    }
-    if (!customer) {
-      return res.status(400).json({ message: "Customer is required" });
     }
     if (!amount || amount <= 0) {
       return res.status(400).json({ message: "Amount must be greater than 0" });
@@ -27,20 +24,44 @@ export const createSell = async (req, res) => {
       return res.status(400).json({ message: "Unit price is required" });
     }
 
-    // --- Extract customer ID (unchanged) ---
+    // --- Customer handling (either existing or new) ---
     let customerId;
-    if (typeof customer === 'object' && customer !== null) {
-      if (!customer.id) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "Customer object must contain an id" });
+    let customerRecord;
+
+    if (customer) {
+      // Existing customer
+      if (typeof customer === 'object' && customer !== null) {
+        if (!customer.id) {
+          await transaction.rollback();
+          return res.status(400).json({ message: "Customer object must contain an id" });
+        }
+        customerId = customer.id;
+      } else {
+        customerId = parseInt(customer, 10);
+        if (isNaN(customerId)) {
+          await transaction.rollback();
+          return res.status(400).json({ message: "Customer must be a valid ID or an object with id" });
+        }
       }
-      customerId = customer.id;
+
+      customerRecord = await Customer.findByPk(customerId, { transaction });
+      if (!customerRecord) {
+        await transaction.rollback();
+        return res.status(404).json({ message: "Customer not found" });
+      }
+    } else if (newCustomerName) {
+      // Create new customer
+      customerRecord = await Customer.create(
+        {
+          fullname: newCustomerName.trim(),
+          isActive: false,   // adjust as per your business logic
+        },
+        { transaction }
+      );
+      customerId = customerRecord.id;
     } else {
-      customerId = parseInt(customer, 10);
-      if (isNaN(customerId)) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "Customer must be a valid ID or an object with id" });
-      }
+      await transaction.rollback();
+      return res.status(400).json({ message: "Either customer or newCustomerName is required" });
     }
 
     // --- Fetch stock (unchanged) ---
@@ -118,7 +139,7 @@ export const createSell = async (req, res) => {
       );
     }
 
-    // Find or create CustomerAccount with lock
+    // --- Find or create CustomerAccount with lock ---
     let customerAccount = await CustomerAccount.findOne({
       where: { customerId },
       transaction,
@@ -135,7 +156,7 @@ export const createSell = async (req, res) => {
           paid: isFullyPaid ? [newSell.id] : [],
           unpaid: !isFullyPaid ? [newSell.id] : [],
           total: [newSell.id],
-          receive: newReceive ? [newReceive.id] : [],   // <-- NEW: add receive ID if any
+          receive: newReceive ? [newReceive.id] : [],
         },
         { transaction }
       );
@@ -144,7 +165,7 @@ export const createSell = async (req, res) => {
       const currentPaid = Array.isArray(customerAccount.paid) ? [...customerAccount.paid] : [];
       const currentUnpaid = Array.isArray(customerAccount.unpaid) ? [...customerAccount.unpaid] : [];
       const currentTotal = Array.isArray(customerAccount.total) ? [...customerAccount.total] : [];
-      const currentReceived = Array.isArray(customerAccount.receive) ? [...customerAccount.receive] : []; // <-- NEW
+      const currentReceived = Array.isArray(customerAccount.receive) ? [...customerAccount.receive] : [];
 
       // Always add sell ID to total (if not already present)
       if (!currentTotal.includes(newSell.id)) {
@@ -170,7 +191,7 @@ export const createSell = async (req, res) => {
         }
       }
 
-      // --- NEW: Add receive ID to received array if a receive was created ---
+      // Add receive ID to received array if a receive was created
       if (newReceive && !currentReceived.includes(newReceive.id)) {
         currentReceived.push(newReceive.id);
       }
@@ -181,7 +202,7 @@ export const createSell = async (req, res) => {
           paid: currentPaid,
           unpaid: currentUnpaid,
           total: currentTotal,
-          receive: currentReceived,   // <-- NEW
+          receive: currentReceived,
         },
         { transaction }
       );

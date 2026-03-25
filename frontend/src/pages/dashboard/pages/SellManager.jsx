@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { FiPlus, FiTrash2, FiEdit2, FiSave, FiX, FiEye } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiEdit2, FiEye } from "react-icons/fi";
 import { FaPrint } from "react-icons/fa";
 import { useSelector } from "react-redux";
-import PrintBillOrder from './PrintOrderBill';      // <-- import print component
+import PrintBillOrder from "./PrintOrderBill";
+
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const SellManager = () => {
-  const [printAuto, setPrintAuto] = useState(false);   // <-- new state for auto‑print
+  const [printAuto, setPrintAuto] = useState(false);
   const [printBillOpen, setPrintBillOpen] = useState(false);
   const [printBillData, setPrintBillData] = useState(null);
   const { accessToken } = useSelector((state) => state.user);
@@ -23,9 +24,14 @@ const SellManager = () => {
   const [viewingRecord, setViewingRecord] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
 
+  // State for inline customer addition (backend will create)
+  const [addingCustomer, setAddingCustomer] = useState(false);
+  const [newCustomerName, setNewCustomerName] = useState("");
+  const [submitting, setSubmitting] = useState(false); // to disable submit button
+
   const [formData, setFormData] = useState({
     stockIncome: "",
-    customer: {},
+    customer: "",      // selected customer ID
     amount: "",
     unitPrice: "",
     received: "",
@@ -39,9 +45,8 @@ const SellManager = () => {
 
   // Handler to print an existing sell
   const handlePrintSell = (sell) => {
-    console.log(sell);
     setPrintBillData(sell);
-    setPrintAuto(false);   // manual print → no auto
+    setPrintAuto(false);
     setPrintBillOpen(true);
   };
 
@@ -56,7 +61,6 @@ const SellManager = () => {
       console.error("Error fetching customers:", error);
     }
   };
-
 
   const fetchStockIncomes = async () => {
     try {
@@ -75,7 +79,6 @@ const SellManager = () => {
           Authorization: `Bearer ${accessToken}`,
         },
       });
-
       setSells(res.data);
     } catch (error) {
       console.error("Error fetching sells:", error);
@@ -119,11 +122,9 @@ const SellManager = () => {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     if (name === "customer") {
-      // When customer dropdown changes, find the full customer object by ID
       const customerObj = customers.find(c => c.id === parseInt(value));
       setSelectedCustomer(customerObj);
-      // Optionally store the ID in formData if needed elsewhere
-      setFormData(prev => ({ ...prev, customer: value })); // keep ID for reference
+      setFormData(prev => ({ ...prev, customer: value }));
     } else {
       setFormData(prev => ({ ...prev, [name]: value }));
     }
@@ -135,36 +136,61 @@ const SellManager = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
 
-    if (!formData.stockIncome || !formData.customer || !formData.amount || !formData.unitPrice) {
+    // Validate required fields
+    if (!formData.stockIncome || !formData.amount || !formData.unitPrice) {
       showNotification('Please fill in all required fields', 'error');
       return;
     }
 
-    const data = {
+    // Prepare payload according to backend expectation
+    let payload = {
       stockIncome: formData.stockIncome,
-      customer: selectedCustomer,
       amount: parseInt(formData.amount),
       unitPrice: parseFloat(formData.unitPrice),
       received: parseFloat(formData.received) || 0,
     };
 
+    if (addingCustomer) {
+      // We are adding a new customer – send the new customer name
+      if (!newCustomerName.trim()) {
+        showNotification('Please enter a customer name', 'error');
+        return;
+      }
+      payload.newCustomerName = newCustomerName.trim();
+    } else {
+      // Use existing customer ID
+      if (!formData.customer) {
+        showNotification('Please select a customer', 'error');
+        return;
+      }
+      payload.customer = formData.customer; // send ID as string/number
+    }
+
+    setSubmitting(true);
     try {
+      console.log(payload);
+
       if (editingRecord) {
-        await axios.put(`${BASE_URL}/sells/${editingRecord.id}`, data);
+        await axios.put(`${BASE_URL}/sells/${editingRecord.id}`, payload);
         showNotification('Sell updated successfully');
       } else {
-        await axios.post(`${BASE_URL}/sells/create`, data);
+        await axios.post(`${BASE_URL}/sells/create`, payload);
         showNotification('Sell created successfully');
       }
 
       setModalVisible(false);
       resetForm();
+      // Refresh data
       fetchSells();
-      fetchStockIncomes()
+      fetchStockIncomes();
+      fetchCustomers(); // in case a new customer was created, update the list
     } catch (error) {
       console.error("Error submitting form:", error);
       showNotification('Operation failed', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -185,7 +211,7 @@ const SellManager = () => {
     setEditingRecord(record);
     setFormData({
       stockIncome: record.stockIncome,
-      customer: record.customer,
+      customer: record.customer?.id || record.customer, // adjust based on how customer is stored
       amount: record.amount,
       unitPrice: record.unitPrice,
       received: record.received,
@@ -194,6 +220,9 @@ const SellManager = () => {
     const selected = stockIncomes.find(item => item.id === parseInt(record.stockIncome));
     setSelectedStockIncome(selected || null);
     setModalVisible(true);
+    // Reset customer addition state
+    setAddingCustomer(false);
+    setNewCustomerName("");
   };
 
   const handleView = (record) => {
@@ -209,13 +238,16 @@ const SellManager = () => {
   const resetForm = () => {
     setFormData({
       stockIncome: "",
-      customer: [],
+      customer: "",
       amount: "",
       unitPrice: "",
       received: "",
     });
     setSelectedStockIncome(null);
     setEditingRecord(null);
+    setAddingCustomer(false);
+    setNewCustomerName("");
+    setSelectedCustomer(null);
   };
 
   /* =========================
@@ -314,7 +346,7 @@ const SellManager = () => {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Table (unchanged) */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -363,10 +395,7 @@ const SellManager = () => {
                 filteredAndSortedData.map((sell) => {
                   const relatedStock = stockIncomes.find(item => item.id === parseInt(sell.stockIncome));
                   return (
-                    <tr
-                      key={sell.id}
-                      className="hover:bg-primary/5 transition-colors group"
-                    >
+                    <tr key={sell.id} className="hover:bg-primary/5 transition-colors group">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm font-medium text-gray-900">#{sell.id}</span>
                       </td>
@@ -426,7 +455,6 @@ const SellManager = () => {
                           >
                             <FiTrash2 className="w-5 h-5" />
                           </button>
-
                           <button
                             onClick={() => handlePrintSell(sell)}
                             className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
@@ -449,7 +477,6 @@ const SellManager = () => {
       {modalVisible && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
           <div className="relative top-20 mx-auto p-0 border w-full max-w-2xl shadow-2xl rounded-xl bg-white overflow-hidden">
-            {/* Modal Header with gradient */}
             <div className="bg-gradient-to-r from-primary to-primary/90 px-6 py-4">
               <div className="flex justify-between items-center">
                 <h3 className="text-xl font-bold text-white">
@@ -533,27 +560,59 @@ const SellManager = () => {
                   </div>
                 )}
 
-                {/* Customer Dropdown */}
-                <div>
+                {/* Customer Section – with inline addition */}
+                <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Customer <span className="text-red-500">*</span>
                   </label>
-                  <select
-                    name="customer"
-                    value={formData.customer} // store the ID for controlled component
-                    onChange={handleInputChange}
-                    className="w-full border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
-                    required
-                  >
-                    <option value="">Select Customer</option>
-                    {customers.map((cust) => (
-                      <option key={cust.id} value={cust.id}> {/* value is ID, not object */}
-                        {cust.fullname} - {cust.phoneNumber}
-                      </option>
-                    ))}
-                  </select>
+                  {addingCustomer ? (
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        value={newCustomerName}
+                        onChange={(e) => setNewCustomerName(e.target.value)}
+                        placeholder="New customer name"
+                        className="w-full border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          // Simply close the addition mode; no frontend creation
+                          setAddingCustomer(false);
+                          setNewCustomerName("");
+                        }}
+                        className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2 items-center">
+                      <select
+                        name="customer"
+                        value={formData.customer}
+                        onChange={handleInputChange}
+                        className="w-full border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
+                        required={!addingCustomer}
+                      >
+                        <option value="">Select Customer</option>
+                        {customers.map((cust) => (
+                          <option key={cust.id} value={cust.id}>
+                            {cust.fullname} - {cust.phoneNumber}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setAddingCustomer(true)}
+                        className="bg-primary text-white p-2 rounded-lg hover:bg-primary/90"
+                        title="Add new customer"
+                      >
+                        <FiPlus className="w-5 h-5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
-
 
                 {/* Amount */}
                 <div>
@@ -643,9 +702,13 @@ const SellManager = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors font-medium shadow-lg hover:shadow-xl transform hover:scale-105"
+                  disabled={submitting}
+                  className={`px-6 py-2.5 rounded-lg font-medium shadow-lg hover:shadow-xl transform hover:scale-105 transition-colors ${submitting
+                      ? "bg-gray-400 cursor-not-allowed"
+                      : "bg-primary text-white hover:bg-primary/90"
+                    }`}
                 >
-                  {editingRecord ? 'Update' : 'Create'}
+                  {submitting ? "Processing..." : (editingRecord ? 'Update' : 'Create')}
                 </button>
               </div>
             </form>
@@ -653,7 +716,7 @@ const SellManager = () => {
         </div>
       )}
 
-      {/* View Modal */}
+      {/* View Modal (unchanged) */}
       {viewModalVisible && viewingRecord && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
           <div className="relative top-20 mx-auto p-0 border w-full max-w-2xl shadow-2xl rounded-xl bg-white overflow-hidden">
@@ -730,7 +793,7 @@ const SellManager = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal (unchanged) */}
       {deleteModalVisible && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
           <div className="relative top-20 mx-auto p-0 border w-96 shadow-2xl rounded-xl bg-white overflow-hidden">
@@ -766,11 +829,12 @@ const SellManager = () => {
           </div>
         </div>
       )}
+
       <PrintBillOrder
         isOpen={printBillOpen}
         onClose={() => setPrintBillOpen(false)}
         order={printBillData}
-        autoPrint={true}   // auto‑print after creation
+        autoPrint={true}
       />
     </div>
   );

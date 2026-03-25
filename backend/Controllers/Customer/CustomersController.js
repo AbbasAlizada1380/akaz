@@ -323,3 +323,32 @@ export const updateCustomerDepartment = async (req, res) => {
     });
   }
 };
+/* ===========================
+   Toggle Customer Status (Active/Inactive)
+=========================== */
+export const toggleCustomerStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const customer = await Customer.findByPk(id);
+    if (!customer) {
+      return res.status(404).json({ message: "Customer not found" });
+    }
+
+    const newStatus = !customer.isActive;
+    await customer.update({ isActive: newStatus });
+
+    res.json({
+      success: true,
+      message: `Customer ${newStatus ? 'activated' : 'deactivated'} successfully`,
+      customer
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ 
+      success: false,
+      message: "Error toggling customer status", 
+      error: error.message 
+    });
+  }
+};
