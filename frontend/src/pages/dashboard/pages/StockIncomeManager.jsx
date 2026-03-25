@@ -1,4 +1,3 @@
-// components/StockIncomeManager.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FiPlus, FiTrash2, FiEdit2, FiSave, FiX } from 'react-icons/fi';
@@ -17,6 +16,11 @@ const StockIncomeManager = () => {
     const [viewingRecord, setViewingRecord] = useState(null);
     const [deleteId, setDeleteId] = useState(null);
 
+    // State for inline seller addition
+    const [addingSeller, setAddingSeller] = useState(false);
+    const [newSellerName, setNewSellerName] = useState("");
+    const [submitting, setSubmitting] = useState(false);
+
     // Specifications state
     const [specs, setSpecs] = useState([]);
     const [editingSpec, setEditingSpec] = useState(null);
@@ -34,17 +38,15 @@ const StockIncomeManager = () => {
     const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
     const [filters, setFilters] = useState({ department: null, type: null });
 
-    // Specifications helper functions
+    // Specifications helper functions (unchanged)
     const handleAddSpec = () => {
         if (newSpec.key.trim() && newSpec.value.trim()) {
             if (editingSpec !== null) {
-                // Update existing spec
                 const updatedSpecs = [...specs];
                 updatedSpecs[editingSpec] = newSpec;
                 setSpecs(updatedSpecs);
                 setEditingSpec(null);
             } else {
-                // Add new spec
                 setSpecs([...specs, newSpec]);
             }
             setNewSpec({ key: '', value: '' });
@@ -84,20 +86,18 @@ const StockIncomeManager = () => {
         return Object.entries(json).map(([key, value]) => ({ key, value }));
     };
 
-    // Fetch all data on component mount
+    // Fetch all data
     useEffect(() => {
         fetchStockIncomes();
         fetchDepartments();
         fetchSellers();
     }, []);
 
-    // Fetch stock incomes
     const fetchStockIncomes = async () => {
         setLoading(true);
         try {
             const response = await axios.get(`${BASE_URL}/stockIncome`);
             setStockIncomes(response.data);
-            console.log(response.data);
         } catch (error) {
             showNotification('Failed to fetch stock incomes', 'error');
             console.error('Error:', error);
@@ -106,34 +106,28 @@ const StockIncomeManager = () => {
         }
     };
 
-    // Fetch departments
     const fetchDepartments = async () => {
         try {
             const response = await axios.get(`${BASE_URL}/department`);
             setDepartments(response.data.data);
-            console.log(response.data);
         } catch (error) {
             console.error('Error fetching departments:', error);
         }
     };
 
-    // Fetch sellers
     const fetchSellers = async () => {
         try {
             const response = await axios.get(`${BASE_URL}/seller`);
             setSellers(response.data.data);
-            console.log(response.data);
         } catch (error) {
             console.error('Error fetching sellers:', error);
         }
     };
 
-    // Show notification
     const showNotification = (message, type = 'success') => {
         alert(message);
     };
 
-    // Calculate total and remaining
     const calculateTotals = (values) => {
         const quantity = Number(values.quantity) || 0;
         const unitPrice = Number(values.unitPrice) || 0;
@@ -149,7 +143,6 @@ const StockIncomeManager = () => {
         };
     };
 
-    // Handle form input changes
     const handleInputChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({
@@ -158,7 +151,6 @@ const StockIncomeManager = () => {
         }));
     };
 
-    // Handle number input changes
     const handleNumberChange = (name, value) => {
         setFormData(prev => ({
             ...prev,
@@ -166,7 +158,6 @@ const StockIncomeManager = () => {
         }));
     };
 
-    // Handle select changes
     const handleSelectChange = (name, value) => {
         setFormData(prev => ({
             ...prev,
@@ -174,43 +165,65 @@ const StockIncomeManager = () => {
         }));
     };
 
-    // Handle form submission for create/update
+    // Updated submit handler – now can send either sellerId or newSellerName
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (submitting) return;
 
         // Basic validation
-        if (!formData.name || !formData.departmentId || !formData.sellerId) {
+        if (!formData.name || !formData.departmentId) {
             showNotification('Please fill in all required fields', 'error');
             return;
         }
 
-        try {
-            const specifications = specsToJSON();
-            const calculatedValues = calculateTotals({
-                ...formData,
-                specifications
-            });
+        // Seller validation
+        if (!addingSeller && !formData.sellerId) {
+            showNotification('Please select a seller', 'error');
+            return;
+        }
+        if (addingSeller && !newSellerName.trim()) {
+            showNotification('Please enter a seller name', 'error');
+            return;
+        }
 
+        const payload = {
+            name: formData.name,
+            type: formData.type,
+            quantity: Number(formData.quantity),
+            unitPrice: Number(formData.unitPrice),
+            received: Number(formData.received),
+            departmentId: Number(formData.departmentId),
+            specifications: specsToJSON(),
+        };
+
+        if (addingSeller) {
+            payload.newSellerName = newSellerName.trim();
+        } else {
+            payload.sellerId = Number(formData.sellerId);
+        }
+
+        setSubmitting(true);
+        try {
             if (editingRecord) {
-                // Update
-                await axios.put(`${BASE_URL}/stockIncome/${editingRecord.id}`, calculatedValues);
+                await axios.put(`${BASE_URL}/stockIncome/${editingRecord.id}`, payload);
                 showNotification('Stock income updated successfully');
             } else {
-                // Create
-                await axios.post(`${BASE_URL}/stockIncome`, calculatedValues);
+                await axios.post(`${BASE_URL}/stockIncome`, payload);
                 showNotification('Stock income created successfully');
             }
 
             setModalVisible(false);
             resetForm();
             fetchStockIncomes();
+            fetchSellers(); // Refresh sellers in case a new one was created
         } catch (error) {
             showNotification('Operation failed', 'error');
             console.error('Error:', error);
+        } finally {
+            setSubmitting(false);
         }
     };
 
-    // Handle delete
     const handleDelete = async () => {
         try {
             await axios.delete(`${BASE_URL}/stockIncome/${deleteId}`);
@@ -224,7 +237,6 @@ const StockIncomeManager = () => {
         }
     };
 
-    // Open modal for editing
     const handleEdit = (record) => {
         setEditingRecord(record);
         setFormData({
@@ -237,22 +249,21 @@ const StockIncomeManager = () => {
             sellerId: record.sellerId || '',
         });
         setSpecs(jsonToSpecs(record.specifications));
+        setAddingSeller(false);
+        setNewSellerName('');
         setModalVisible(true);
     };
 
-    // Open modal for viewing
     const handleView = (record) => {
         setViewingRecord(record);
         setViewModalVisible(true);
     };
 
-    // Open delete confirmation
     const handleDeleteClick = (id) => {
         setDeleteId(id);
         setDeleteModalVisible(true);
     };
 
-    // Reset form
     const resetForm = () => {
         setFormData({
             name: '',
@@ -267,9 +278,10 @@ const StockIncomeManager = () => {
         setNewSpec({ key: '', value: '' });
         setEditingSpec(null);
         setEditingRecord(null);
+        setAddingSeller(false);
+        setNewSellerName('');
     };
 
-    // Sorting function
     const requestSort = (key) => {
         let direction = 'asc';
         if (sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -278,11 +290,9 @@ const StockIncomeManager = () => {
         setSortConfig({ key, direction });
     };
 
-    // Filtering function
     const getFilteredAndSortedData = () => {
         let filteredData = [...stockIncomes];
 
-        // Apply filters
         if (filters.department) {
             filteredData = filteredData.filter(item => item.departmentId === filters.department);
         }
@@ -290,7 +300,6 @@ const StockIncomeManager = () => {
             filteredData = filteredData.filter(item => item.type === filters.type);
         }
 
-        // Apply sorting
         if (sortConfig.key) {
             filteredData.sort((a, b) => {
                 let aValue = a[sortConfig.key];
@@ -300,8 +309,8 @@ const StockIncomeManager = () => {
                     aValue = a.department?.name || '';
                     bValue = b.department?.name || '';
                 } else if (sortConfig.key === 'seller') {
-                    aValue = a.seller?.name || '';
-                    bValue = b.seller?.name || '';
+                    aValue = a.seller?.fullname || '';
+                    bValue = b.seller?.fullname || '';
                 }
 
                 if (aValue < bValue) {
@@ -319,7 +328,6 @@ const StockIncomeManager = () => {
 
     const filteredAndSortedData = getFilteredAndSortedData();
 
-    // Table header component with sorting
     const SortableHeader = ({ label, sortKey }) => (
         <th
             className="px-6 py-3 text-left text-sm font-bold text-white uppercase tracking-wider cursor-pointer hover:bg-primary"
@@ -333,12 +341,12 @@ const StockIncomeManager = () => {
             </div>
         </th>
     );
+
     return (
         <div className="p-6 max-w-7xl mx-auto">
-            {/* Header with gradient background */}
+            {/* Header (unchanged) */}
             <div className="mb-8 relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-primary to-transparent rounded-2xl -z-10"></div>
-
                 <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
                     <div className="flex items-center gap-3">
                         <div className="p-3 bg-primary rounded-xl">
@@ -351,7 +359,6 @@ const StockIncomeManager = () => {
                             <p className="text-sm text-gray-500 mt-1">Track and manage all stock income transactions</p>
                         </div>
                     </div>
-
                     <button
                         onClick={() => {
                             resetForm();
@@ -367,7 +374,7 @@ const StockIncomeManager = () => {
                 </div>
             </div>
 
-            {/* Table with improved styling */}
+            {/* Table (unchanged) */}
             <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
@@ -415,10 +422,7 @@ const StockIncomeManager = () => {
                                 </tr>
                             ) : (
                                 filteredAndSortedData.map((item) => (
-                                    <tr
-                                        key={item.id}
-                                        className="hover:bg-primary/50 transition-colors group"
-                                    >
+                                    <tr key={item.id} className="hover:bg-primary/50 transition-colors group">
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center gap-3">
                                                 <span className="text-sm font-medium text-gray-900 group-hover: transition-colors">
@@ -427,7 +431,7 @@ const StockIncomeManager = () => {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
-                                            <span className="px-3 py-1 bg-primary  rounded-full text-xs font-medium">
+                                            <span className="px-3 py-1 bg-primary rounded-full text-xs font-medium">
                                                 {item.type || '-'}
                                             </span>
                                         </td>
@@ -461,7 +465,7 @@ const StockIncomeManager = () => {
                                             <div className="flex gap-2">
                                                 <button
                                                     onClick={() => handleView(item)}
-                                                    className="p-2  hover:bg-primary rounded-lg transition-all"
+                                                    className="p-2 hover:bg-primary rounded-lg transition-all"
                                                     title="View"
                                                 >
                                                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -497,11 +501,10 @@ const StockIncomeManager = () => {
                 </div>
             </div>
 
-            {/* Create/Edit Modal with dynamic specifications */}
+            {/* Create/Edit Modal */}
             {modalVisible && (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
                     <div className="relative top-20 mx-auto p-0 border w-full max-w-2xl shadow-2xl rounded-xl bg-white overflow-hidden">
-                        {/* Modal Header with gradient */}
                         <div className="bg-gradient-to-r from-primary to-primary px-6 py-4">
                             <div className="flex justify-between items-center">
                                 <h3 className="text-xl font-bold text-white">
@@ -525,7 +528,7 @@ const StockIncomeManager = () => {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Name <span className="">*</span>
+                                        Name <span className="text-red-500">*</span>
                                     </label>
                                     <input
                                         type="text"
@@ -555,7 +558,7 @@ const StockIncomeManager = () => {
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Quantity <span className="">*</span>
+                                        Quantity <span className="text-red-500">*</span>
                                     </label>
                                     <input
                                         type="number"
@@ -569,7 +572,7 @@ const StockIncomeManager = () => {
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Unit Price <span className="">*</span>
+                                        Unit Price <span className="text-red-500">*</span>
                                     </label>
                                     <div className="relative">
                                         <span className="absolute left-3 top-3 text-gray-500">$</span>
@@ -587,7 +590,7 @@ const StockIncomeManager = () => {
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Received Amount <span className="">*</span>
+                                        Received Amount
                                     </label>
                                     <div className="relative">
                                         <span className="absolute left-3 top-3 text-gray-500">$</span>
@@ -598,14 +601,13 @@ const StockIncomeManager = () => {
                                             value={formData.received}
                                             onChange={(e) => handleNumberChange('received', parseFloat(e.target.value) || 0)}
                                             className="w-full border border-gray-200 rounded-lg pl-8 pr-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
-                                            required
                                         />
                                     </div>
                                 </div>
 
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Department <span className="">*</span>
+                                        Department <span className="text-red-500">*</span>
                                     </label>
                                     <select
                                         value={formData.departmentId}
@@ -620,31 +622,63 @@ const StockIncomeManager = () => {
                                     </select>
                                 </div>
 
-                                <div>
+                                {/* Seller Section with inline addition */}
+                                <div className="md:col-span-2">
                                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Seller <span className="">*</span>
+                                        Seller <span className="text-red-500">*</span>
                                     </label>
-                                    <select
-                                        value={formData.sellerId}
-                                        onChange={(e) => handleSelectChange('sellerId', e.target.value)}
-                                        className="w-full border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
-                                        required
-                                    >
-                                        <option value="">Select seller</option>
-                                        {Array.isArray(sellers) && sellers.map(seller => (
-                                            <option key={seller.id} value={seller.id}>{seller.fullname}</option>
-                                        ))}
-                                    </select>
+                                    {addingSeller ? (
+                                        <div className="flex gap-2 items-center">
+                                            <input
+                                                type="text"
+                                                value={newSellerName}
+                                                onChange={(e) => setNewSellerName(e.target.value)}
+                                                placeholder="New seller name"
+                                                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    // No frontend creation – just switch back
+                                                    setAddingSeller(false);
+                                                    setNewSellerName("");
+                                                }}
+                                                className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50"
+                                            >
+                                                Cancel
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex gap-2 items-center">
+                                            <select
+                                                value={formData.sellerId}
+                                                onChange={(e) => handleSelectChange('sellerId', e.target.value)}
+                                                className="w-full border border-gray-200 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all bg-gray-50 hover:bg-white"
+                                                required={!addingSeller}
+                                            >
+                                                <option value="">Select seller</option>
+                                                {Array.isArray(sellers) && sellers.map(seller => (
+                                                    <option key={seller.id} value={seller.id}>{seller.fullname}</option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                type="button"
+                                                onClick={() => setAddingSeller(true)}
+                                                className="bg-primary text-white p-2 rounded-lg hover:bg-primary/90"
+                                                title="Add new seller"
+                                            >
+                                                <FiPlus className="w-5 h-5" />
+                                            </button>
+                                        </div>
+                                    )}
                                 </div>
 
-                                {/* Dynamic Specifications Section */}
+                                {/* Specifications Section (unchanged) */}
                                 <div className="md:col-span-2">
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
                                         Specifications
                                         <span className="text-xs text-gray-500 ml-2">(Add key-value pairs)</span>
                                     </label>
-
-                                    {/* Key-Value Input Row */}
                                     <div className="flex gap-2 mb-3">
                                         <input
                                             type="text"
@@ -679,8 +713,6 @@ const StockIncomeManager = () => {
                                             </button>
                                         )}
                                     </div>
-
-                                    {/* Specifications List */}
                                     {specs.length > 0 && (
                                         <div className="mt-4 space-y-2">
                                             <p className="text-sm font-medium text-gray-700">Added Specifications:</p>
@@ -733,9 +765,14 @@ const StockIncomeManager = () => {
                                 </button>
                                 <button
                                     type="submit"
-                                    className="px-6 py-2.5 bg-primary text-white rounded-lg hover:bg-primary transition-colors font-medium shadow-lg hover:shadow-xl transform hover:scale-105"
+                                    disabled={submitting}
+                                    className={`px-6 py-2.5 rounded-lg font-medium shadow-lg hover:shadow-xl transform hover:scale-105 transition-colors ${
+                                        submitting
+                                            ? "bg-gray-400 cursor-not-allowed"
+                                            : "bg-primary text-white hover:bg-primary/90"
+                                    }`}
                                 >
-                                    {editingRecord ? 'Update' : 'Create'}
+                                    {submitting ? "Processing..." : (editingRecord ? 'Update' : 'Create')}
                                 </button>
                             </div>
                         </form>
@@ -743,7 +780,7 @@ const StockIncomeManager = () => {
                 </div>
             )}
 
-            {/* View Modal with specifications */}
+            {/* View Modal (unchanged) */}
             {viewModalVisible && viewingRecord && (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
                     <div className="relative top-20 mx-auto p-0 border w-full max-w-2xl shadow-2xl rounded-xl bg-white overflow-hidden">
@@ -777,7 +814,7 @@ const StockIncomeManager = () => {
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
                                     <p className="text-xs text-gray-500 mb-1">Unit Price</p>
-                                    <p className="font-semibold ">${Number(viewingRecord.unitPrice).toFixed(2)}</p>
+                                    <p className="font-semibold text-primary">${Number(viewingRecord.unitPrice).toFixed(2)}</p>
                                 </div>
                                 <div className="bg-gray-50 p-3 rounded-lg">
                                     <p className="text-xs text-gray-500 mb-1">Total</p>
@@ -809,8 +846,6 @@ const StockIncomeManager = () => {
                                     <p className="text-xs text-gray-500 mb-1">Last Updated</p>
                                     <p className="font-semibold text-gray-900">{new Date(viewingRecord.updatedAt).toLocaleString()}</p>
                                 </div>
-
-                                {/* Specifications Display */}
                                 <div className="col-span-2">
                                     <p className="text-xs text-gray-500 mb-2">Specifications</p>
                                     {viewingRecord.specifications && Object.keys(viewingRecord.specifications).length > 0 ? (
@@ -819,7 +854,7 @@ const StockIncomeManager = () => {
                                                 {Object.entries(viewingRecord.specifications).map(([key, value], index) => (
                                                     <div key={index} className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-100">
                                                         <span className="text-xs font-medium text-gray-500">{key}:</span>
-                                                        <span className="text-sm font-semibold ">{value}</span>
+                                                        <span className="text-sm font-semibold text-primary">{value}</span>
                                                     </div>
                                                 ))}
                                             </div>
@@ -833,7 +868,7 @@ const StockIncomeManager = () => {
                             <div className="flex justify-end mt-6">
                                 <button
                                     onClick={() => setViewModalVisible(false)}
-                                    className="px-6 py-2.5 bg-primary text-white rounded-lg hover:bg-primary transition-colors font-medium"
+                                    className="px-6 py-2.5 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors font-medium"
                                 >
                                     Close
                                 </button>
@@ -843,7 +878,7 @@ const StockIncomeManager = () => {
                 </div>
             )}
 
-            {/* Delete Confirmation Modal */}
+            {/* Delete Confirmation Modal (unchanged) */}
             {deleteModalVisible && (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
                     <div className="relative top-20 mx-auto p-0 border w-96 shadow-2xl rounded-xl bg-white overflow-hidden">

@@ -7,6 +7,7 @@ import {
   deleteSeller,
   getSellersWithUnpaidStockIncome,
 } from "../../Controllers/Seller/SellerController.js";
+import { toggleSellerStatus } from "../../Controllers/Stock/StockIncomeController.js";
 
 const SellerRoute = express.Router();
 
@@ -16,5 +17,6 @@ SellerRoute.get("/", getAllSellers);
 SellerRoute.get("/:id", getSellerById);
 SellerRoute.put("/:id", updateSeller);
 SellerRoute.delete("/:id", deleteSeller);
+SellerRoute.patch("/:id/toggle-status", toggleSellerStatus);
 
 export default SellerRoute;

@@ -72,19 +72,52 @@ export const createStockIncome = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    // 1. Add a record in StockIncome model
-    const income = await StockIncome.create(req.body, { transaction });
+    // Destructure to separate seller-related fields from rest of the data
+    let { sellerId, newSellerName, ...incomeData } = req.body;
+
+    // --- Seller resolution: either use existing sellerId or create a new seller ---
+    let finalSellerId = null;
+
+    if (newSellerName) {
+      // Create a new seller with the provided name
+      const newSeller = await Seller.create(
+        { fullname: newSellerName.trim() }, // adjust field name if your model uses 'name' instead
+        { transaction }
+      );
+      finalSellerId = newSeller.id;
+    } else if (sellerId) {
+      // Verify that the provided sellerId exists
+      const existingSeller = await Seller.findByPk(sellerId, { transaction });
+      if (!existingSeller) {
+        await transaction.rollback();
+        return res.status(404).json({
+          success: false,
+          message: "Seller not found",
+        });
+      }
+      finalSellerId = sellerId;
+    } else {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Either sellerId or newSellerName is required",
+      });
+    }
+
+    // Assign the resolved sellerId to the income data
+    incomeData.sellerId = finalSellerId;
+
+    // 1. Create the StockIncome record
+    const income = await StockIncome.create(incomeData, { transaction });
 
     const departmentId = income.departmentId;
 
-    // 2. Add its ids to the table StockExist
-    // Find StockExist record for this department
+    // 2. Update StockExist (department-level tracking)
     let stockExist = await StockExist.findOne({
       where: { departmentId },
       transaction,
     });
 
-    // If department record does not exist → create one
     if (!stockExist) {
       stockExist = await StockExist.create(
         {
@@ -108,7 +141,7 @@ export const createStockIncome = async (req, res) => {
       );
     }
 
-    // 3. Add a record of pay to have a record of pay too
+    // 3. Record payment in Pay table
     await Pay.create(
       {
         amount: income.received || 0,
@@ -118,17 +151,15 @@ export const createStockIncome = async (req, res) => {
       { transaction }
     );
 
-    // 4. Handle SellerAccount - push ID to total, and to paid/unpaid based on payment status
+    // 4. Update SellerAccount (financial tracking for the seller)
     let sellerAccount = await SellerAccount.findOne({
       where: { sellerId: income.sellerId },
       transaction,
     });
 
-    // Calculate if the stock income is fully paid
     const isFullyPaid = income.received >= (income.total || 0);
 
     if (!sellerAccount) {
-      // If seller account doesn't exist, create a new one with the appropriate arrays
       sellerAccount = await SellerAccount.create(
         {
           sellerId: income.sellerId,
@@ -139,42 +170,33 @@ export const createStockIncome = async (req, res) => {
         { transaction }
       );
     } else {
-      // If seller account exists, update the existing arrays
-
-      // Parse the JSON arrays properly - ensure they are actual arrays
+      // Safely parse arrays
       const currentPaid = Array.isArray(sellerAccount.paid) ? [...sellerAccount.paid] : [];
       const currentUnpaid = Array.isArray(sellerAccount.unpaid) ? [...sellerAccount.unpaid] : [];
       const currentTotal = Array.isArray(sellerAccount.total) ? [...sellerAccount.total] : [];
 
-      // Add income ID to total array (always)
       if (!currentTotal.includes(income.id)) {
         currentTotal.push(income.id);
       }
 
-      // Add ID to appropriate array based on payment status
       if (isFullyPaid) {
-        // Fully paid - add to paid array if not already there
         if (!currentPaid.includes(income.id)) {
           currentPaid.push(income.id);
         }
-        // Remove from unpaid if it was there (for safety)
         const unpaidIndex = currentUnpaid.indexOf(income.id);
         if (unpaidIndex > -1) {
           currentUnpaid.splice(unpaidIndex, 1);
         }
       } else {
-        // Partially paid or unpaid - add to unpaid array if not already there
         if (!currentUnpaid.includes(income.id)) {
           currentUnpaid.push(income.id);
         }
-        // Remove from paid if it was there (for safety)
         const paidIndex = currentPaid.indexOf(income.id);
         if (paidIndex > -1) {
           currentPaid.splice(paidIndex, 1);
         }
       }
 
-      // Update seller account with modified arrays
       await sellerAccount.update(
         {
           paid: currentPaid,
@@ -187,7 +209,7 @@ export const createStockIncome = async (req, res) => {
 
     await transaction.commit();
 
-    // Fetch created income with associations
+    // Fetch the newly created stock income with its associations
     const newIncome = await StockIncome.findByPk(income.id, {
       include: [
         { model: Department, as: "department" },
@@ -195,9 +217,8 @@ export const createStockIncome = async (req, res) => {
       ],
     });
 
-    // Also fetch the updated seller account to include in response
     const updatedSellerAccount = await SellerAccount.findOne({
-      where: { sellerId: income.sellerId }
+      where: { sellerId: income.sellerId },
     });
 
     res.status(201).json({
@@ -205,16 +226,15 @@ export const createStockIncome = async (req, res) => {
       message: "Stock income created successfully",
       data: {
         stockIncome: newIncome,
-        sellerAccount: updatedSellerAccount
-      }
+        sellerAccount: updatedSellerAccount,
+      },
     });
-
   } catch (error) {
     await transaction.rollback();
     console.error("Error creating stock income:", error);
     res.status(500).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
@@ -325,3 +345,36 @@ export const deleteStockIncome = async (req, res) => {
   }
 };
 
+/* =========================
+   TOGGLE SELLER STATUS (ACTIVE/INACTIVE)
+========================= */
+export const toggleSellerStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const seller = await Seller.findByPk(id);
+
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    // Toggle the isActive status
+    const newStatus = !seller.isActive;
+    await seller.update({ isActive: newStatus });
+
+    return res.status(200).json({
+      success: true,
+      message: `Seller ${newStatus ? 'activated' : 'deactivated'} successfully`,
+      data: seller,
+    });
+  } catch (error) {
+    console.error("Toggle Seller Status Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while toggling seller status",
+    });
+  }
+};
