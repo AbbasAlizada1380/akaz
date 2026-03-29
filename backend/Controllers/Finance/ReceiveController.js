@@ -236,3 +236,76 @@ export const deleteReceive = async (req, res) => {
         res.status(500).json({ message: 'خطای سرور' });
     }
 };
+
+
+export const getReceivesByDateRange = async (req, res) => {
+  const { from, to, customerId } = req.query;
+
+  // Validate required date parameters
+  if (!from || !to) {
+    return res.status(400).json({
+      success: false,
+      message: "from and to dates are required",
+    });
+  }
+
+  try {
+    // Convert to full day range
+    const startDate = new Date(`${from}T00:00:00`);
+    const endDate = new Date(`${to}T23:59:59`);
+
+    // Build where clause for Receive
+    const whereClause = {
+      createdAt: {
+        [Op.between]: [startDate, endDate],
+      },
+    };
+
+    // Add customer filter if provided
+    if (customerId) {
+      whereClause.customer = customerId;
+    }
+
+    // Fetch receives with associated customer info
+    const receives = await Receive.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: Customer,
+          as: "customerInfo", // Must match the alias defined in your association
+          attributes: ["id", "fullname", "phoneNumber"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    // Calculate total amount (sum of all receive amounts)
+    const totalAmount = receives.reduce(
+      (sum, r) => sum + parseFloat(r.amount || 0),
+      0
+    );
+
+    // Return response
+    return res.status(200).json({
+      success: true,
+      message: "Receives fetched successfully",
+      data: {
+        receives,
+        totalCount: receives.length,
+        totalAmount,
+        filters: {
+          from,
+          to,
+          customerId: customerId || null,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error in getReceivesByDateRange:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching receives",
+      error: error.message,
+    });
+  }
+};

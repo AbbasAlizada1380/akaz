@@ -5,11 +5,15 @@ import {
   createReceive,
   updateReceive,
   deleteReceive,
+  getReceivesByDateRange,   // <-- Add this import
 } from '../../Controllers/Finance/ReceiveController.js';
 
 const ReceiveRoute = express.Router();
 
-// مسیرهای CRUD
+// New route: GET /api/receives/date-range?from=YYYY-MM-DD&to=YYYY-MM-DD&customerId=optional
+ReceiveRoute.get('/date_range', getReceivesByDateRange);
+
+// Existing CRUD routes
 ReceiveRoute.get('/', getAllReceives);           // GET /api/receives
 ReceiveRoute.get('/:id', getReceiveById);        // GET /api/receives/:id
 ReceiveRoute.post('/', createReceive);            // POST /api/receives

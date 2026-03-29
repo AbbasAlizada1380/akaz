@@ -81,7 +81,9 @@ export const createStockIncome = async (req, res) => {
     if (newSellerName) {
       // Create a new seller with the provided name
       const newSeller = await Seller.create(
-        { fullname: newSellerName.trim() }, // adjust field name if your model uses 'name' instead
+        { fullname: newSellerName.trim(),
+          isActive:true
+         }, // adjust field name if your model uses 'name' instead
         { transaction }
       );
       finalSellerId = newSeller.id;

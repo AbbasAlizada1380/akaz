@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import CustomerReport from './CustomerReport'; // Adjust the import path as needed
-
+import FinancialReports from  "../report/FinancialReports.jsx"
+import ReceiptDateDownload from '../report/ReceiptDateDownload.jsx';
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const initialForm = {
@@ -331,6 +332,7 @@ const Receive = () => {
             {/* ================= TABLE ================= */}
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary">
               {/* Table Header with primary gradient */}
+              <ReceiptDateDownload/>
               <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center space-x-3">
