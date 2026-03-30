@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FiPlus, FiTrash2, FiEdit2, FiSave, FiX } from 'react-icons/fi';
+import StockIncomeDateDownload from './report/StockIncomeDateDownload';
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -376,6 +377,7 @@ const StockIncomeManager = () => {
 
             {/* Table (unchanged) */}
             <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+                <StockIncomeDateDownload/>
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-primary">

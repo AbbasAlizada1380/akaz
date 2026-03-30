@@ -1,6 +1,6 @@
 import { Pay, SellerAccount, sequelize, StockIncome } from "../../Models/Association.js";
 import { Seller } from "../../Models/Association.js";
-
+import { Op } from "sequelize";
 export const createPay = async (req, res) => {
   const transaction = await sequelize.transaction();
 
@@ -51,9 +51,9 @@ export const createPay = async (req, res) => {
         },
         { transaction }
       );
-      
+
       await transaction.commit();
-      
+
       return res.status(201).json({
         success: true,
         message: "Payment created successfully (new seller account)",
@@ -65,14 +65,14 @@ export const createPay = async (req, res) => {
     }
 
     // 3. Get the unpaid array and sort it (smallest ID first)
-    const unpaidIds = Array.isArray(sellerAccount.unpaid) 
+    const unpaidIds = Array.isArray(sellerAccount.unpaid)
       ? [...sellerAccount.unpaid].sort((a, b) => a - b) // Sort ascending (smallest first)
       : [];
 
     if (unpaidIds.length === 0) {
       // No unpaid records to process
       await transaction.commit();
-      
+
       return res.status(201).json({
         success: true,
         message: "Payment created successfully (no unpaid records to process)",
@@ -106,7 +106,7 @@ export const createPay = async (req, res) => {
       }
 
       const stockRemaining = parseFloat(stockIncome.remaining) || 0;
-      
+
       if (stockRemaining <= 0) {
         // This stock income has no remaining balance, should it be in unpaid?
         // Move it to paid if it's fully paid
@@ -117,7 +117,7 @@ export const createPay = async (req, res) => {
       if (remainingAmount >= stockRemaining) {
         // Fully pay this stock income
         remainingAmount -= stockRemaining;
-        
+
         // Update stock income to fully paid
         await stockIncome.update(
           {
@@ -126,14 +126,14 @@ export const createPay = async (req, res) => {
           },
           { transaction }
         );
-        
+
         // Mark as paid
         processedPaidIds.push(stockIncome.id);
       } else {
         // Partially pay this stock income
         const newReceived = (parseFloat(stockIncome.received) || 0) + remainingAmount;
         const newRemaining = stockRemaining - remainingAmount;
-        
+
         await stockIncome.update(
           {
             received: newReceived,
@@ -141,7 +141,7 @@ export const createPay = async (req, res) => {
           },
           { transaction }
         );
-        
+
         // This stock income remains unpaid (with reduced balance)
         remainingUnpaidIds.push(stockIncome.id);
         remainingAmount = 0;
@@ -155,12 +155,12 @@ export const createPay = async (req, res) => {
     remainingUnpaidIds.push(...unprocessedIds);
 
     // 6. Update seller account arrays
-    const currentPaid = Array.isArray(sellerAccount.paid) 
-      ? [...sellerAccount.paid] 
+    const currentPaid = Array.isArray(sellerAccount.paid)
+      ? [...sellerAccount.paid]
       : [];
-    
-    const currentTotal = Array.isArray(sellerAccount.total) 
-      ? [...sellerAccount.total] 
+
+    const currentTotal = Array.isArray(sellerAccount.total)
+      ? [...sellerAccount.total]
       : [];
 
     // Add newly paid IDs to paid array (avoid duplicates)
@@ -205,7 +205,7 @@ export const createPay = async (req, res) => {
           appliedAmount: parseFloat(amount) - remainingAmount,
           remainingAmount: remainingAmount,
           fullyPaidIds: processedPaidIds,
-          partiallyPaidIds: remainingUnpaidIds.filter(id => 
+          partiallyPaidIds: remainingUnpaidIds.filter(id =>
             affectedStockIncomes.find(s => s.id === id && parseFloat(s.remaining) > 0)
           ),
           unpaidIds: remainingUnpaidIds,
@@ -378,6 +378,81 @@ export const deletePay = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Error deleting payment",
+      error: error.message,
+    });
+  }
+};
+
+// ==============================
+// Get Pays by Date Range (with optional seller filter)
+// ==============================
+export const getPaysByDateRange = async (req, res) => {
+  const { from, to, sellerId } = req.query;
+
+  // Validate required date parameters
+  if (!from || !to) {
+    return res.status(400).json({
+      success: false,
+      message: "from and to dates are required",
+    });
+  }
+
+  try {
+    // Convert to full day range
+    const startDate = new Date(`${from}T00:00:00`);
+    const endDate = new Date(`${to}T23:59:59`);
+
+    // Build where clause for Pay
+    const whereClause = {
+      createdAt: {
+        [Op.between]: [startDate, endDate],
+      },
+    };
+
+    // Add seller filter if provided
+    if (sellerId) {
+      whereClause.seller = sellerId;
+    }
+
+    // Fetch pays with associated seller info
+    const pays = await Pay.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: Seller,
+          as: "sellerInfo", // Must match the alias defined in your association
+          attributes: ["id", "fullname", "phoneNumber"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    // Calculate total amount (sum of all pay amounts)
+    const totalAmount = pays.reduce(
+      (sum, p) => sum + parseFloat(p.amount || 0),
+      0
+    );
+
+    // Return response
+    return res.status(200).json({
+      success: true,
+      message: "Pays fetched successfully",
+      data: {
+        pays,
+        totalCount: pays.length,
+        totalAmount,
+        filters: {
+          from,
+          to,
+          sellerId: sellerId || null,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error in getPaysByDateRange:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching pays",
       error: error.message,
     });
   }

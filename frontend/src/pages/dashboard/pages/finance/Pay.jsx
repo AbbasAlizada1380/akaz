@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import Pagination from "../../pagination/Pagination"; // Adjust import path
 import SellerReport from "./SellerReport"; // Import the SellerReport component
+import PayDateDownload from "../report/PayDateDownload";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 const SELLER_API = `${BASE_URL}/seller/dept`;
@@ -342,6 +343,7 @@ export default function Pay() {
             {/* ================= TABLE ================= */}
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary">
               {/* Table Header with primary gradient */}
+              <PayDateDownload/>
               <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center space-x-3">

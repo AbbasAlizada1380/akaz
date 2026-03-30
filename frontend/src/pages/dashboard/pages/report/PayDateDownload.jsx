@@ -9,28 +9,28 @@ import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 moment.locale("en");
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
-const ReceiptDateDownload = () => {
+const PayDateDownload = () => {
     const [from, setFrom] = useState("");
     const [to, setTo] = useState("");
-    const [customers, setCustomers] = useState([]);
-    const [selectedCustomer, setSelectedCustomer] = useState("");
+    const [sellers, setSellers] = useState([]);
+    const [selectedSeller, setSelectedSeller] = useState("");
     const [loading, setLoading] = useState(false);
-    const [loadingCustomers, setLoadingCustomers] = useState(false);
+    const [loadingSellers, setLoadingSellers] = useState(false);
 
-    // Fetch customers on component mount
+    // Fetch sellers on component mount
     useEffect(() => {
-        fetchCustomers();
+        fetchSellers();
     }, []);
 
-    const fetchCustomers = async () => {
-        setLoadingCustomers(true);
+    const fetchSellers = async () => {
+        setLoadingSellers(true);
         try {
-            const res = await axios.get(`${BASE_URL}/customer?limit=200`);
-            setCustomers(res.data.customers || []);
+            const res = await axios.get(`${BASE_URL}/seller?limit=200`);
+            setSellers(res.data.data || []);
         } catch (err) {
-            console.error("Error fetching customers:", err);
+            console.error("Error fetching sellers:", err);
         } finally {
-            setLoadingCustomers(false);
+            setLoadingSellers(false);
         }
     };
 
@@ -52,21 +52,21 @@ const ReceiptDateDownload = () => {
         try {
             setLoading(true);
 
-            // Build params with optional customer filter
+            // Build params with optional seller filter
             const params = { from, to };
-            if (selectedCustomer) {
-                params.customerId = selectedCustomer;
+            if (selectedSeller) {
+                params.sellerId = selectedSeller;
             }
 
-            const response = await axios.get(`${BASE_URL}/receive/date_range`, {
+            const response = await axios.get(`${BASE_URL}/pay/date-range`, {
                 params,
             });
 
             // Extract data from the response structure
             const data = response.data.data;
 
-            if (!data?.receives || data.receives.length === 0) {
-                alert("No receipts found in this period");
+            if (!data?.pays || data.pays.length === 0) {
+                alert("No payments found in this period");
                 return;
             }
 
@@ -87,15 +87,15 @@ const ReceiptDateDownload = () => {
             const formattedTo = moment(to).format("YYYY/M/D");
             const today = moment().format("YYYY/M/D");
 
-            // Get selected customer name for display
-            const selectedCustomerName = selectedCustomer
-                ? customers.find(c => c.id === parseInt(selectedCustomer))?.fullname
-                : "All Customers";
+            // Get selected seller name for display
+            const selectedSellerName = selectedSeller
+                ? sellers.find(s => s.id === parseInt(selectedSeller))?.fullname
+                : "All Sellers";
 
             // Title with date range
-            let titleText = `Receipts Report from ${formattedFrom} to ${formattedTo}`;
-            if (selectedCustomerName !== "All Customers") {
-                titleText += ` - ${selectedCustomerName}`;
+            let titleText = `Payments Report from ${formattedFrom} to ${formattedTo}`;
+            if (selectedSellerName !== "All Sellers") {
+                titleText += ` - ${selectedSellerName}`;
             }
 
             doc.setFontSize(14);
@@ -103,15 +103,15 @@ const ReceiptDateDownload = () => {
 
             // Table headers
             const headers = [
-                ["Amount (AFN)", "Customer", "Date", "Receipt ID"]
+                ["Amount (AFN)", "Seller", "Date", "Payment ID"]
             ];
 
             // Table body - Using Gregorian format for dates
-            const body = data.receives.map((receive) => [
-                parseFloat(receive.amount).toLocaleString(),
-                receive.customerInfo?.fullname || "Unknown",
-                moment(receive.createdAt).format("YYYY/M/D"),
-                receive.id.toString().slice(-8) || "-", // Show last 8 digits of ID for better fit
+            const body = data.pays.map((pay) => [
+                parseFloat(pay.amount).toLocaleString(),
+                pay.sellerInfo?.fullname || "Unknown",
+                moment(pay.createdAt).format("YYYY/M/D"),
+                pay.id.toString().slice(-8) || "-", // Last 8 digits of ID
             ]);
 
             // Calculate available width
@@ -122,9 +122,9 @@ const ReceiptDateDownload = () => {
             // Calculate column widths
             const columnWidths = {
                 0: tableWidth * 0.30, // Amount - 30%
-                1: tableWidth * 0.30, // Customer - 30%
+                1: tableWidth * 0.30, // Seller - 30%
                 2: tableWidth * 0.20, // Date - 20%
-                3: tableWidth * 0.20, // Receipt ID - 20%
+                3: tableWidth * 0.20, // Payment ID - 20%
             };
 
             autoTable(doc, {
@@ -168,7 +168,7 @@ const ReceiptDateDownload = () => {
             // Summary section
             doc.setFontSize(11);
 
-            doc.text(`Total Receipts: ${data.totalCount || 0}`, summaryX, y, { align: "right" });
+            doc.text(`Total Payments: ${data.totalCount || 0}`, summaryX, y, { align: "right" });
             doc.text(`Total Amount: ${(data.totalAmount || 0).toLocaleString()} AFN`, summaryX, y + 18, { align: "right" });
 
             // Date range and export info
@@ -192,13 +192,13 @@ const ReceiptDateDownload = () => {
             }
 
             // Generate filename
-            const customerPart = selectedCustomerName !== "All Customers" ? `_${selectedCustomerName}` : "";
-            const filename = `receipts_${formattedFrom}_to_${formattedTo}${customerPart}_${today}.pdf`;
+            const sellerPart = selectedSellerName !== "All Sellers" ? `_${selectedSellerName}` : "";
+            const filename = `payments_${formattedFrom}_to_${formattedTo}${sellerPart}_${today}.pdf`;
 
             doc.save(filename);
 
         } catch (err) {
-            console.error("Error downloading receipts:", err);
+            console.error("Error downloading payments:", err);
             alert(err.response?.data?.message || "Error fetching data");
         } finally {
             setLoading(false);
@@ -207,28 +207,28 @@ const ReceiptDateDownload = () => {
 
     return (
         <div className="p-4 sm:p-6 space-y-4 bg-white rounded-lg shadow">
-            <h2 className="text-lg sm:text-xl font-semibold text-gray-800">Download Receipts Report</h2>
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-800">Download Payments Report</h2>
 
             <div className="space-y-4">
-                {/* Customer Selection */}
+                {/* Seller Selection */}
                 <div className="grid grid-cols-1 gap-2">
-                    <label className="text-sm font-medium text-gray-700">Select Customer</label>
+                    <label className="text-sm font-medium text-gray-700">Select Seller</label>
                     <select
-                        value={selectedCustomer}
-                        onChange={(e) => setSelectedCustomer(e.target.value)}
+                        value={selectedSeller}
+                        onChange={(e) => setSelectedSeller(e.target.value)}
                         className="w-full border p-2.5 rounded bg-white text-black"
-                        disabled={loadingCustomers}
+                        disabled={loadingSellers}
                     >
                         <option value="" className="text-black bg-white">
-                            All Customers
+                            All Sellers
                         </option>
-                        {customers.map((customer) => (
-                            <option key={customer.id} value={customer.id} className="text-black bg-white">
-                                {customer.fullname} {customer.phoneNumber ? `- ${customer.phoneNumber}` : ''}
+                        {sellers.map((seller) => (
+                            <option key={seller.id} value={seller.id} className="text-black bg-white">
+                                {seller.fullname} {seller.phoneNumber ? `- ${seller.phoneNumber}` : ''}
                             </option>
                         ))}
                     </select>
-                    {loadingCustomers && (
+                    {loadingSellers && (
                         <span className="text-sm text-gray-500">Loading...</span>
                     )}
                 </div>
@@ -269,11 +269,11 @@ const ReceiptDateDownload = () => {
                             </svg>
                             <span>Generating PDF...</span>
                         </span>
-                    ) : "Download Receipts Report"}
+                    ) : "Download Payments Report"}
                 </button>
             </div>
         </div>
     );
 };
 
-export default ReceiptDateDownload;
+export default PayDateDownload;

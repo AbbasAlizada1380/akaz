@@ -3,6 +3,7 @@ import Pay from "../../Models/Finance/Pay.js"
 import { Department, Seller, SellerAccount, StockIncome } from '../../Models/Association.js';
 import StockExist from "../../Models/Stock/StockExist.js";
 import sequelize from "../../dbconnection.js";
+import { Op } from "sequelize";
 
 export const getAllStockIncome = async (req, res) => {
   try {
@@ -72,23 +73,20 @@ export const createStockIncome = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    // Destructure to separate seller-related fields from rest of the data
+    // Destructure to separate seller-related fields from the rest
     let { sellerId, newSellerName, ...incomeData } = req.body;
+    console.log(incomeData);
 
-    // --- Seller resolution: either use existing sellerId or create a new seller ---
+    // --- Seller resolution (unchanged) ---
     let finalSellerId = null;
 
     if (newSellerName) {
-      // Create a new seller with the provided name
       const newSeller = await Seller.create(
-        { fullname: newSellerName.trim(),
-          isActive:true
-         }, // adjust field name if your model uses 'name' instead
+        { fullname: newSellerName.trim(), isActive: true },
         { transaction }
       );
       finalSellerId = newSeller.id;
     } else if (sellerId) {
-      // Verify that the provided sellerId exists
       const existingSeller = await Seller.findByPk(sellerId, { transaction });
       if (!existingSeller) {
         await transaction.rollback();
@@ -106,15 +104,73 @@ export const createStockIncome = async (req, res) => {
       });
     }
 
-    // Assign the resolved sellerId to the income data
     incomeData.sellerId = finalSellerId;
 
+    // --- Validate & compute financial fields ---
+    // Convert numeric strings to numbers
+    let quantity = parseFloat(incomeData.quantity) || 0;
+    let unitPrice = parseFloat(incomeData.unitPrice) || 0;
+    let total = parseFloat(incomeData.total) || 0;
+    let received = parseFloat(incomeData.received) || 0;
+
+    // If total is missing or zero but quantity and unitPrice are provided, compute total
+    if ((!total || total === 0) && quantity && unitPrice) {
+      total = quantity * unitPrice;
+    }
+
+    // Ensure received does not exceed total
+    if (received > total) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Received amount cannot be greater than total amount",
+      });
+    }
+
+    // Compute remaining balance
+    const remaining = total - received;
+
+    // Set soldQuantity to 0 (new stock, not yet sold)
+    let soldQuantity = parseInt(incomeData.soldQuantity) || 0;
+    if (soldQuantity < 0) soldQuantity = 0;
+
+    // Prepare final data object for creation
+    const finalData = {
+      name: incomeData.name,
+      type: incomeData.type || null,
+      quantity: quantity,
+      unitPrice: unitPrice,
+      total: total,
+      received: received,
+      remaining: remaining,
+      soldQuantity: soldQuantity,
+      specifications: incomeData.specifications || null,
+      departmentId: incomeData.departmentId,
+      sellerId: finalSellerId,
+    };
+
+    // Validate required fields
+    if (!finalData.name) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Stock income name is required",
+      });
+    }
+    if (!finalData.departmentId) {
+      await transaction.rollback();
+      return res.status(400).json({
+        success: false,
+        message: "Department ID is required",
+      });
+    }
+
     // 1. Create the StockIncome record
-    const income = await StockIncome.create(incomeData, { transaction });
+    const income = await StockIncome.create(finalData, { transaction });
 
     const departmentId = income.departmentId;
 
-    // 2. Update StockExist (department-level tracking)
+    // 2. Update StockExist (department-level tracking) - unchanged
     let stockExist = await StockExist.findOne({
       where: { departmentId },
       transaction,
@@ -133,33 +189,31 @@ export const createStockIncome = async (req, res) => {
     } else {
       const allStockIds = [...(stockExist.allStockIds || []), income.id];
       const remainingStockIds = [...(stockExist.remainingStockIds || []), income.id];
-
       await stockExist.update(
+        { allStockIds, remainingStockIds },
+        { transaction }
+      );
+    }
+
+    // 3. Record payment in Pay table (only if received > 0)
+    if (received > 0) {
+      await Pay.create(
         {
-          allStockIds,
-          remainingStockIds,
+          amount: received,
+          seller: income.sellerId,
+          description: `Payment for stock income #${income.id} in department ${departmentId}`,
         },
         { transaction }
       );
     }
 
-    // 3. Record payment in Pay table
-    await Pay.create(
-      {
-        amount: income.received || 0,
-        seller: income.sellerId,
-        description: `Payment for stock income #${income.id} in department ${departmentId}`,
-      },
-      { transaction }
-    );
-
-    // 4. Update SellerAccount (financial tracking for the seller)
+    // 4. Update SellerAccount (financial tracking) - unchanged
     let sellerAccount = await SellerAccount.findOne({
       where: { sellerId: income.sellerId },
       transaction,
     });
 
-    const isFullyPaid = income.received >= (income.total || 0);
+    const isFullyPaid = received >= total;
 
     if (!sellerAccount) {
       sellerAccount = await SellerAccount.create(
@@ -172,7 +226,6 @@ export const createStockIncome = async (req, res) => {
         { transaction }
       );
     } else {
-      // Safely parse arrays
       const currentPaid = Array.isArray(sellerAccount.paid) ? [...sellerAccount.paid] : [];
       const currentUnpaid = Array.isArray(sellerAccount.unpaid) ? [...sellerAccount.unpaid] : [];
       const currentTotal = Array.isArray(sellerAccount.total) ? [...sellerAccount.total] : [];
@@ -182,36 +235,24 @@ export const createStockIncome = async (req, res) => {
       }
 
       if (isFullyPaid) {
-        if (!currentPaid.includes(income.id)) {
-          currentPaid.push(income.id);
-        }
+        if (!currentPaid.includes(income.id)) currentPaid.push(income.id);
         const unpaidIndex = currentUnpaid.indexOf(income.id);
-        if (unpaidIndex > -1) {
-          currentUnpaid.splice(unpaidIndex, 1);
-        }
+        if (unpaidIndex > -1) currentUnpaid.splice(unpaidIndex, 1);
       } else {
-        if (!currentUnpaid.includes(income.id)) {
-          currentUnpaid.push(income.id);
-        }
+        if (!currentUnpaid.includes(income.id)) currentUnpaid.push(income.id);
         const paidIndex = currentPaid.indexOf(income.id);
-        if (paidIndex > -1) {
-          currentPaid.splice(paidIndex, 1);
-        }
+        if (paidIndex > -1) currentPaid.splice(paidIndex, 1);
       }
 
       await sellerAccount.update(
-        {
-          paid: currentPaid,
-          unpaid: currentUnpaid,
-          total: currentTotal,
-        },
+        { paid: currentPaid, unpaid: currentUnpaid, total: currentTotal },
         { transaction }
       );
     }
 
     await transaction.commit();
 
-    // Fetch the newly created stock income with its associations
+    // Fetch the newly created stock income with associations
     const newIncome = await StockIncome.findByPk(income.id, {
       include: [
         { model: Department, as: "department" },
@@ -377,6 +418,96 @@ export const toggleSellerStatus = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Server error while toggling seller status",
+    });
+  }
+};
+// ==============================
+// Get Stock Incomes by Date Range (with optional department/seller filters)
+// ==============================
+export const getStockIncomeByDateRange = async (req, res) => {
+  const { from, to, departmentId, sellerId } = req.query;
+
+  // Validate required date parameters
+  if (!from || !to) {
+    return res.status(400).json({
+      success: false,
+      message: "from and to dates are required",
+    });
+  }
+
+  try {
+    // Convert to full day range
+    const startDate = new Date(`${from}T00:00:00`);
+    const endDate = new Date(`${to}T23:59:59`);
+
+    // Build where clause for StockIncome
+    const whereClause = {
+      createdAt: {
+        [Op.between]: [startDate, endDate],
+      },
+    };
+
+    // Add department filter if provided
+    if (departmentId) {
+      whereClause.departmentId = departmentId;
+    }
+
+    // Add seller filter if provided
+    if (sellerId) {
+      whereClause.sellerId = sellerId;
+    }
+
+    // Fetch stock incomes with associated department and seller info
+    const stockIncomes = await StockIncome.findAll({
+      where: whereClause,
+      include: [
+        {
+          model: Department,
+          as: "department",
+          attributes: ["id", "name", "holding", "isActive"],
+        },
+        {
+          model: Seller,
+          as: "seller",
+          attributes: ["id", "fullname", "phoneNumber", "address", "isActive"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    // Calculate totals
+    const totalAmount = stockIncomes.reduce(
+      (sum, income) => sum + parseFloat(income.total || 0),
+      0
+    );
+    const totalReceived = stockIncomes.reduce(
+      (sum, income) => sum + parseFloat(income.received || 0),
+      0
+    );
+
+    // Return response
+    return res.status(200).json({
+      success: true,
+      message: "Stock incomes fetched successfully",
+      data: {
+        stockIncomes,
+        totalCount: stockIncomes.length,
+        totalAmount,        // Sum of 'total' field (full value)
+        totalReceived,      // Sum of 'received' field (amount paid so far)
+        filters: {
+          from,
+          to,
+          departmentId: departmentId || null,
+          sellerId: sellerId || null,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error in getStockIncomeByDateRange:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching stock incomes",
+      error: error.message,
     });
   }
 };
