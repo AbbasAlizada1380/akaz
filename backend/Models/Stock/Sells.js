@@ -10,7 +10,7 @@ const Sell = sequelize.define(
     },
 
     customer: {
-      type: DataTypes.STRING,
+      type: DataTypes.INTEGER,
       allowNull: false,
     },
 
@@ -40,9 +40,9 @@ const Sell = sequelize.define(
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 0,
     },
-    is_returned:{
-      type:DataTypes.BOOLEAN,
-      defaultValue:false,
+    is_returned: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     }
   },
   {

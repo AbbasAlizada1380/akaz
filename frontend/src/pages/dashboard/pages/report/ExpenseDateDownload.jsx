@@ -118,31 +118,49 @@ const ExpenseDateDownload = () => {
     };
 
     return (
-        <div className="flex flex-col sm:flex-row items-center gap-4 p-4">
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-                <input
-                    type="date"
-                    value={from}
-                    onChange={(e) => setFrom(e.target.value)}
-                    className="border p-2 rounded w-full sm:w-auto"
-                />
-                <span className="text-gray-500">تا</span>
-                <input
-                    type="date"
-                    value={to}
-                    onChange={(e) => setTo(e.target.value)}
-                    className="border p-2 rounded w-full sm:w-auto"
-                />
-            </div>
+<div className="p-4 sm:p-6 space-y-4 bg-white rounded-lg shadow">
+  <h2 className="text-lg sm:text-xl font-semibold text-gray-800">
+    Expense Report by Date Range
+  </h2>
 
-            <button
-                onClick={handleDownload}
-                disabled={loading}
-                className="bg-primary text-black px-6 py-2 rounded disabled:bg-gray-400 w-full sm:w-auto"
-            >
-                {loading ? "در حال ساخت PDF..." : "دانلود گزارش هزینه‌ها"}
-            </button>
-        </div>
+  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+    {/* From Date */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700">
+        From Date
+      </label>
+      <input
+        type="date"
+        value={from}
+        onChange={(e) => setFrom(e.target.value)}
+        className="mt-1 w-full border p-2 rounded"
+      />
+    </div>
+
+    {/* To Date */}
+    <div>
+      <label className="block text-sm font-medium text-gray-700">
+        To Date
+      </label>
+      <input
+        type="date"
+        value={to}
+        onChange={(e) => setTo(e.target.value)}
+        className="mt-1 w-full border p-2 rounded"
+      />
+    </div>
+  </div>
+
+  <div className="flex flex-wrap gap-3 mt-4">
+    <button
+      onClick={handleDownload}
+      disabled={loading}
+      className="bg-primary text-black px-6 py-2 rounded disabled:bg-gray-400 w-full sm:w-auto"
+    >
+      {loading ? "Generating PDF..." : "Download Expense Report"}
+    </button>
+  </div>
+</div>
     );
 };
 

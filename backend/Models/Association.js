@@ -18,8 +18,8 @@ const models = {
   Sells,
   StockExist,
   Pay,
-  Receive,     
-  Customer,    
+  Receive,
+  Customer,
   CustomerAccount,
 };
 
@@ -87,10 +87,15 @@ Customer.associate = (models) => {
     as: "receives",
   });
 
-  // ✅ relation with CustomerAccount
   Customer.hasMany(models.CustomerAccount, {
     foreignKey: "customerId",
     as: "accounts",
+  });
+
+  // ✅ Add this:
+  Customer.hasMany(models.Sells, {
+    foreignKey: "customer",
+    as: "sells",
   });
 };
 
@@ -113,6 +118,11 @@ Sells.associate = (models) => {
   Sells.belongsTo(models.StockIncome, {
     foreignKey: "stockIncome",
     as: "stock",
+  });
+
+  Sells.belongsTo(models.Customer, {
+    foreignKey: "customer",
+    as: "customerInfo",
   });
 };
 
@@ -150,7 +160,7 @@ export {
   Sells,
   StockExist,
   Pay,
-  Receive,      
-  Customer,     
-  CustomerAccount, 
+  Receive,
+  Customer,
+  CustomerAccount,
 };

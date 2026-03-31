@@ -10,27 +10,27 @@ import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 moment.locale("en");
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
-const StockIncomeDateDownload = () => {
+const SellsDateDownload = () => {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [customers, setCustomers] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [sellers, setSellers] = useState([]);
+  const [selectedCustomer, setSelectedCustomer] = useState("");
   const [selectedDepartment, setSelectedDepartment] = useState("");
-  const [selectedSeller, setSelectedSeller] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingFilters, setLoadingFilters] = useState(false);
 
-  // Fetch departments and sellers for filter dropdowns
+  // Fetch customers and departments for filter dropdowns
   useEffect(() => {
     const fetchFilters = async () => {
       setLoadingFilters(true);
       try {
-        const [deptRes, sellerRes] = await Promise.all([
+        const [customerRes, deptRes] = await Promise.all([
+          axios.get(`${BASE_URL}/customer?limit=200`),
           axios.get(`${BASE_URL}/department?limit=200`),
-          axios.get(`${BASE_URL}/seller?limit=200`),
         ]);
+        setCustomers(customerRes.data.customers || []);
         setDepartments(deptRes.data.data || []);
-        setSellers(sellerRes.data.data || []);
       } catch (err) {
         console.error("Error fetching filters:", err);
       } finally {
@@ -49,24 +49,23 @@ const StockIncomeDateDownload = () => {
     try {
       setLoading(true);
       const params = { from: fromDate, to: toDate };
+      if (selectedCustomer) params.customerId = selectedCustomer;
       if (selectedDepartment) params.departmentId = selectedDepartment;
-      if (selectedSeller) params.sellerId = selectedSeller;
 
-      const response = await axios.get(`${BASE_URL}/stockIncome/date_range`, { params });
+      const response = await axios.get(`${BASE_URL}/sells/date-range`, { params });
       const { data } = response.data;
 
-      if (!data?.stockIncomes || data.stockIncomes.length === 0) {
-        alert("No stock income records found in this period");
+      if (!data?.sells || data.sells.length === 0) {
+        alert("No sell records found in this period");
         return;
       }
 
-      const items = data.stockIncomes;
-      const totalQuantity = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
-      const totalAmount = items.reduce((sum, i) => sum + (Number(i.total) || 0), 0);
-      const totalReceived = items.reduce((sum, i) => sum + (Number(i.received) || 0), 0);
-      const totalRemaining = totalAmount - totalReceived;
+      const items = data.sells;
+      const totalAmount = data.totalAmount || 0;
+      const totalReceived = data.totalReceived || 0;
+      const totalRemained = data.totalRemained || 0;
 
-      const doc = new jsPDF({ orientation: "p", unit: "pt", format: "a4" }); // landscape for more columns
+      const doc = new jsPDF({ orientation: "[portrait]", unit: "pt", format: "a4" });
       doc.setR2L(false);
 
       doc.addFileToVFS("Vazirmatn.ttf", VazirmatnTTF);
@@ -75,19 +74,23 @@ const StockIncomeDateDownload = () => {
 
       const formattedFrom = moment(fromDate).format("YYYY/MM/DD");
       const formattedTo = moment(toDate).format("YYYY/MM/DD");
-      const title = `Stock Income Report (${formattedFrom} - ${formattedTo})`;
+      const title = `Sells Report (${formattedFrom} - ${formattedTo})`;
       doc.setFontSize(14);
       doc.text(title, doc.internal.pageSize.width - 40, 60, { align: "right" });
 
-      const headers = [["Name", "Seller", "Date", "Quantity", "Total (AFN)", "Received (AFN)", "Remaining (AFN)"]];
-      const body = items.map((item) => [
-        item.name || "-",
-        item.seller?.fullname || "Unknown",
-        moment(item.createdAt).format("YYYY/MM/DD"),
-        item.quantity || 0,
-        Number(item.total).toLocaleString(),
-        Number(item.received).toLocaleString(),
-        Number(item.remaining).toLocaleString(),
+      const headers = [
+        ["Customer", "Department", "Product", "Qty", "Unit Price (AFN)", "Total (AFN)", "Received (AFN)", "Remaining (AFN)", "Date"]
+      ];
+      const body = items.map((sell) => [
+        sell.customer?.fullname || "Unknown",
+        sell.stock?.department?.name || "-",
+        sell.stock?.name || "-",
+        sell.amount || 0,
+        Number(sell.unitPrice).toLocaleString(),
+        Number(sell.total).toLocaleString(),
+        Number(sell.received).toLocaleString(),
+        Number(sell.remained).toLocaleString(),
+        moment(sell.createdAt).format("YYYY/MM/DD"),
       ]);
 
       autoTable(doc, {
@@ -95,20 +98,19 @@ const StockIncomeDateDownload = () => {
         head: headers,
         body: body,
         theme: "grid",
-        styles: { font: "Vazirmatn", fontSize: 9, halign: "center", valign: "middle" },
-        headStyles: { fillColor: [220, 220, 220], textColor: 20, fontSize: 10 },
-        margin: { top: 80, bottom: 60, left: 20, right: 20 },
+        styles: { font: "Vazirmatn", fontSize: 8, halign: "center", valign: "middle" },
+        headStyles: { fillColor: [220, 220, 220], textColor: 20, fontSize: 9 },
+        margin: { top: 80, bottom: 60, left: 15, right: 15 },
       });
 
       const finalY = doc.lastAutoTable.finalY + 30;
       const summaryX = doc.internal.pageSize.width - 40;
       doc.setFontSize(11);
       doc.text(`Total Records: ${items.length}`, summaryX, finalY, { align: "right" });
-      doc.text(`Total Quantity: ${totalQuantity}`, summaryX, finalY + 18, { align: "right" });
-      doc.text(`Total Amount: ${totalAmount.toLocaleString()} AFN`, summaryX, finalY + 36, { align: "right" });
-      doc.text(`Total Received: ${totalReceived.toLocaleString()} AFN`, summaryX, finalY + 54, { align: "right" });
-      doc.text(`Total Remaining: ${totalRemaining.toLocaleString()} AFN`, summaryX, finalY + 72, { align: "right" });
-      doc.text(`Generated on: ${moment().format("YYYY/MM/DD")}`, summaryX, finalY + 90, { align: "right" });
+      doc.text(`Total Amount: ${totalAmount.toLocaleString()} AFN`, summaryX, finalY + 18, { align: "right" });
+      doc.text(`Total Received: ${totalReceived.toLocaleString()} AFN`, summaryX, finalY + 36, { align: "right" });
+      doc.text(`Total Remaining: ${totalRemained.toLocaleString()} AFN`, summaryX, finalY + 54, { align: "right" });
+      doc.text(`Generated on: ${moment().format("YYYY/MM/DD")}`, summaryX, finalY + 72, { align: "right" });
 
       // Page numbers
       const pageCount = doc.internal.getNumberOfPages();
@@ -119,7 +121,7 @@ const StockIncomeDateDownload = () => {
         doc.text(`${i}/${pageCount}`, pageWidth - 40, pageHeight - 40, { align: "right" });
       }
 
-      doc.save(`stock_income_${formattedFrom}_to_${formattedTo}.pdf`);
+      doc.save(`sells_${formattedFrom}_to_${formattedTo}.pdf`);
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.message || "Error fetching data");
@@ -137,49 +139,47 @@ const StockIncomeDateDownload = () => {
     try {
       setLoading(true);
       const params = { from: fromDate, to: toDate };
+      if (selectedCustomer) params.customerId = selectedCustomer;
       if (selectedDepartment) params.departmentId = selectedDepartment;
-      if (selectedSeller) params.sellerId = selectedSeller;
 
-      const response = await axios.get(`${BASE_URL}/stockIncome/date_range`, { params });
+      const response = await axios.get(`${BASE_URL}/sells/date-range`, { params });
       const { data } = response.data;
 
-      if (!data?.stockIncomes || data.stockIncomes.length === 0) {
-        alert("No stock income records found in this period");
+      if (!data?.sells || data.sells.length === 0) {
+        alert("No sell records found in this period");
         return;
       }
 
-      const items = data.stockIncomes;
-      const totalQuantity = items.reduce((sum, i) => sum + (Number(i.quantity) || 0), 0);
-      const totalAmount = items.reduce((sum, i) => sum + (Number(i.total) || 0), 0);
-      const totalReceived = items.reduce((sum, i) => sum + (Number(i.received) || 0), 0);
-      const totalRemaining = totalAmount - totalReceived;
+      const items = data.sells;
+      const totalAmount = data.totalAmount || 0;
+      const totalReceived = data.totalReceived || 0;
+      const totalRemained = data.totalRemained || 0;
 
       // Prepare data for Excel
-      const excelData = items.map((item) => ({
-        Name: item.name || "-",
-        Seller: item.seller?.fullname || "Unknown",
-        Department: item.department?.name || "-",
-        Date: moment(item.createdAt).format("YYYY/MM/DD"),
-        Quantity: item.quantity || 0,
-        "Unit Price": Number(item.unitPrice).toLocaleString(),
-        "Total (AFN)": Number(item.total).toLocaleString(),
-        "Received (AFN)": Number(item.received).toLocaleString(),
-        "Remaining (AFN)": Number(item.remaining).toLocaleString(),
+      const excelData = items.map((sell) => ({
+        Customer: sell.customer?.fullname || "Unknown",
+        Department: sell.stock?.department?.name || "-",
+        Product: sell.stock?.name || "-",
+        Quantity: sell.amount || 0,
+        "Unit Price (AFN)": Number(sell.unitPrice).toLocaleString(),
+        "Total (AFN)": Number(sell.total).toLocaleString(),
+        "Received (AFN)": Number(sell.received).toLocaleString(),
+        "Remaining (AFN)": Number(sell.remained).toLocaleString(),
+        Date: moment(sell.createdAt).format("YYYY/MM/DD"),
       }));
 
       const worksheet = XLSX.utils.json_to_sheet(excelData);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Stock Income");
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Sells");
 
       // Add summary sheet
       const summaryData = [
         ["Summary Report"],
         ["Date Range", `${moment(fromDate).format("YYYY/MM/DD")} - ${moment(toDate).format("YYYY/MM/DD")}`],
         ["Total Records", items.length],
-        ["Total Quantity", totalQuantity],
         ["Total Amount (AFN)", totalAmount],
         ["Total Received (AFN)", totalReceived],
-        ["Total Remaining (AFN)", totalRemaining],
+        ["Total Remaining (AFN)", totalRemained],
         ["Generated On", moment().format("YYYY/MM/DD HH:mm:ss")],
       ];
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
@@ -187,7 +187,7 @@ const StockIncomeDateDownload = () => {
 
       const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
       const blob = new Blob([excelBuffer], { type: "application/octet-stream" });
-      saveAs(blob, `stock_income_${moment().format("YYYY-MM-DD")}.xlsx`);
+      saveAs(blob, `sells_${moment().format("YYYY-MM-DD")}.xlsx`);
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.message || "Error fetching data");
@@ -198,9 +198,27 @@ const StockIncomeDateDownload = () => {
 
   return (
     <div className="p-4 sm:p-6 space-y-4 bg-white rounded-lg shadow">
-      <h2 className="text-lg sm:text-xl font-semibold text-gray-800">Stock Income Report by Date Range</h2>
+      <h2 className="text-lg sm:text-xl font-semibold text-gray-800">Sells Report by Date Range</h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Customer Filter */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Customer</label>
+          <select
+            value={selectedCustomer}
+            onChange={(e) => setSelectedCustomer(e.target.value)}
+            className="mt-1 w-full border p-2 rounded bg-white"
+            disabled={loadingFilters}
+          >
+            <option value="">All Customers</option>
+            {customers.map((cust) => (
+              <option key={cust.id} value={cust.id}>
+                {cust.fullname}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Department Filter */}
         <div>
           <label className="block text-sm font-medium text-gray-700">Department</label>
@@ -214,24 +232,6 @@ const StockIncomeDateDownload = () => {
             {departments.map((dept) => (
               <option key={dept.id} value={dept.id}>
                 {dept.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Seller Filter */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700">Seller</label>
-          <select
-            value={selectedSeller}
-            onChange={(e) => setSelectedSeller(e.target.value)}
-            className="mt-1 w-full border p-2 rounded bg-white"
-            disabled={loadingFilters}
-          >
-            <option value="">All Sellers</option>
-            {sellers.map((seller) => (
-              <option key={seller.id} value={seller.id}>
-                {seller.fullname}
               </option>
             ))}
           </select>
@@ -280,4 +280,4 @@ const StockIncomeDateDownload = () => {
   );
 };
 
-export default StockIncomeDateDownload;
+export default SellsDateDownload;

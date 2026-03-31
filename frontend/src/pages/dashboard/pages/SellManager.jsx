@@ -4,6 +4,7 @@ import { FiPlus, FiTrash2, FiEdit2, FiEye } from "react-icons/fi";
 import { FaPrint } from "react-icons/fa";
 import { useSelector } from "react-redux";
 import PrintBillOrder from "./PrintOrderBill";
+import SellsDateDownload from "./report/SellsDateDownload";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -348,11 +349,13 @@ const SellManager = () => {
 
       {/* Table (unchanged) */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+        <SellsDateDownload />
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-primary">
               <tr>
                 <SortableHeader label="ID" sortKey="id" />
+                <SortableHeader label="type" sortKey="is_returned" />
                 <SortableHeader label="Stock Income" sortKey="stockIncomeName" />
                 <SortableHeader label="Customer" sortKey="customer" />
                 <SortableHeader label="Amount" sortKey="amount" />
@@ -398,6 +401,19 @@ const SellManager = () => {
                     <tr key={sell.id} className="hover:bg-primary/5 transition-colors group">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm font-medium text-gray-900">#{sell.id}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center space-x-2">
+                          {sell.is_returned ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                              Returned
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                              Sold
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {relatedStock ? (
@@ -704,8 +720,8 @@ const SellManager = () => {
                   type="submit"
                   disabled={submitting}
                   className={`px-6 py-2.5 rounded-lg font-medium shadow-lg hover:shadow-xl transform hover:scale-105 transition-colors ${submitting
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-primary text-white hover:bg-primary/90"
+                    ? "bg-gray-400 cursor-not-allowed"
+                    : "bg-primary text-white hover:bg-primary/90"
                     }`}
                 >
                   {submitting ? "Processing..." : (editingRecord ? 'Update' : 'Create')}
@@ -834,7 +850,7 @@ const SellManager = () => {
         isOpen={printBillOpen}
         onClose={() => setPrintBillOpen(false)}
         order={printBillData}
-        autoPrint={true}
+        autoPrint={false}
       />
     </div>
   );

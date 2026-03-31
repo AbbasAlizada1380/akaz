@@ -28,10 +28,8 @@ const ExpenseTable = ({
               <h2 className="text-xl text-black font-bold">Expense List</h2>
             </div>
           </div>
-          <div>
-            <ExpenseDateDownload />
-          </div>
         </div>
+        <ExpenseDateDownload />
       </div>
 
       {/* Table Content */}

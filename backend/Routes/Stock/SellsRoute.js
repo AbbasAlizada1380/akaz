@@ -6,6 +6,7 @@ import {
     updateSell,
     deleteSell,
     returnSell,
+    getSellsByDateRange,   // <-- import the new controller
 } from "../../Controllers/Stock/SellsController.js";
 
 const SellsRoute = express.Router();
@@ -20,6 +21,9 @@ SellsRoute.post("/return", returnSell);
 
 // Get All
 SellsRoute.get("/", getAllSells);
+
+// Get by date range (with optional customer/department filters)
+SellsRoute.get("/date-range", getSellsByDateRange);
 
 // Get By ID
 SellsRoute.get("/:id", getSellById);

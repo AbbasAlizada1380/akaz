@@ -4,24 +4,24 @@ import { signOutSuccess } from "../../state/userSlice/userSlice";
 import { useNavigate } from "react-router-dom";
 import Swal from "sweetalert2";
 import withReactContent from "sweetalert2-react-content";
-import { 
-  MdOutlineDashboardCustomize, 
-  MdInventory, 
-  MdAttachMoney, 
-  MdPayments, 
-  MdBusinessCenter, 
+import {
+  MdOutlineDashboardCustomize,
+  MdInventory,
+  MdAttachMoney,
+  MdPayments,
+  MdBusinessCenter,
   MdPeople,
-  MdPersonAdd 
+  MdPersonAdd
 } from "react-icons/md";
-import { 
-  FaBoxes, 
-  FaMoneyBillWave, 
-  FaReceipt, 
-  FaBuilding, 
-  FaHandshake, 
-  FaUserTie, 
-  FaMoneyCheckAlt, 
-  FaSignOutAlt 
+import {
+  FaBoxes,
+  FaMoneyBillWave,
+  FaReceipt,
+  FaBuilding,
+  FaHandshake,
+  FaUserTie,
+  FaMoneyCheckAlt,
+  FaSignOutAlt
 } from "react-icons/fa";
 import { LucideUserRoundPlus } from "lucide-react";
 import { FaList } from "react-icons/fa";
@@ -52,18 +52,18 @@ const Sidebar = ({ setActiveComponent }) => {
       }
     });
   };
-const AllComponents = [
-  { name: "Home Page", value: "home", icon: <MdOutlineDashboardCustomize /> },
-  { name: "Stock", value: "stock", icon: <FaBoxes /> },
-  { name: "Finance", value: "finance", icon: <FaMoneyBillWave /> },
-  { name: "Expense", value: "expense", icon: <FaReceipt /> },
-  { name: "Department", value: "department", icon: <FaBuilding /> },
-  { name: "Stake Holders", value: "stakeHolders", icon: <FaHandshake /> },
-  { name: "Staff Management", value: "staff", icon: <FaUserTie /> },
-  { name: "Salary", value: "salary", icon: <FaMoneyCheckAlt /> },
-  { name: "User Management", value: "AddUser", icon: <LucideUserRoundPlus /> },
-  { name: "sign out", value: "signout", icon: <FaSignOutAlt /> },
-];
+  const AllComponents = [
+    { name: "Home Page", value: "home", icon: <MdOutlineDashboardCustomize /> },
+    { name: "Stock", value: "stock", icon: <FaBoxes /> },
+    { name: "Finance", value: "finance", icon: <FaMoneyBillWave /> },
+    { name: "Expense", value: "expense", icon: <FaReceipt /> },
+    { name: "Department", value: "department", icon: <FaBuilding /> },
+    { name: "Stake Holders", value: "stakeHolders", icon: <FaHandshake /> },
+    { name: "Staff Management", value: "staff", icon: <FaUserTie /> },
+    { name: "Salary", value: "salary", icon: <FaMoneyCheckAlt /> },
+    { name: "User Management", value: "AddUser", icon: <LucideUserRoundPlus /> },
+    { name: "sign out", value: "signout", icon: <FaSignOutAlt /> },
+  ];
 
   let accessibleComponents = [];
 
@@ -100,14 +100,10 @@ const AllComponents = [
     <div
       className={`h-full transition-all duration-300 ease-in-out w-64 bg-primary overflow-y-hidden `}
     >
-      <header className="flex items-center gap-5 p-5 text-white font-bold text-xl">
+      <header className=" items-center gap-5 p-5 text-white font-bold text-xl">
         <div className="flex items-center justify-center p-1 bg-white rounded-full">
-          <img src="/logo.png" alt="Logo" className="h-12 w-12 rounded-full " />
+          <img src="/logo.png" alt="Logo" className="h-12 w-72 " />
         </div>
-
-        <span className="text-lg font-bold rounded-full text-secondry whitespace-nowrap">
-          ZANJERA OMID
-        </span>
       </header>
 
       <ul className=" mr-1 px-3">

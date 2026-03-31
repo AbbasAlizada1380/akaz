@@ -96,7 +96,7 @@ const Navbar = () => {
             </div>
             <div className="hidden sm:block">
               <h1 className="text-lg font-bold text-gray-800">
-                ZANJERA OMID
+                ZANJiRA OMID
               </h1>
               <p className="text-xs text-gray-500">
                 Management Information System

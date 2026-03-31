@@ -121,7 +121,7 @@ const ProfileModal = ({ isOpen, onClose, currentUser }) => {
               value={formData.fullname}
               onChange={handleChange}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm
-                         focus:outline-none focus:ring-2 focus:ring-orange-500
+                         focus:outline-none focus:ring-2 focus:ring-primary
                          transition-all duration-200"
               placeholder="Enter your full name"
             />
@@ -138,7 +138,7 @@ const ProfileModal = ({ isOpen, onClose, currentUser }) => {
               value={formData.email}
               onChange={handleChange}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm
-                         focus:outline-none focus:ring-2 focus:ring-orange-500
+                         focus:outline-none focus:ring-2 focus:ring-primary
                          transition-all duration-200"
               placeholder="Enter your email"
             />
@@ -155,7 +155,7 @@ const ProfileModal = ({ isOpen, onClose, currentUser }) => {
               value={formData.newPassword}
               onChange={handleChange}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm
-                         focus:outline-none focus:ring-2 focus:ring-orange-500
+                         focus:outline-none focus:ring-2 focus:ring-primary
                          transition-all duration-200"
               placeholder="Enter new password"
             />
@@ -172,7 +172,7 @@ const ProfileModal = ({ isOpen, onClose, currentUser }) => {
               value={formData.rePassword}
               onChange={handleChange}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm
-                         focus:outline-none focus:ring-2 focus:ring-orange-500
+                         focus:outline-none focus:ring-2 focus:ring-primary
                          transition-all duration-200"
               placeholder="Re-enter new password"
             />
@@ -189,7 +189,7 @@ const ProfileModal = ({ isOpen, onClose, currentUser }) => {
               value={formData.oldPassword}
               onChange={handleChange}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm
-                         focus:outline-none focus:ring-2 focus:ring-orange-500
+                         focus:outline-none focus:ring-2 focus:ring-primary
                          transition-all duration-200"
               placeholder="Enter current password"
             />
@@ -209,8 +209,8 @@ const ProfileModal = ({ isOpen, onClose, currentUser }) => {
 
             <button
               type="submit"
-              className="px-4 py-2 bg-orange-600 text-white rounded-lg
-                         hover:bg-orange-700 transition-all duration-200
+              className="px-4 py-2 bg-primary text-white rounded-lg
+                         hover:bg-primary transition-all duration-200
                          font-medium flex items-center gap-2
                          disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={loading}

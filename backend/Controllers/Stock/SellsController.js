@@ -2,10 +2,11 @@ import Sell from "../../Models/Stock/Sells.js";
 import StockIncome from "../../Models/Stock/StockIncome.js";
 import StockExist from "../../Models/Stock/StockExist.js";
 import sequelize from "../../dbconnection.js";
-import Customer from "../../Models/Customer/Customers.js"
+import {Customer} from "../../Models/Association.js"
 import { Receive } from "../../Models/Association.js";
 import CustomerAccount from "../../Models/Customer/CustomerAccount.js"; // adjust import path
 import Return_Pay from "../../Models/Finance/Return_Pay.js";
+import { Op } from "sequelize";
 
 export const createSell = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -574,5 +575,100 @@ export const returnSell = async (req, res) => {
     if (transaction) await transaction.rollback();
     console.error('Error processing return:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+
+export const getSellsByDateRange = async (req, res) => {
+  const { from, to, customerId, departmentId } = req.query;
+
+  // Validate required date parameters
+  if (!from || !to) {
+    return res.status(400).json({
+      success: false,
+      message: "from and to dates are required",
+    });
+  }
+
+  try {
+    // Convert to full day range
+    const startDate = new Date(`${from}T00:00:00`);
+    const endDate = new Date(`${to}T23:59:59`);
+
+    // Build where clause for Sell
+    const whereClause = {
+      createdAt: {
+        [Op.between]: [startDate, endDate],
+      },
+    };
+
+    // Add customer filter if provided
+    if (customerId) {
+      whereClause.customer = customerId;
+    }
+
+    // Prepare include for StockIncome with optional department filter
+    const stockInclude = {
+      model: StockIncome,
+      as: "stock",
+      attributes: ["id", "name", "departmentId", "unitPrice", "quantity"],
+    };
+
+    if (departmentId) {
+      stockInclude.where = { departmentId };
+    }
+
+    // Fetch sells with associated stock and customer
+    const sells = await Sell.findAll({
+      where: whereClause,
+      include: [
+        stockInclude,
+        {
+          model: Customer,
+          as: "customerInfo",   // ✅ fixed alias
+          attributes: ["id", "fullname", "phoneNumber", "address"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    // Calculate totals
+    const totalAmount = sells.reduce(
+      (sum, sell) => sum + parseFloat(sell.total || 0),
+      0
+    );
+    const totalReceived = sells.reduce(
+      (sum, sell) => sum + parseFloat(sell.received || 0),
+      0
+    );
+    const totalRemained = sells.reduce(
+      (sum, sell) => sum + parseFloat(sell.remained || 0),
+      0
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Sells fetched successfully",
+      data: {
+        sells,
+        totalCount: sells.length,
+        totalAmount,
+        totalReceived,
+        totalRemained,
+        filters: {
+          from,
+          to,
+          customerId: customerId || null,
+          departmentId: departmentId || null,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error in getSellsByDateRange:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching sells",
+      error: error.message,
+    });
   }
 };
