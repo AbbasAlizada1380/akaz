@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import CustomerReport from './CustomerReport'; // Adjust the import path as needed
-import FinancialReports from  "../report/FinancialReports.jsx"
+import CustomerReport from './CustomerReport';
+import FinancialReports from "../report/FinancialReports.jsx";
 import ReceiptDateDownload from '../report/ReceiptDateDownload.jsx';
+import Pagination from '../../pagination/Pagination'; // adjust path as needed
+
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const initialForm = {
@@ -12,21 +14,32 @@ const initialForm = {
 };
 
 const Receive = () => {
-  const [activeTab, setActiveTab] = useState('receives'); // 'receives' or 'report'
+  const [activeTab, setActiveTab] = useState('receives');
   const [receives, setReceives] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
+  
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const limit = 20;
 
   // ======================
-  // Fetch Receives
+  // Fetch Receives (with pagination)
   // ======================
   const fetchReceives = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${BASE_URL}/receive`);
-      setReceives(res.data || []);
+      const res = await axios.get(`${BASE_URL}/receive`, {
+        params: { page, limit }
+      });
+      // Expected backend response: { data: [], page, limit, totalRecords, totalPages }
+      setReceives(res.data.data || []);
+      setTotalPages(res.data.totalPages || 1);
+      setTotalRecords(res.data.totalRecords || 0);
     } catch (error) {
       console.error('Error fetching receives:', error);
     } finally {
@@ -56,7 +69,7 @@ const Receive = () => {
       fetchReceives();
       fetchCustomers();
     }
-  }, [activeTab]);
+  }, [activeTab, page]); // refetch when page changes
 
   // ======================
   // Handle Input Change
@@ -74,6 +87,15 @@ const Receive = () => {
   const resetForm = () => {
     setForm(initialForm);
     setEditingId(null);
+  };
+
+  // ======================
+  // Handle Page Change
+  // ======================
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setPage(newPage);
+    }
   };
 
   // ======================
@@ -101,6 +123,7 @@ const Receive = () => {
         await axios.post(`${BASE_URL}/receive`, payload);
       }
       resetForm();
+      // Refresh current page after operation
       fetchReceives();
       fetchCustomers();
     } catch (error) {
@@ -133,7 +156,13 @@ const Receive = () => {
     setLoading(true);
     try {
       await axios.delete(`${BASE_URL}/receive/${id}`);
-      fetchReceives();
+      // If current page becomes empty after deletion, go to previous page
+      if (receives.length === 1 && page > 1) {
+        setPage(page - 1);
+      } else {
+        fetchReceives();
+      }
+      fetchCustomers();
     } catch (error) {
       console.error('Error deleting receive:', error);
       alert('Error deleting receive');
@@ -174,7 +203,10 @@ const Receive = () => {
         {/* Tab Bar */}
         <div className="mb-6 flex space-x-2 border-b border-gray-200">
           <button
-            onClick={() => setActiveTab('receives')}
+            onClick={() => {
+              setActiveTab('receives');
+              setPage(1); // reset to first page when switching tabs
+            }}
             className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${
               activeTab === 'receives'
                 ? 'bg-primary text-white shadow-lg'
@@ -198,24 +230,19 @@ const Receive = () => {
         {activeTab === 'receives' ? (
           /* ================= RECEIVES VIEW ================= */
           <>
-            {/* Header with decorative elements */}
+            {/* Header */}
             <div className="mb-8 relative">
               <div className="absolute inset-0 flex items-center" aria-hidden="true">
                 <div className="w-full border-t border-primary"></div>
               </div>
               <div className="relative flex justify-start">
-                <span className="pr-4 text-3xl font-bold">
-                  Receive Management
-                </span>
+                <span className="pr-4 text-3xl font-bold">Receive Management</span>
               </div>
-              <p className="mt-2 ml-1">
-                Record and track all customer payments
-              </p>
+              <p className="mt-2 ml-1">Record and track all customer payments</p>
             </div>
 
             {/* ================= FORM ================= */}
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden mb-8 border border-primary">
-              {/* Form Header with primary gradient */}
               <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
                 <div className="flex items-center space-x-3">
                   <div className="p-2 bg-white/20 rounded-lg">
@@ -231,31 +258,26 @@ const Receive = () => {
 
               <form onSubmit={handleSubmit} className="p-6 space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                  {/* Customer Select */}
                   <div className="space-y-2">
                     <label className="block text-sm font-semibold text-gray-700">
                       Select Customer <span className="text-primary">*</span>
                     </label>
-                    <div className="relative">
-                      <select
-                        name="customer"
-                        value={form.customer}
-                        onChange={handleChange}
-                        required
-                        className="w-full border-2 border-gray-200 rounded-xl px-4 py-3.5 focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none bg-white appearance-none"
-                      >
-                        <option value="">Choose a customer...</option>
-                        {Array.isArray(customers) && customers.map((c) => (
-                          <option key={c.customer.id} value={c.customer.id}>
-                            {c.customer.fullname} - ${c.totalDue}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <select
+                      name="customer"
+                      value={form.customer}
+                      onChange={handleChange}
+                      required
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3.5 focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none bg-white appearance-none"
+                    >
+                      <option value="">Choose a customer...</option>
+                      {customers.map((c) => (
+                        <option key={c.customer.id} value={c.customer.id}>
+                          {c.customer.fullname} - ${c.totalDue}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
-                  {/* Amount Input */}
                   <div className="space-y-2">
                     <label className="block text-sm font-semibold text-gray-700">
                       Amount <span className="text-primary">*</span>
@@ -276,11 +298,8 @@ const Receive = () => {
                     </div>
                   </div>
 
-                  {/* Description - Full width */}
                   <div className="md:col-span-2 space-y-2">
-                    <label className="block text-sm font-semibold text-gray-700">
-                      Description
-                    </label>
+                    <label className="block text-sm font-semibold text-gray-700">Description</label>
                     <textarea
                       name="description"
                       value={form.description}
@@ -292,7 +311,6 @@ const Receive = () => {
                   </div>
                 </div>
 
-                {/* Form Actions */}
                 <div className="flex gap-3 pt-4 border-t border-gray-100">
                   <button
                     type="submit"
@@ -315,7 +333,6 @@ const Receive = () => {
                       </span>
                     )}
                   </button>
-
                   {editingId && (
                     <button
                       type="button"
@@ -331,7 +348,6 @@ const Receive = () => {
 
             {/* ================= TABLE ================= */}
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary">
-              {/* Table Header with primary gradient */}
               <ReceiptDateDownload/>
               <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
                 <div className="flex justify-between items-center">
@@ -341,17 +357,14 @@ const Receive = () => {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
                       </svg>
                     </div>
-                    <h2 className="text-xl font-semibold text-white">
-                      Receive History
-                    </h2>
+                    <h2 className="text-xl font-semibold text-white">Receive History</h2>
                   </div>
                   <span className="bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold border border-white/30">
-                    Total: {receives.length} receives
+                    Total: {totalRecords} receives
                   </span>
                 </div>
               </div>
 
-              {/* Table */}
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-primary">
@@ -364,7 +377,6 @@ const Receive = () => {
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">Actions</th>
                     </tr>
                   </thead>
-
                   <tbody className="divide-y divide-primary">
                     {loading && receives.length === 0 ? (
                       <tr>
@@ -397,7 +409,7 @@ const Receive = () => {
                       receives.map((receive, index) => (
                         <tr key={receive.id} className="group hover:bg-gray-50">
                           <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                            {String(index + 1).padStart(2, '0')}
+                            {String(index + 1 + (page - 1) * limit).padStart(2, '0')}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center space-x-3">
@@ -455,7 +467,13 @@ const Receive = () => {
                 </table>
               </div>
 
-              {/* Optional: Add Pagination here if backend supports it */}
+                <div className="border-t border-primary px-6 py-4 bg-primary/50">
+                  <Pagination
+                    currentPage={page}
+                    totalPages={totalPages}
+                    onPageChange={handlePageChange}
+                  />
+                </div>
             </div>
           </>
         ) : (

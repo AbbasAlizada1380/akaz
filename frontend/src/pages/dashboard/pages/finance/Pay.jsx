@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
-import Pagination from "../../pagination/Pagination"; // Adjust import path
-import SellerReport from "./SellerReport"; // Import the SellerReport component
+import Pagination from "../../pagination/Pagination";
+import SellerReport from "./SellerReport";
 import PayDateDownload from "../report/PayDateDownload";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
@@ -10,11 +10,11 @@ const SELLER_API = `${BASE_URL}/seller/dept`;
 const initialForm = {
   seller: "",
   amount: "",
-  description: ""
+  description: "",
 };
 
 export default function Pay() {
-  const [activeTab, setActiveTab] = useState('payments'); // 'payments' or 'report'
+  const [activeTab, setActiveTab] = useState("payments");
   const [pays, setPays] = useState([]);
   const [sellers, setSellers] = useState([]);
   const [form, setForm] = useState(initialForm);
@@ -22,27 +22,28 @@ export default function Pay() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [sellerFilter, setSellerFilter] = useState(""); // optional filter
   const limit = 20;
 
-  // ======================
-  // Fetch Pays
-  // ======================
+  // Fetch payments with pagination and optional seller filter
   const fetchPays = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${BASE_URL}/pay?page=${page}&limit=${limit}`);
+      const params = { page, limit };
+      if (sellerFilter) params.seller = sellerFilter;
+      const res = await axios.get(`${BASE_URL}/pay`, { params });
+      // Backend response: { success, page, limit, totalRecords, totalPages, data }
       setPays(res.data.data || []);
       setTotalPages(res.data.totalPages || 1);
     } catch (error) {
       console.error("Error fetching pays:", error);
+      alert("Failed to load payments");
     } finally {
       setLoading(false);
     }
   };
 
-  // ======================
-  // Fetch Sellers
-  // ======================
+  // Fetch sellers (for dropdown and report)
   const fetchSellers = async () => {
     try {
       const res = await axios.get(SELLER_API);
@@ -54,43 +55,37 @@ export default function Pay() {
     }
   };
 
+  // Reload data when page, activeTab, or sellerFilter changes
   useEffect(() => {
-    if (activeTab === 'payments') {
+    if (activeTab === "payments") {
       fetchPays();
       fetchSellers();
     }
-  }, [page, activeTab]);
+  }, [page, activeTab, sellerFilter]);
 
-  // ======================
-  // Handle Change
-  // ======================
-  const handleChange = (e) => {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value
-    });
+  // Reset page to 1 when seller filter changes
+  const handleSellerFilterChange = (e) => {
+    setSellerFilter(e.target.value);
+    setPage(1);
   };
 
-  // ======================
-  // Reset Form
-  // ======================
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
   const resetForm = () => {
     setForm(initialForm);
     setEditingId(null);
   };
 
-  // ======================
-  // Handle Submit
-  // ======================
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     if (!form.seller || !form.amount) {
       alert("Seller and amount are required");
       return;
     }
 
-    const selected = sellers.find(s => s.id === parseInt(form.seller));
+    const selected = sellers.find((s) => s.id === parseInt(form.seller));
     if (!selected) {
       alert("Selected seller not found");
       return;
@@ -98,7 +93,6 @@ export default function Pay() {
 
     const amount = parseFloat(form.amount);
     const maxAmount = parseFloat(selected.totalUnpaidAmount);
-
     if (amount > maxAmount) {
       alert(`Payment cannot exceed total unpaid amount: ${maxAmount}`);
       return;
@@ -107,17 +101,18 @@ export default function Pay() {
     const payload = {
       seller: form.seller,
       amount,
-      description: form.description || null
+      description: form.description || null,
     };
 
     setLoading(true);
     try {
       if (editingId) {
-        await axios.put(`${BASE_URL}/pay/${editingId}`, payload);
+        await axios.put(`${BASE_URL}/pays/${editingId}`, payload);
       } else {
-        await axios.post(`${BASE_URL}/pay`, payload);
+        await axios.post(`${BASE_URL}/pays`, payload);
       }
       resetForm();
+      // Stay on same page after operation, but refresh data
       fetchPays();
       fetchSellers();
     } catch (error) {
@@ -128,29 +123,28 @@ export default function Pay() {
     }
   };
 
-  // ======================
-  // Handle Edit
-  // ======================
   const handleEdit = (pay) => {
     setForm({
       seller: pay.seller,
       amount: pay.amount,
-      description: pay.description || ""
+      description: pay.description || "",
     });
     setEditingId(pay.id);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // ======================
-  // Handle Delete
-  // ======================
   const handleDelete = async (id) => {
     if (!window.confirm("Are you sure you want to delete this payment?")) return;
-
     setLoading(true);
     try {
-      await axios.delete(`${BASE_URL}/pay/${id}`);
-      fetchPays();
+      await axios.delete(`${BASE_URL}/pays/${id}`);
+      // If current page becomes empty after deletion, go to previous page
+      if (pays.length === 1 && page > 1) {
+        setPage(page - 1);
+      } else {
+        fetchPays();
+      }
+      fetchSellers();
     } catch (error) {
       console.error("Error deleting payment:", error);
       alert("Error deleting payment");
@@ -159,72 +153,78 @@ export default function Pay() {
     }
   };
 
-  // ======================
-  // Cancel Edit
-  // ======================
   const handleCancel = () => resetForm();
 
-  // Format date function
   const formatDate = (dateString) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+    return date.toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
   return (
     <div className="min-h-screen p-4 md:p-6">
       <div className="max-w-7xl mx-auto">
-
         {/* Tab Bar */}
         <div className="mb-6 flex space-x-2 border-b border-gray-200">
           <button
-            onClick={() => setActiveTab('payments')}
-            className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${
-              activeTab === 'payments'
-                ? 'bg-primary text-white shadow-lg'
-                : 'text-gray-600 hover:text-primary hover:bg-gray-100'
-            }`}
+            onClick={() => {
+              setActiveTab("payments");
+              setPage(1);
+            }}
+            className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${activeTab === "payments"
+              ? "bg-primary text-white shadow-lg"
+              : "text-gray-600 hover:text-primary hover:bg-gray-100"
+              }`}
           >
             Payments
           </button>
           <button
-            onClick={() => setActiveTab('report')}
-            className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${
-              activeTab === 'report'
-                ? 'bg-primary text-white shadow-lg'
-                : 'text-gray-600 hover:text-primary hover:bg-gray-100'
-            }`}
+            onClick={() => setActiveTab("report")}
+            className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${activeTab === "report"
+              ? "bg-primary text-white shadow-lg"
+              : "text-gray-600 hover:text-primary hover:bg-gray-100"
+              }`}
           >
             Seller Report
           </button>
         </div>
 
-        {activeTab === 'payments' ? (
-          /* ================= PAYMENTS VIEW ================= */
+        {activeTab === "payments" ? (
           <>
-            {/* Header with decorative elements */}
+            {/* Header */}
             <div className="mb-8 relative">
               <div className="absolute inset-0 flex items-center" aria-hidden="true">
                 <div className="w-full border-t border-primary"></div>
               </div>
               <div className="relative flex justify-start">
-                <span className="pr-4 text-3xl font-bold  ">
-                  Seller Payments
-                </span>
+                <span className="pr-4 text-3xl font-bold">Seller Payments</span>
               </div>
-              <p className="mt-2 ml-1">
-                Manage and track all seller payments efficiently
-              </p>
+              <p className="mt-2 ml-1">Manage and track all seller payments efficiently</p>
             </div>
 
-            {/* ================= FORM ================= */}
+            {/* Filter Bar (optional) */}
+            <div className="mb-4 flex justify-end">
+              <select
+                value={sellerFilter}
+                onChange={handleSellerFilterChange}
+                className="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-primary focus:border-primary"
+              >
+                <option value="">All Sellers</option>
+                {sellers.map((seller) => (
+                  <option key={seller.id} value={seller.id}>
+                    {seller.fullname}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Form */}
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden mb-8 border border-primary">
-              {/* Form Header with primary gradient */}
               <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
                 <div className="flex items-center space-x-3">
                   <div className="p-2 bg-white/20 rounded-lg">
@@ -240,34 +240,29 @@ export default function Pay() {
 
               <form onSubmit={handleSubmit} className="p-6 space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-                  {/* Seller Select with better styling */}
                   <div className="space-y-2">
                     <label className="block text-sm font-semibold text-gray-700">
-                      Select Seller <span className=" ">*</span>
+                      Select Seller <span className="text-red-500">*</span>
                     </label>
-                    <div className="relative">
-                      <select
-                        name="seller"
-                        value={form.seller}
-                        onChange={handleChange}
-                        required
-                        className="w-full border-2 border-gray-200 rounded-xl px-4 py-3.5 focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none bg-white appearance-none"
-                      >
-                        <option value="">Choose a seller...</option>
-                        {Array.isArray(sellers) && sellers.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.fullname} {s.phoneNumber ? `- ${s.phoneNumber}` : ''} (${s.totalUnpaidAmount || 0})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <select
+                      name="seller"
+                      value={form.seller}
+                      onChange={handleChange}
+                      required
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3.5 focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none bg-white"
+                    >
+                      <option value="">Choose a seller...</option>
+                      {sellers.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.fullname} {s.phoneNumber ? `- ${s.phoneNumber}` : ""} (unpaid: ${s.totalUnpaidAmount || 0})
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
-                  {/* Amount Input with primary accent */}
                   <div className="space-y-2">
                     <label className="block text-sm font-semibold text-gray-700">
-                      Amount <span className=" ">*</span>
+                      Amount <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
                       <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
@@ -285,11 +280,8 @@ export default function Pay() {
                     </div>
                   </div>
 
-                  {/* Description Textarea - Full width */}
                   <div className="md:col-span-2 space-y-2">
-                    <label className="block text-sm font-semibold text-gray-700">
-                      Description
-                    </label>
+                    <label className="block text-sm font-semibold text-gray-700">Description</label>
                     <textarea
                       name="description"
                       value={form.description}
@@ -301,16 +293,12 @@ export default function Pay() {
                   </div>
                 </div>
 
-                {/* Form Actions with primary buttons */}
                 <div className="flex gap-3 pt-4 border-t border-gray-100">
                   <button
                     type="submit"
                     disabled={loading}
-                    className={`px-8 py-3.5 bg-primary text-white font-semibold rounded-xl transition-all transform hover:scale-105 hover:shadow-lg ${
-                      loading
-                        ? 'opacity-50 cursor-not-allowed hover:scale-100'
-                        : 'hover:bg-primary'
-                    }`}
+                    className={`px-8 py-3.5 bg-primary text-white font-semibold rounded-xl transition-all transform hover:scale-105 hover:shadow-lg ${loading ? "opacity-50 cursor-not-allowed hover:scale-100" : "hover:bg-primary-dark"
+                      }`}
                   >
                     {loading ? (
                       <div className="flex items-center space-x-2">
@@ -322,11 +310,10 @@ export default function Pay() {
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path>
                         </svg>
-                        <span>{editingId ? 'Update Payment' : 'Create Payment'}</span>
+                        <span>{editingId ? "Update Payment" : "Create Payment"}</span>
                       </span>
                     )}
                   </button>
-
                   {editingId && (
                     <button
                       type="button"
@@ -340,10 +327,9 @@ export default function Pay() {
               </form>
             </div>
 
-            {/* ================= TABLE ================= */}
+            {/* Table */}
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary">
-              {/* Table Header with primary gradient */}
-              <PayDateDownload/>
+              <PayDateDownload />
               <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
                 <div className="flex justify-between items-center">
                   <div className="flex items-center space-x-3">
@@ -352,9 +338,7 @@ export default function Pay() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
                       </svg>
                     </div>
-                    <h2 className="text-xl font-semibold text-white">
-                      Payment History
-                    </h2>
+                    <h2 className="text-xl font-semibold text-white">Payment History</h2>
                   </div>
                   <span className="bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold border border-white/30">
                     Total: {pays.length} payments
@@ -362,7 +346,6 @@ export default function Pay() {
                 </div>
               </div>
 
-              {/* Table */}
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-primary">
@@ -375,7 +358,6 @@ export default function Pay() {
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">Actions</th>
                     </tr>
                   </thead>
-
                   <tbody className="divide-y divide-primary">
                     {loading && pays.length === 0 ? (
                       <tr>
@@ -408,12 +390,12 @@ export default function Pay() {
                       pays.map((pay, index) => (
                         <tr key={pay.id} className="group">
                           <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                            {String(index + 1 + (page - 1) * limit).padStart(2, '0')}
+                            {String(index + 1 + (page - 1) * limit).padStart(2, "0")}
                           </td>
                           <td className="px-6 py-4">
                             <div className="flex items-center space-x-3">
                               <div>
-                                <div className="font-semibold text-gray-900">{pay.sellerInfo?.fullname || 'Unknown Seller'}</div>
+                                <div className="font-semibold text-gray-900">{pay.sellerInfo?.fullname || "Unknown Seller"}</div>
                                 {pay.sellerInfo?.phoneNumber && (
                                   <div className="text-xs text-gray-500">{pay.sellerInfo.phoneNumber}</div>
                                 )}
@@ -464,20 +446,13 @@ export default function Pay() {
                 </table>
               </div>
 
-              {/* Pagination with primary styling */}
-              {totalPages > 1 && (
-                <div className="border-t border-primary px-6 py-4 bg-primary/50">
-                  <Pagination
-                    currentPage={page}
-                    totalPages={totalPages}
-                    onPageChange={setPage}
-                  />
-                </div>
-              )}
+              {/* Pagination Component */}
+              <div className="border-t border-primary px-6 py-4 bg-primary/50">
+                <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+              </div>
             </div>
           </>
         ) : (
-          /* ================= SELLER REPORT VIEW ================= */
           <SellerReport />
         )}
       </div>

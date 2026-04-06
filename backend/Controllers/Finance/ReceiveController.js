@@ -7,17 +7,36 @@ import { Op } from 'sequelize';
 
 export const getAllReceives = async (req, res) => {
     try {
-        const receives = await Receive.findAll({
+        // Pagination parameters
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const offset = (page - 1) * limit;
+
+        // Fetch paginated receives
+        const { count, rows } = await Receive.findAndCountAll({
             include: [
                 {
                     model: Customer,
-                    as: 'customerInfo',   // تغییر به customerInfo
+                    as: 'customerInfo',
                     attributes: ['id', 'fullname', 'phoneNumber'],
                 },
             ],
             order: [['createdAt', 'DESC']],
+            limit: limit,
+            offset: offset,
         });
-        res.status(200).json(receives);
+
+        // Pagination metadata
+        const totalPages = Math.ceil(count / limit);
+
+        res.status(200).json({
+            success: true,
+            data: rows,
+            page: page,
+            limit: limit,
+            totalRecords: count,
+            totalPages: totalPages,
+        });
     } catch (error) {
         console.error('خطا در دریافت لیست دریافت‌ها:', error);
         res.status(500).json({ message: 'خطای سرور' });
