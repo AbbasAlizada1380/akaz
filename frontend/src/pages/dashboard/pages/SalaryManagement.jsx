@@ -3,6 +3,7 @@ import axios from "axios";
 import { FaEdit, FaTrash, FaCheck, FaTimes, FaSpinner } from "react-icons/fa";
 import { useSelector } from "react-redux";
 import SalaryDateDownload from "./report/salaryDateDownload";
+import Pagination from "../pagination/Pagination"; // adjust path
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -30,12 +31,18 @@ const SalaryManagement = () => {
   const [loading, setLoading] = useState({
     staffs: true,
     records: true,
-    initial: true
+    initial: true,
   });
 
-  // ---------------- FETCH DATA ----------------
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const limit = 10;
+
+  // Fetch staff (no pagination needed)
   const fetchStaff = async () => {
-    setLoading(prev => ({ ...prev, staffs: true }));
+    setLoading((prev) => ({ ...prev, staffs: true }));
     try {
       const res = await axios.get(`${BASE_URL}/staff`);
       setStaffs(res.data.staffs || []);
@@ -43,33 +50,50 @@ const SalaryManagement = () => {
       console.error("Error fetching staff:", error);
       setStaffs([]);
     } finally {
-      setLoading(prev => ({ ...prev, staffs: false }));
+      setLoading((prev) => ({ ...prev, staffs: false }));
     }
   };
 
-  const fetchAttendance = async () => {
-    setLoading(prev => ({ ...prev, records: true }));
+  // Fetch attendance with pagination
+  const fetchAttendance = async (pageNum = page) => {
+    setLoading((prev) => ({ ...prev, records: true }));
     try {
-      const res = await axios.get(`${BASE_URL}/attendance`);
-      setRecords(res.data || []);
+      const res = await axios.get(`${BASE_URL}/attendence`, {
+        params: { page: pageNum, limit },
+      });
+      // Expected response: { data: [], totalRecords, totalPages, currentPage }
+      setRecords(res.data.data || []);
+      setTotalRecords(res.data.totalRecords || 0);
+      setTotalPages(res.data.totalPages || 1);
     } catch (error) {
       console.error("Error fetching attendance:", error);
       setRecords([]);
+      setTotalRecords(0);
+      setTotalPages(1);
     } finally {
-      setLoading(prev => ({ ...prev, records: false, initial: false }));
+      setLoading((prev) => ({ ...prev, records: false, initial: false }));
     }
   };
 
+  // Initial load
   useEffect(() => {
-    const fetchData = async () => {
-      await Promise.all([fetchStaff(), fetchAttendance()]);
+    const init = async () => {
+      await fetchStaff();
+      await fetchAttendance(1);
     };
-    fetchData();
+    init();
   }, []);
 
-  // ---------------- HANDLE INPUT ----------------
+  // Re-fetch when page changes
+  useEffect(() => {
+    if (!loading.initial) {
+      fetchAttendance(page);
+    }
+  }, [page]);
+
+  // Form handlers
   const handleAttendanceChange = (day, field, value) => {
-    setForm(prev => ({
+    setForm((prev) => ({
       ...prev,
       attendance: {
         ...prev.attendance,
@@ -81,28 +105,22 @@ const SalaryManagement = () => {
     }));
   };
 
-  const handleSubmit = async e => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
 
     try {
       setSubmitting(true);
-
       if (editingId) {
-        await axios.put(`${BASE_URL}/attendance/${editingId}`, {
+        await axios.put(`${BASE_URL}/attendence/${editingId}`, {
           attendance: form.attendance,
           receipt: form.receipt,
         });
       } else {
-        await axios.post(`${BASE_URL}/attendance`, form);
+        await axios.post(`${BASE_URL}/attendence`, form);
       }
-
-      await fetchAttendance();
-
-      setForm(initialForm);
-      setEditingId(null);
-      setShowForm(false);
-
+      await fetchAttendance(page); // refresh current page
+      resetForm();
     } catch (error) {
       console.error("Error saving attendance:", error);
     } finally {
@@ -110,25 +128,40 @@ const SalaryManagement = () => {
     }
   };
 
-  // ---------------- EDIT ----------------
-  const handleEdit = record => {
+  const resetForm = () => {
+    setForm(initialForm);
+    setEditingId(null);
+    setShowForm(false);
+  };
+
+  const handleEdit = (record) => {
     setEditingId(record.id);
     setForm({
       staffId: record.staffId,
       receipt: record.receipt || 0,
       attendance: record.attendance,
     });
-    setShowForm(!showForm)
+    setShowForm(true);
   };
 
-  // ---------------- DELETE ----------------
-  const handleDelete = async id => {
+  const handleDelete = async (id) => {
     if (!confirm("Are you sure you want to delete this record?")) return;
     try {
-      await axios.delete(`${BASE_URL}/attendance/${id}`);
-      await fetchAttendance();
+      await axios.delete(`${BASE_URL}/attendence/${id}`);
+      // If current page becomes empty and not first page, go back
+      if (records.length === 1 && page > 1) {
+        setPage(page - 1);
+      } else {
+        await fetchAttendance(page);
+      }
     } catch (error) {
       console.error("Error deleting record:", error);
+    }
+  };
+
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setPage(newPage);
     }
   };
 
@@ -139,10 +172,9 @@ const SalaryManagement = () => {
     Monday: "Monday",
     Tuesday: "Tuesday",
     Wednesday: "Wednesday",
-    Thursday: "Thursday"
+    Thursday: "Thursday",
   };
 
-  // Initial loading state
   if (loading.initial) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex flex-col items-center justify-center p-6">
@@ -159,9 +191,8 @@ const SalaryManagement = () => {
       <div className="text-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">Attendance Management</h1>
         <p className="text-gray-600">Record and manage staff attendance and salaries</p>
-
         {editingId && (
-          <div className="mt-4 p-4 border border-yellow-400 rounded-xl max-w-md mx-auto">
+          <div className="mt-4 p-4 bg-yellow-100 border border-yellow-400 rounded-xl max-w-md mx-auto">
             <div className="flex items-center justify-center gap-2 text-yellow-800">
               <FaEdit className="h-5 w-5" />
               <span className="font-semibold">Editing mode – Record #{editingId}</span>
@@ -169,12 +200,12 @@ const SalaryManagement = () => {
           </div>
         )}
       </div>
+
       <div className="flex justify-center mb-6">
         <button
           onClick={() => {
-            setForm(initialForm);
-            setEditingId(null);
-            setShowForm(prev => !prev);
+            resetForm();
+            setShowForm((prev) => !prev);
           }}
           className="px-6 py-3 bg-primary text-white rounded-xl hover:from-primary-900 hover:to-primary-700 transition font-medium shadow-md disabled:opacity-50 flex items-center gap-2"
           disabled={loading.staffs}
@@ -184,202 +215,158 @@ const SalaryManagement = () => {
               <FaSpinner className="animate-spin" />
               Loading staff list...
             </>
+          ) : showForm ? (
+            "Close Form"
           ) : (
-            showForm ? "Close Form" : "New Attendance Record"
+            "New Attendance Record"
           )}
         </button>
       </div>
 
       {/* Form Section */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        {/* Form Header */}
-        <div className="bg-primary text-white p-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-white/20 rounded-full">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-            </div>
-            <div>
-              <h2 className="text-xl font-bold">
-                {editingId ? "Edit Attendance" : "New Attendance Record"}
-              </h2>
-              <p className="text-sm text-white/80">
-                {editingId ? "Edit attendance details" : "Record attendance for a staff member"}
-              </p>
+      {showForm && (
+        <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+          <div className="bg-primary text-white p-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-white/20 rounded-full">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-xl font-bold">{editingId ? "Edit Attendance" : "New Attendance Record"}</h2>
+                <p className="text-sm text-white/80">{editingId ? "Edit attendance details" : "Record attendance for a staff member"}</p>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Form Content */}
-        {showForm && (
-          <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-            <div className="p-6">
-              <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Staff Selection */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    <span className="text-red-500">*</span> Select Staff Member
-                  </label>
-                  {loading.staffs ? (
-                    <div className="flex items-center justify-center h-12 bg-gray-100 rounded-lg">
-                      <FaSpinner className="animate-spin text-gray-400 mr-2" />
-                      <span className="text-gray-500">Loading staff list...</span>
-                    </div>
-                  ) : (
-                    <select
-                      className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition disabled:opacity-50"
-                      value={form.staffId}
-                      onChange={e => setForm({ ...form, staffId: e.target.value })}
-                      required
-                      disabled={loading.staffs}
-                    >
-                      <option value="">Select Staff Member</option>
-                      {Array.isArray(staffs) &&
-                        staffs.map(staff => (
-                          <option key={staff.id} value={staff.id}>
-                            {staff.name} - {staff.fatherName}
-                          </option>
-                        ))}
-                    </select>
-                  )}
-                </div>
+          <div className="p-6">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Staff Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <span className="text-red-500">*</span> Select Staff Member
+                </label>
+                {loading.staffs ? (
+                  <div className="flex items-center justify-center h-12 bg-gray-100 rounded-lg">
+                    <FaSpinner className="animate-spin text-gray-400 mr-2" />
+                    <span className="text-gray-500">Loading staff list...</span>
+                  </div>
+                ) : (
+                  <select
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition"
+                    value={form.staffId}
+                    onChange={(e) => setForm({ ...form, staffId: e.target.value })}
+                    required
+                  >
+                    <option value="">Select Staff Member</option>
+                    {staffs.map((staff) => (
+                      <option key={staff.id} value={staff.id}>
+                        {staff.name} - {staff.fatherName}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
 
-                {/* Attendance Days Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {daysOrder.map(day => (
-                    <div key={day} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="font-semibold text-gray-700">{englishDays[day]}</h3>
-                        <div className="flex items-center gap-2">
-                          <label className="flex items-center gap-2 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              className="hidden peer"
-                              checked={form.attendance[day].attendance}
-                              onChange={e =>
-                                handleAttendanceChange(day, "attendance", e.target.checked)
-                              }
-                              disabled={submitting}
-                            />
-                            <div className={`w-10 h-6 flex items-center rounded-full p-1 transition-colors ${form.attendance[day].attendance ? 'bg-green-500' : 'bg-gray-300'} ${submitting ? 'opacity-50' : ''}`}>
-                              <div className={`bg-white w-4 h-4 rounded-full shadow transform transition-transform ${form.attendance[day].attendance ? 'translate-x-4' : ''}`} />
-                            </div>
-                            <span className="text-sm text-gray-600">
-                              {form.attendance[day].attendance ? <FaCheck className="text-green-500" /> : <FaTimes className="text-gray-400" />}
-                            </span>
-                          </label>
+              {/* Attendance Days Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {daysOrder.map((day) => (
+                  <div key={day} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-gray-700">{englishDays[day]}</h3>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="hidden peer"
+                          checked={form.attendance[day].attendance}
+                          onChange={(e) => handleAttendanceChange(day, "attendance", e.target.checked)}
+                          disabled={submitting}
+                        />
+                        <div className={`w-10 h-6 flex items-center rounded-full p-1 transition-colors ${form.attendance[day].attendance ? "bg-green-500" : "bg-gray-300"} ${submitting ? "opacity-50" : ""}`}>
+                          <div className={`bg-white w-4 h-4 rounded-full shadow transform transition-transform ${form.attendance[day].attendance ? "translate-x-4" : ""}`} />
                         </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Overtime (hours)
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.5"
-                            className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition disabled:opacity-50"
-                            value={form.attendance[day].overtime}
-                            onChange={e =>
-                              handleAttendanceChange(day, "overtime", e.target.value)
-                            }
-                            disabled={!form.attendance[day].attendance || submitting}
-                          />
-                          <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">
-                            hrs
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 pt-4 border-t border-gray-200">
-
-                  {/* Total & Receipt Section */}
-                  {editingId && (
-                    <div className="flex flex-col md:flex-row gap-4 flex-1">
-
-                      {/* Total Display */}
-                      <div className="bg-gray-100 p-4 rounded-lg flex flex-col justify-center items-start">
-                        <label className="text-sm font-medium text-gray-700 mb-1">Total Amount</label>
-                        <span className="text-lg font-bold text-emerald-700">
-                          {records.find(r => r.id === editingId)?.total || 0} AFN
+                        <span className="text-sm text-gray-600">
+                          {form.attendance[day].attendance ? <FaCheck className="text-green-500" /> : <FaTimes className="text-gray-400" />}
                         </span>
-                      </div>
-
-                      {/* Receipt Input */}
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          Amount Paid (Receipt)
-                        </label>
+                      </label>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Overtime (hours)</label>
+                      <div className="relative">
                         <input
                           type="number"
                           min="0"
-                          max={records.find(r => r.id === editingId)?.total || undefined}
-                          className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition disabled:opacity-50"
-                          value={form.receipt}
-                          onChange={e =>
-                            setForm({ ...form, receipt: Number(e.target.value) })
-                          }
-                          disabled={submitting}
+                          step="0.5"
+                          className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition"
+                          value={form.attendance[day].overtime}
+                          onChange={(e) => handleAttendanceChange(day, "overtime", e.target.value)}
+                          disabled={!form.attendance[day].attendance || submitting}
                         />
+                        <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">hrs</div>
                       </div>
                     </div>
-                  )}
-
-                  {/* Action Buttons */}
-                  <div className="flex gap-3">
-                    {editingId && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setForm(initialForm);
-                          setEditingId(null);
-                        }}
-                        className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium disabled:opacity-50"
-                        disabled={submitting}
-                      >
-                        Cancel Edit
-                      </button>
-                    )}
-                    <button
-                      type="submit"
-                      disabled={submitting}
-                      className={`px-6 py-3 rounded-lg font-medium shadow-md transition flex items-center gap-2
-    ${submitting
-                          ? "bg-gray-400 cursor-not-allowed"
-                          : "bg-gradient-to-r from-primary-800 to-primary-600 hover:from-primary-900 hover:to-primary-700 text-white"
-                        }`}
-                    >
-                      {submitting ? (
-                        <>
-                          <FaSpinner className="animate-spin h-5 w-5" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <FaCheck />
-                          {editingId ? "Save Changes" : "Save Attendance"}
-                        </>
-                      )}
-                    </button>
-
                   </div>
-                </div>
+                ))}
+              </div>
 
-              </form>
-            </div>
-          </div>)}
-      </div>
+              {/* Action Buttons */}
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 pt-4 border-t border-gray-200">
+                {editingId && (
+                  <div className="flex flex-col md:flex-row gap-4 flex-1">
+                    <div className="bg-gray-100 p-4 rounded-lg">
+                      <label className="text-sm font-medium text-gray-700 mb-1">Total Amount</label>
+                      <span className="text-lg font-bold text-emerald-700">
+                        {records.find((r) => r.id === editingId)?.total || 0} AFN
+                      </span>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Amount Paid (Receipt)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max={records.find((r) => r.id === editingId)?.total || undefined}
+                        className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition"
+                        value={form.receipt}
+                        onChange={(e) => setForm({ ...form, receipt: Number(e.target.value) })}
+                        disabled={submitting}
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  {editingId && (
+                    <button type="button" onClick={resetForm} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium" disabled={submitting}>
+                      Cancel Edit
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className={`px-6 py-3 rounded-lg font-medium shadow-md transition flex items-center gap-2 ${submitting ? "bg-gray-400 cursor-not-allowed" : "bg-gradient-to-r from-primary-800 to-primary-600 hover:from-primary-900 hover:to-primary-700 text-white"
+                      }`}
+                  >
+                    {submitting ? (
+                      <>
+                        <FaSpinner className="animate-spin h-5 w-5" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <FaCheck />
+                        {editingId ? "Save Changes" : "Save Attendance"}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Records Table */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        {/* Table Header */}
         <div className="bg-primary text-white p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -390,6 +377,7 @@ const SalaryManagement = () => {
               </div>
               <div>
                 <h2 className="text-xl font-bold">Attendance Records</h2>
+                <p className="text-sm text-white/80">Showing {records.length} of {totalRecords} records</p>
               </div>
             </div>
             {loading.records && (
@@ -399,12 +387,9 @@ const SalaryManagement = () => {
               </div>
             )}
           </div>
-          <div>
-            <SalaryDateDownload/>
-          </div>
+          <SalaryDateDownload />
         </div>
 
-        {/* Table Content */}
         {loading.records ? (
           <div className="flex flex-col items-center justify-center py-12">
             <FaSpinner className="text-4xl text-primary-800 animate-spin mb-4" />
@@ -412,127 +397,95 @@ const SalaryManagement = () => {
             <p className="text-sm text-gray-500 mt-2">Please wait a moment</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-center">
-              <thead className="bg-primary-50 text-primary-800">
-                <tr>
-                  <th className="p-3 border-b font-semibold">#</th>
-                  <th className="p-3 border-b font-semibold">Staff Member</th>
-                  <th className="p-3 border-b font-semibold">Days Present</th>
-                  <th className="p-3 border-b font-semibold">Total Overtime (hrs)</th>
-                  <th className="p-3 border-b font-semibold">Overtime Pay</th>
-                  <th className="p-3 border-b font-semibold">Base Salary</th>
-                  <th className="p-3 border-b font-semibold">Total</th>
-                  <th className="p-3 border-b font-semibold">Paid</th>
-                  <th className="p-3 border-b font-semibold">Date</th>
-                  <th className="p-3 border-b font-semibold">Actions</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {records.length === 0 ? (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-center">
+                <thead className="bg-primary-50 text-primary-800">
                   <tr>
-                    <td colSpan="10" className="p-8">
-                      <div className="flex flex-col items-center justify-center">
-                        <svg className="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                        </svg>
-                        <p className="text-gray-500 text-lg">No records found</p>
-                        <p className="text-gray-400 text-sm mt-1">Add a new attendance record to get started</p>
-                      </div>
-                    </td>
+                    <th className="p-3 border-b font-semibold">#</th>
+                    <th className="p-3 border-b font-semibold">Staff Member</th>
+                    <th className="p-3 border-b font-semibold">Days Present</th>
+                    <th className="p-3 border-b font-semibold">Total Overtime (hrs)</th>
+                    <th className="p-3 border-b font-semibold">Overtime Pay</th>
+                    <th className="p-3 border-b font-semibold">Base Salary</th>
+                    <th className="p-3 border-b font-semibold">Total</th>
+                    <th className="p-3 border-b font-semibold">Paid</th>
+                    <th className="p-3 border-b font-semibold">Date</th>
+                    <th className="p-3 border-b font-semibold">Actions</th>
                   </tr>
-                ) : (
-                  records.map((record, index) => {
-                    const attendanceDays = Object.values(record.attendance || {}).filter(day => day.attendance).length;
-                    const totalOvertime = Object.values(record.attendance || {}).reduce((sum, day) => sum + (day.overtime || 0), 0);
+                </thead>
+                <tbody>
+                  {records.length === 0 ? (
+                    <tr>
+                      <td colSpan="10" className="p-8 text-center text-gray-500">No records found</td>
+                    </tr>
+                  ) : (
+                    records.map((record, idx) => {
+                      const attendanceDays = Object.values(record.attendance || {}).filter((day) => day.attendance).length;
+                      const totalOvertime = Object.values(record.attendance || {}).reduce((sum, day) => sum + (day.overtime || 0), 0);
+                      const overtimePerHour = totalOvertime > 0 ? (record.overtime || 0) / totalOvertime : 0;
 
-                    return (
-                      <tr
-                        key={record.id}
-                        className="hover:bg-gray-50 border-b last:border-0 transition-colors"
-                      >
-                        <td className="p-3 text-gray-600">{record.id}</td>
-                        <td className="p-3">
-                          <div className="text-center">
-                            <div className="font-medium text-gray-800">{record.Staff?.name}</div>
-                            <div className="text-sm text-gray-500">{record.Staff?.fatherName}</div>
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
-                            {attendanceDays} day{attendanceDays !== 1 ? "s" : ""}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm">
-                            {totalOvertime.toFixed(1)} hr{totalOvertime !== 1 ? "s" : ""}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex flex-col gap-1 items-center">
-                            <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm">
-                              {(record.overtime || 0)} AFN total
+                      return (
+                        <tr key={record.id} className="hover:bg-gray-50 border-b last:border-0 transition-colors">
+                          <td className="p-3 text-gray-600">{(page - 1) * limit + idx + 1}</td>
+                          <td className="p-3">
+                            <div className="text-center">
+                              <div className="font-medium text-gray-800">{record.Staff?.name}</div>
+                              <div className="text-sm text-gray-500">{record.Staff?.fatherName}</div>
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
+                              {attendanceDays} day{attendanceDays !== 1 ? "s" : ""}
                             </span>
-                            <span className="bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-sm">
-                              {record.overtime && totalOvertime ?
-                                (record.overtime / totalOvertime) : 0} AFN / hr
+                          </td>
+                          <td className="p-3">
+                            <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm">
+                              {totalOvertime.toFixed(1)} hr{totalOvertime !== 1 ? "s" : ""}
                             </span>
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-bold">
-                            {(record.salary || 0)} AFN
-                          </span>
-                        </td>
-
-                        <td className="p-3">
-                          <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-sm font-bold">
-                            {(record.total || 0)} AFN
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-sm font-bold">
-                            {(record.receipt || 0)} AFN
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <span className="px-3 py-1 ">
-                            {record.createdAt ?
-                              new Date(record.createdAt).toLocaleDateString('en-US')
-                              : '—'
-                            }
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => handleEdit(record)}
-                              className="p-2 text-primary-700 hover:bg-primary-50 rounded-lg transition disabled:opacity-50"
-                              title="Edit"
-                              disabled={submitting || loading.records}
-                            >
-                              <FaEdit />
-                            </button>
-                            {currentUser.role == "admin" && (
-                              <button
-                                onClick={() => handleDelete(record.id)}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
-                                title="Delete"
-                                disabled={loading.records}
-                              >
-                                <FaTrash />
+                          </td>
+                          <td className="p-3">
+                            <div className="flex flex-col gap-1 items-center">
+                              <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm">{(record.overtime || 0)} AFN total</span>
+                              <span className="bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-sm">{overtimePerHour.toFixed(1)} AFN / hr</span>
+                            </div>
+                          </td>
+                          <td className="p-3">
+                            <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-bold">{(record.salary || 0)} AFN</span>
+                          </td>
+                          <td className="p-3">
+                            <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-sm font-bold">{(record.total || 0)} AFN</span>
+                          </td>
+                          <td className="p-3">
+                            <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-sm font-bold">{(record.receipt || 0)} AFN</span>
+                          </td>
+                          <td className="p-3">
+                            <span className="px-3 py-1">{record.createdAt ? new Date(record.createdAt).toLocaleDateString("en-US") : "—"}</span>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center justify-center gap-2">
+                              <button onClick={() => handleEdit(record)} className="p-2 text-primary-700 hover:bg-primary-50 rounded-lg transition" title="Edit">
+                                <FaEdit />
                               </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                              {currentUser.role === "admin" && (
+                                <button onClick={() => handleDelete(record.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition" title="Delete">
+                                  <FaTrash />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50">
+              <Pagination currentPage={page} totalPages={totalPages} onPageChange={handlePageChange} />
+            </div>
+          </>
         )}
       </div>
     </div>

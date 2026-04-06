@@ -48,22 +48,28 @@ export const createExpense = async (req, res) => {
 export const getExpenses = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 15; // match frontend default
     const offset = (page - 1) * limit;
 
+    // Build filter conditions
+    const where = {};
+    if (req.query.year) where.year = req.query.year;
+    if (req.query.month) where.month = req.query.month;
+    if (req.query.floor) where.floor = req.query.floor;
+
     const { count, rows } = await Expense.findAndCountAll({
+      where,
       limit,
       offset,
       order: [["createdAt", "DESC"]],
     });
 
     res.json({
-      expenses: rows,
-      pagination: {
-        total: count,
-        currentPage: page,
-        totalPages: Math.ceil(count / limit),
-      },
+      data: rows,
+      totalRecords: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      limit: limit,
     });
   } catch (error) {
     console.error(error);

@@ -13,6 +13,7 @@ const ExpenseManager = () => {
   const [submitting, setSubmitting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({
     purpose: "",
@@ -22,7 +23,7 @@ const ExpenseManager = () => {
   });
 
   /* ======================
-     Fetch Expenses
+     Fetch Expenses (with pagination)
   ====================== */
   const fetchExpenses = async (page = 1) => {
     try {
@@ -30,11 +31,14 @@ const ExpenseManager = () => {
       const res = await axios.get(
         `${BASE_URL}/expense?page=${page}&limit=${limit}`
       );
-      setExpenses(res.data.expenses);
-      setCurrentPage(res.data.pagination.currentPage);
-      setTotalPages(res.data.pagination.totalPages);
+      // Expected response: { data: [], totalRecords, totalPages, currentPage, limit }
+      setExpenses(res.data.data || []);
+      setTotalRecords(res.data.totalRecords || 0);
+      setTotalPages(res.data.totalPages || 1);
+      setCurrentPage(res.data.currentPage || page);
     } catch (err) {
       console.error(err);
+      alert("Failed to fetch expenses");
     } finally {
       setLoading(false);
     }
@@ -48,16 +52,22 @@ const ExpenseManager = () => {
     e.preventDefault();
     if (submitting) return;
 
+    const payload = {
+      ...form,
+      amount: parseFloat(form.amount),
+    };
+
     try {
       setSubmitting(true);
 
       if (editingId) {
-        await axios.put(`${BASE_URL}/expense/${editingId}`, form);
+        await axios.put(`${BASE_URL}/expense/${editingId}`, payload);
       } else {
-        await axios.post(`${BASE_URL}/expense`, form);
+        await axios.post(`${BASE_URL}/expense`, payload);
       }
 
       resetForm();
+      // Refresh current page after operation
       fetchExpenses(currentPage);
     } catch (err) {
       console.error(err);
@@ -83,7 +93,12 @@ const ExpenseManager = () => {
 
     try {
       await axios.delete(`${BASE_URL}/expense/${id}`);
-      fetchExpenses(currentPage);
+      // If current page becomes empty and not first page, go to previous page
+      if (expenses.length === 1 && currentPage > 1) {
+        setCurrentPage(currentPage - 1);
+      } else {
+        fetchExpenses(currentPage);
+      }
     } catch (err) {
       console.error(err);
       alert(err.response?.data?.message || "Error deleting expense");
@@ -95,9 +110,14 @@ const ExpenseManager = () => {
     setEditingId(null);
   };
 
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6 space-y-8">
-
       {/* Header */}
       <div className="text-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">
@@ -120,8 +140,6 @@ const ExpenseManager = () => {
 
       {/* Form Section */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-
-        {/* Form Header */}
         <div className="bg-primary text-white p-4">
           <h2 className="text-xl font-bold">
             {editingId ? "Edit Expense" : "Add New Expense"}
@@ -133,13 +151,9 @@ const ExpenseManager = () => {
           </p>
         </div>
 
-        {/* Form Content */}
         <div className="p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-              {/* Purpose */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> Expense Purpose
@@ -154,8 +168,6 @@ const ExpenseManager = () => {
                   className="w-full border border-gray-300 rounded-lg px-4 py-3"
                 />
               </div>
-
-              {/* Paid By */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> Paid By
@@ -172,7 +184,6 @@ const ExpenseManager = () => {
               </div>
             </div>
 
-            {/* Amount */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 <span className="text-red-500">*</span> Amount (AFN)
@@ -181,18 +192,18 @@ const ExpenseManager = () => {
                 required
                 type="number"
                 min="0"
+                step="0.01"
                 value={form.amount}
                 onChange={(e) =>
                   setForm({
                     ...form,
-                    amount: parseInt(e.target.value || 0, 10),
+                    amount: e.target.value,
                   })
                 }
                 className="w-full border border-gray-300 rounded-lg px-4 py-3"
               />
             </div>
 
-            {/* Description */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Description
@@ -208,41 +219,40 @@ const ExpenseManager = () => {
               />
             </div>
 
-            {/* Buttons */}
             <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
               {editingId && (
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg"
+                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
                 >
                   Cancel
                 </button>
               )}
-
               <button
                 type="submit"
                 disabled={submitting}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg"
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
                 {submitting
                   ? "Saving..."
                   : editingId
-                    ? "Save Changes"
-                    : "Save Expense"}
+                  ? "Save Changes"
+                  : "Save Expense"}
               </button>
             </div>
           </form>
         </div>
       </div>
 
-      {/* Expense Table */}
+      {/* Expense Table with Pagination */}
       <ExpenseTable
         expenses={expenses}
         loading={loading}
         currentPage={currentPage}
         totalPages={totalPages}
-        onPageChange={setCurrentPage}
+        totalRecords={totalRecords}
+        onPageChange={handlePageChange}
         onEdit={handleEdit}
         onDelete={handleDelete}
       />
