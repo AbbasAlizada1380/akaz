@@ -2,7 +2,7 @@ import Sell from "../../Models/Stock/Sells.js";
 import StockIncome from "../../Models/Stock/StockIncome.js";
 import StockExist from "../../Models/Stock/StockExist.js";
 import sequelize from "../../dbconnection.js";
-import {Customer} from "../../Models/Association.js"
+import { Customer } from "../../Models/Association.js"
 import { Receive } from "../../Models/Association.js";
 import CustomerAccount from "../../Models/Customer/CustomerAccount.js"; // adjust import path
 import Return_Pay from "../../Models/Finance/Return_Pay.js";
@@ -230,14 +230,36 @@ export const createSell = async (req, res) => {
 ================================= */
 export const getAllSells = async (req, res) => {
   try {
-    const sells = await Sell.findAll({
+    // Get pagination parameters from query string, with defaults
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // Use findAndCountAll to get both data and total count
+    const { count, rows } = await Sell.findAndCountAll({
       include: [
         { model: StockIncome, as: "stock" }
       ],
       order: [["createdAt", "DESC"]],
+      limit: limit,
+      offset: offset,
     });
 
-    res.json(sells);
+    // Calculate total pages
+    const totalPages = Math.ceil(count / limit);
+
+    // Send paginated response
+    res.json({
+      sells: rows,
+      pagination: {
+        totalItems: count,
+        totalPages: totalPages,
+        currentPage: page,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Failed to fetch sells" });

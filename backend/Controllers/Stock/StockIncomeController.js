@@ -7,30 +7,52 @@ import { Op } from "sequelize";
 
 export const getAllStockIncome = async (req, res) => {
   try {
-    const incomes = await StockIncome.findAll({
+    // Get pagination parameters from query string, with defaults
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // Use findAndCountAll to get both data and total count
+    const { count, rows } = await StockIncome.findAndCountAll({
       include: [
         {
           model: Department,
           as: "department",
-          attributes: ['id', 'name', 'holding', 'isActive'] // Select only needed fields
+          attributes: ['id', 'name', 'holding', 'isActive']
         },
         {
           model: Seller,
           as: "seller",
-          attributes: ['id', 'fullname', 'phoneNumber', 'address'] // Select only needed fields
+          attributes: ['id', 'fullname', 'phoneNumber', 'address']
         },
       ],
       order: [["createdAt", "DESC"]],
+      limit: limit,
+      offset: offset,
     });
 
-    // Transform the data if needed
-    const transformedIncomes = incomes.map(income => ({
+    // Transform the data
+    const transformedIncomes = rows.map(income => ({
       ...income.toJSON(),
       departmentName: income.department?.name,
       sellerName: income.seller?.fullname
     }));
 
-    res.json(transformedIncomes);
+    // Calculate total pages
+    const totalPages = Math.ceil(count / limit);
+
+    // Send paginated response
+    res.json({
+      stockIncomes: transformedIncomes,
+      pagination: {
+        totalItems: count,
+        totalPages: totalPages,
+        currentPage: page,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
   } catch (error) {
     console.error('Error fetching stock incomes:', error);
     res.status(500).json({

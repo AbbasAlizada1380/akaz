@@ -16,11 +16,15 @@ export const createStockExist = async (req, res) => {
   }
 };
 
-
-
 export const getAllStockExist = async (req, res) => {
   try {
-    const stocks = await StockExist.findAll({
+    // Pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // Fetch paginated StockExist records with department include
+    const { count, rows } = await StockExist.findAndCountAll({
       include: [
         {
           model: Department,
@@ -29,12 +33,13 @@ export const getAllStockExist = async (req, res) => {
         },
       ],
       order: [["createdAt", "DESC"]],
+      limit: limit,
+      offset: offset,
     });
 
+    // For each StockExist, fetch its associated StockIncome records
     const result = [];
-
-    for (const stock of stocks) {
-
+    for (const stock of rows) {
       const allStockIds = stock.allStockIds || [];
 
       const stockIncomes = await StockIncome.findAll({
@@ -45,16 +50,25 @@ export const getAllStockExist = async (req, res) => {
 
       result.push({
         ...stock.toJSON(),
-        stockIncomes, // اضافه کردن اطلاعات کامل stockincome
+        stockIncomes,
       });
     }
 
+    // Pagination metadata
+    const totalPages = Math.ceil(count / limit);
+
     res.status(200).json({
       success: true,
-      count: result.length,
       data: result,
+      pagination: {
+        totalItems: count,
+        totalPages: totalPages,
+        currentPage: page,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
     });
-
   } catch (error) {
     console.error("Error fetching stock exist:", error);
     res.status(500).json({

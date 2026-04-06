@@ -5,6 +5,7 @@ import { FaPrint } from "react-icons/fa";
 import { useSelector } from "react-redux";
 import PrintBillOrder from "./PrintOrderBill";
 import SellsDateDownload from "./report/SellsDateDownload";
+import Pagination from "../pagination/Pagination"; // Import your Pagination component
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -25,14 +26,24 @@ const SellManager = () => {
   const [viewingRecord, setViewingRecord] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
 
-  // State for inline customer addition (backend will create)
+  // Pagination state
+  const [pagination, setPagination] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalItems: 0,
+    itemsPerPage: 20,
+    hasNextPage: false,
+    hasPrevPage: false,
+  });
+
+  // State for inline customer addition
   const [addingCustomer, setAddingCustomer] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState("");
-  const [submitting, setSubmitting] = useState(false); // to disable submit button
+  const [submitting, setSubmitting] = useState(false);
 
   const [formData, setFormData] = useState({
     stockIncome: "",
-    customer: "",      // selected customer ID
+    customer: "",
     amount: "",
     unitPrice: "",
     received: "",
@@ -52,7 +63,7 @@ const SellManager = () => {
   };
 
   /* =========================
-     Fetch Data
+     Fetch Data (with pagination)
   ========================== */
   const fetchCustomers = async () => {
     try {
@@ -72,20 +83,30 @@ const SellManager = () => {
     }
   };
 
-  const fetchSells = async () => {
+  const fetchSells = async (page = 1, limit = 20) => {
     setLoading(true);
     try {
       const res = await axios.get(`${BASE_URL}/sells`, {
+        params: { page, limit },
         headers: {
           Authorization: `Bearer ${accessToken}`,
         },
       });
-      setSells(res.data);
+      // Response structure: { sells: [...], pagination: {...} }
+      setSells(res.data.sells);
+      setPagination(res.data.pagination);
     } catch (error) {
       console.error("Error fetching sells:", error);
       showNotification("Failed to fetch sells", "error");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle page change
+  const handlePageChange = (newPage) => {
+    if (newPage >= 1 && newPage <= pagination.totalPages) {
+      fetchSells(newPage, pagination.itemsPerPage);
     }
   };
 
@@ -139,13 +160,11 @@ const SellManager = () => {
     e.preventDefault();
     if (submitting) return;
 
-    // Validate required fields
     if (!formData.stockIncome || !formData.amount || !formData.unitPrice) {
       showNotification('Please fill in all required fields', 'error');
       return;
     }
 
-    // Prepare payload according to backend expectation
     let payload = {
       stockIncome: formData.stockIncome,
       amount: parseInt(formData.amount),
@@ -154,25 +173,21 @@ const SellManager = () => {
     };
 
     if (addingCustomer) {
-      // We are adding a new customer – send the new customer name
       if (!newCustomerName.trim()) {
         showNotification('Please enter a customer name', 'error');
         return;
       }
       payload.newCustomerName = newCustomerName.trim();
     } else {
-      // Use existing customer ID
       if (!formData.customer) {
         showNotification('Please select a customer', 'error');
         return;
       }
-      payload.customer = formData.customer; // send ID as string/number
+      payload.customer = formData.customer;
     }
 
     setSubmitting(true);
     try {
-      console.log(payload);
-
       if (editingRecord) {
         await axios.put(`${BASE_URL}/sells/${editingRecord.id}`, payload);
         showNotification('Sell updated successfully');
@@ -183,10 +198,10 @@ const SellManager = () => {
 
       setModalVisible(false);
       resetForm();
-      // Refresh data
-      fetchSells();
+      // Refresh the current page after create/update
+      fetchSells(pagination.currentPage, pagination.itemsPerPage);
       fetchStockIncomes();
-      fetchCustomers(); // in case a new customer was created, update the list
+      fetchCustomers();
     } catch (error) {
       console.error("Error submitting form:", error);
       showNotification('Operation failed', 'error');
@@ -201,7 +216,9 @@ const SellManager = () => {
       showNotification('Sell deleted successfully');
       setDeleteModalVisible(false);
       setDeleteId(null);
-      fetchSells();
+      // Refresh current page after delete
+      fetchSells(pagination.currentPage, pagination.itemsPerPage);
+      fetchStockIncomes();
     } catch (error) {
       console.error("Error deleting sell:", error);
       showNotification('Failed to delete sell', 'error');
@@ -212,7 +229,7 @@ const SellManager = () => {
     setEditingRecord(record);
     setFormData({
       stockIncome: record.stockIncome,
-      customer: record.customer?.id || record.customer, // adjust based on how customer is stored
+      customer: record.customer?.id || record.customer,
       amount: record.amount,
       unitPrice: record.unitPrice,
       received: record.received,
@@ -221,7 +238,6 @@ const SellManager = () => {
     const selected = stockIncomes.find(item => item.id === parseInt(record.stockIncome));
     setSelectedStockIncome(selected || null);
     setModalVisible(true);
-    // Reset customer addition state
     setAddingCustomer(false);
     setNewCustomerName("");
   };
@@ -252,7 +268,7 @@ const SellManager = () => {
   };
 
   /* =========================
-     Sorting & Filtering
+     Sorting & Filtering (client‑side on current page)
   ========================== */
   const requestSort = (key) => {
     let direction = 'asc';
@@ -261,40 +277,6 @@ const SellManager = () => {
     }
     setSortConfig({ key, direction });
   };
-
-  const getFilteredAndSortedData = () => {
-    let filteredData = [...sells];
-
-    if (filters.customer) {
-      filteredData = filteredData.filter(item => item.customer === filters.customer);
-    }
-
-    if (sortConfig.key) {
-      filteredData.sort((a, b) => {
-        let aValue = a[sortConfig.key];
-        let bValue = b[sortConfig.key];
-
-        if (sortConfig.key === 'stockIncomeName') {
-          const aStock = stockIncomes.find(s => s.id === parseInt(a.stockIncome));
-          const bStock = stockIncomes.find(s => s.id === parseInt(b.stockIncome));
-          aValue = aStock?.name || '';
-          bValue = bStock?.name || '';
-        }
-
-        if (aValue < bValue) {
-          return sortConfig.direction === 'asc' ? -1 : 1;
-        }
-        if (aValue > bValue) {
-          return sortConfig.direction === 'asc' ? 1 : -1;
-        }
-        return 0;
-      });
-    }
-
-    return filteredData;
-  };
-
-  const filteredAndSortedData = getFilteredAndSortedData();
 
   const SortableHeader = ({ label, sortKey }) => (
     <th
@@ -317,10 +299,9 @@ const SellManager = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header with gradient background */}
+      {/* Header (unchanged) */}
       <div className="mb-8 relative">
         <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary/70 rounded-2xl -z-10"></div>
-
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-primary rounded-xl">
@@ -333,7 +314,6 @@ const SellManager = () => {
               <p className="text-sm text-gray-500 mt-1">Track and manage all sales transactions</p>
             </div>
           </div>
-
           <button
             onClick={() => {
               resetForm();
@@ -347,7 +327,7 @@ const SellManager = () => {
         </div>
       </div>
 
-      {/* Table (unchanged) */}
+      {/* Table */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
         <SellsDateDownload />
         <div className="overflow-x-auto">
@@ -371,7 +351,7 @@ const SellManager = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {loading ? (
                 <tr>
-                  <td colSpan="9" className="px-6 py-12 text-center">
+                  <td colSpan="10" className="px-6 py-12 text-center">
                     <div className="flex justify-center">
                       <div className="relative">
                         <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
@@ -382,9 +362,9 @@ const SellManager = () => {
                     </div>
                   </td>
                 </tr>
-              ) : filteredAndSortedData.length === 0 ? (
+              ) : sells.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="px-6 py-16 text-center">
+                  <td colSpan="10" className="px-6 py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <svg className="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
@@ -395,8 +375,7 @@ const SellManager = () => {
                   </td>
                 </tr>
               ) : (
-                filteredAndSortedData.map((sell) => {
-                  const relatedStock = stockIncomes.find(item => item.id === parseInt(sell.stockIncome));
+                sells.map((sell) => {
                   return (
                     <tr key={sell.id} className="hover:bg-primary/5 transition-colors group">
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -416,13 +395,8 @@ const SellManager = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {relatedStock ? (
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{relatedStock.name}</div>
-                            <div className="text-xs text-gray-500">ID: {sell.stockIncome}</div>
-                          </div>
-                        ) : (
-                          <span className="text-sm text-gray-500">ID: {sell.stockIncome}</span>
+                        {(
+                          <span className="text-sm text-gray-500"> {sell.stock.name}</span>
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -487,9 +461,20 @@ const SellManager = () => {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Component */}
+        {!loading && pagination.totalPages > 1 && (
+          <div className="border-t border-gray-200 px-4 py-3">
+            <Pagination
+              currentPage={pagination.currentPage}
+              totalPages={pagination.totalPages}
+              onPageChange={handlePageChange}
+            />
+          </div>
+        )}
       </div>
 
-      {/* Create/Edit Modal */}
+      {/* Modals (Create/Edit, View, Delete) – unchanged except refresh uses current page */}
       {modalVisible && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
           <div className="relative top-20 mx-auto p-0 border w-full max-w-2xl shadow-2xl rounded-xl bg-white overflow-hidden">
@@ -576,7 +561,7 @@ const SellManager = () => {
                   </div>
                 )}
 
-                {/* Customer Section – with inline addition */}
+                {/* Customer Section */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Customer <span className="text-red-500">*</span>
@@ -593,7 +578,6 @@ const SellManager = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          // Simply close the addition mode; no frontend creation
                           setAddingCustomer(false);
                           setNewCustomerName("");
                         }}
@@ -732,7 +716,7 @@ const SellManager = () => {
         </div>
       )}
 
-      {/* View Modal (unchanged) */}
+      {/* View Modal */}
       {viewModalVisible && viewingRecord && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
           <div className="relative top-20 mx-auto p-0 border w-full max-w-2xl shadow-2xl rounded-xl bg-white overflow-hidden">
@@ -809,7 +793,7 @@ const SellManager = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal (unchanged) */}
+      {/* Delete Confirmation Modal */}
       {deleteModalVisible && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
           <div className="relative top-20 mx-auto p-0 border w-96 shadow-2xl rounded-xl bg-white overflow-hidden">

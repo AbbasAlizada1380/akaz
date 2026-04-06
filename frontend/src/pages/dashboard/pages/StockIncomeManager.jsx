@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FiPlus, FiTrash2, FiEdit2, FiSave, FiX } from 'react-icons/fi';
 import StockIncomeDateDownload from './report/StockIncomeDateDownload';
+import Pagination from '../pagination/Pagination'; // adjust path as needed
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -16,6 +17,16 @@ const StockIncomeManager = () => {
     const [editingRecord, setEditingRecord] = useState(null);
     const [viewingRecord, setViewingRecord] = useState(null);
     const [deleteId, setDeleteId] = useState(null);
+
+    // Pagination state
+    const [pagination, setPagination] = useState({
+        currentPage: 1,
+        totalPages: 1,
+        totalItems: 0,
+        itemsPerPage: 20,
+        hasNextPage: false,
+        hasPrevPage: false,
+    });
 
     // State for inline seller addition
     const [addingSeller, setAddingSeller] = useState(false);
@@ -39,7 +50,7 @@ const StockIncomeManager = () => {
     const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
     const [filters, setFilters] = useState({ department: null, type: null });
 
-    // Specifications helper functions (unchanged)
+    // Specifications helper functions
     const handleAddSpec = () => {
         if (newSpec.key.trim() && newSpec.value.trim()) {
             if (editingSpec !== null) {
@@ -94,11 +105,15 @@ const StockIncomeManager = () => {
         fetchSellers();
     }, []);
 
-    const fetchStockIncomes = async () => {
+    const fetchStockIncomes = async (page = 1, limit = 20) => {
         setLoading(true);
         try {
-            const response = await axios.get(`${BASE_URL}/stockIncome`);
-            setStockIncomes(response.data);
+            const response = await axios.get(`${BASE_URL}/stockIncome`, {
+                params: { page, limit }
+            });
+            // Response structure: { stockIncomes: [...], pagination: {...} }
+            setStockIncomes(response.data.stockIncomes || []);
+            setPagination(response.data.pagination);
         } catch (error) {
             showNotification('Failed to fetch stock incomes', 'error');
             console.error('Error:', error);
@@ -166,18 +181,21 @@ const StockIncomeManager = () => {
         }));
     };
 
-    // Updated submit handler – now can send either sellerId or newSellerName
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= pagination.totalPages) {
+            fetchStockIncomes(newPage, pagination.itemsPerPage);
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (submitting) return;
 
-        // Basic validation
         if (!formData.name || !formData.departmentId) {
             showNotification('Please fill in all required fields', 'error');
             return;
         }
 
-        // Seller validation
         if (!addingSeller && !formData.sellerId) {
             showNotification('Please select a seller', 'error');
             return;
@@ -215,7 +233,8 @@ const StockIncomeManager = () => {
 
             setModalVisible(false);
             resetForm();
-            fetchStockIncomes();
+            // Refresh current page after operation
+            fetchStockIncomes(pagination.currentPage, pagination.itemsPerPage);
             fetchSellers(); // Refresh sellers in case a new one was created
         } catch (error) {
             showNotification('Operation failed', 'error');
@@ -231,7 +250,8 @@ const StockIncomeManager = () => {
             showNotification('Stock income deleted successfully');
             setDeleteModalVisible(false);
             setDeleteId(null);
-            fetchStockIncomes();
+            // Refresh current page after delete
+            fetchStockIncomes(pagination.currentPage, pagination.itemsPerPage);
         } catch (error) {
             showNotification('Failed to delete stock income', 'error');
             console.error('Error:', error);
@@ -283,6 +303,7 @@ const StockIncomeManager = () => {
         setNewSellerName('');
     };
 
+    // Client-side sorting on current page (kept as is)
     const requestSort = (key) => {
         let direction = 'asc';
         if (sortConfig.key === key && sortConfig.direction === 'asc') {
@@ -291,43 +312,30 @@ const StockIncomeManager = () => {
         setSortConfig({ key, direction });
     };
 
-    const getFilteredAndSortedData = () => {
-        let filteredData = [...stockIncomes];
-
-        if (filters.department) {
-            filteredData = filteredData.filter(item => item.departmentId === filters.department);
-        }
-        if (filters.type) {
-            filteredData = filteredData.filter(item => item.type === filters.type);
-        }
-
+    const getSortedData = () => {
+        let sortedData = [...stockIncomes];
         if (sortConfig.key) {
-            filteredData.sort((a, b) => {
+            sortedData.sort((a, b) => {
                 let aValue = a[sortConfig.key];
                 let bValue = b[sortConfig.key];
-
+                // Handle nested properties like department.name
                 if (sortConfig.key === 'department') {
                     aValue = a.department?.name || '';
                     bValue = b.department?.name || '';
-                } else if (sortConfig.key === 'seller') {
+                }
+                if (sortConfig.key === 'seller') {
                     aValue = a.seller?.fullname || '';
                     bValue = b.seller?.fullname || '';
                 }
-
-                if (aValue < bValue) {
-                    return sortConfig.direction === 'asc' ? -1 : 1;
-                }
-                if (aValue > bValue) {
-                    return sortConfig.direction === 'asc' ? 1 : -1;
-                }
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
                 return 0;
             });
         }
-
-        return filteredData;
+        return sortedData;
     };
 
-    const filteredAndSortedData = getFilteredAndSortedData();
+    const sortedStockIncomes = getSortedData();
 
     const SortableHeader = ({ label, sortKey }) => (
         <th
@@ -345,7 +353,7 @@ const StockIncomeManager = () => {
 
     return (
         <div className="p-6 max-w-7xl mx-auto">
-            {/* Header (unchanged) */}
+            {/* Header */}
             <div className="mb-8 relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-primary to-transparent rounded-2xl -z-10"></div>
                 <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -375,9 +383,9 @@ const StockIncomeManager = () => {
                 </div>
             </div>
 
-            {/* Table (unchanged) */}
+            {/* Table */}
             <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-                <StockIncomeDateDownload/>
+                <StockIncomeDateDownload />
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-primary">
@@ -402,7 +410,7 @@ const StockIncomeManager = () => {
                                     <td colSpan="10" className="px-6 py-12 text-center">
                                         <div className="flex justify-center">
                                             <div className="relative">
-                                                <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-primary"></div>
+                                                <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
                                                 <div className="absolute inset-0 flex items-center justify-center">
                                                     <div className="h-4 w-4 bg-primary rounded-full animate-pulse"></div>
                                                 </div>
@@ -410,7 +418,7 @@ const StockIncomeManager = () => {
                                         </div>
                                     </td>
                                 </tr>
-                            ) : filteredAndSortedData.length === 0 ? (
+                            ) : sortedStockIncomes.length === 0 ? (
                                 <tr>
                                     <td colSpan="10" className="px-6 py-16 text-center">
                                         <div className="flex flex-col items-center gap-3">
@@ -423,7 +431,7 @@ const StockIncomeManager = () => {
                                     </td>
                                 </tr>
                             ) : (
-                                filteredAndSortedData.map((item) => (
+                                sortedStockIncomes.map((item) => (
                                     <tr key={item.id} className="hover:bg-primary/50 transition-colors group">
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <div className="flex items-center gap-3">
@@ -451,8 +459,8 @@ const StockIncomeManager = () => {
                                         </td>
                                         <td className="px-6 py-4 whitespace-nowrap">
                                             <span className={`px-3 py-1 rounded-full text-xs font-medium ${item.remaining > 0
-                                                    ? 'bg-yellow-100 text-yellow-700'
-                                                    : 'bg-green-100 text-green-700'
+                                                ? 'bg-yellow-100 text-yellow-700'
+                                                : 'bg-green-100 text-green-700'
                                                 }`}>
                                                 ${Number(item.remaining).toFixed(2)}
                                             </span>
@@ -501,9 +509,16 @@ const StockIncomeManager = () => {
                         </tbody>
                     </table>
                 </div>
+                <div className="border-t border-gray-200 px-4 py-3">
+                    <Pagination
+                        currentPage={pagination.currentPage}
+                        totalPages={pagination.totalPages}
+                        onPageChange={handlePageChange}
+                    />
+                </div>
             </div>
 
-            {/* Create/Edit Modal */}
+            {/* Create/Edit Modal (unchanged except refresh uses current page) */}
             {modalVisible && (
                 <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
                     <div className="relative top-20 mx-auto p-0 border w-full max-w-2xl shadow-2xl rounded-xl bg-white overflow-hidden">
@@ -641,7 +656,6 @@ const StockIncomeManager = () => {
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    // No frontend creation – just switch back
                                                     setAddingSeller(false);
                                                     setNewSellerName("");
                                                 }}
@@ -675,7 +689,7 @@ const StockIncomeManager = () => {
                                     )}
                                 </div>
 
-                                {/* Specifications Section (unchanged) */}
+                                {/* Specifications Section */}
                                 <div className="md:col-span-2">
                                     <label className="block text-sm font-medium text-gray-700 mb-2">
                                         Specifications
@@ -768,11 +782,10 @@ const StockIncomeManager = () => {
                                 <button
                                     type="submit"
                                     disabled={submitting}
-                                    className={`px-6 py-2.5 rounded-lg font-medium shadow-lg hover:shadow-xl transform hover:scale-105 transition-colors ${
-                                        submitting
+                                    className={`px-6 py-2.5 rounded-lg font-medium shadow-lg hover:shadow-xl transform hover:scale-105 transition-colors ${submitting
                                             ? "bg-gray-400 cursor-not-allowed"
                                             : "bg-primary text-white hover:bg-primary/90"
-                                    }`}
+                                        }`}
                                 >
                                     {submitting ? "Processing..." : (editingRecord ? 'Update' : 'Create')}
                                 </button>
