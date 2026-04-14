@@ -3,6 +3,7 @@ import Customer from '../../Models/Customer/Customers.js';
 import sequelize from '../../dbconnection.js';
 import Sell from "../../Models/Stock/Sells.js";
 import { Op } from "sequelize";
+import { StockIncome } from "../../Models/Association.js";
 
 
 // @desc    Create a new customer account
@@ -81,7 +82,7 @@ export const getCustomerAccountById = async (req, res) => {
                 {
                     model: Customer,
                     as: 'customer',
-                    attributes: ['id', 'fullname', 'phoneNumberNumberNumber', 'address'],
+                    attributes: ['id', 'fullname', 'phoneNumber', 'address'],
                 },
             ],
         });
@@ -242,20 +243,16 @@ export const getCustomersWithUnpaid = async (req, res) => {
     }
 };
 
-
 export const getCustomerSellsFromTotal = async (req, res) => {
     try {
         const { customerId } = req.params;
-        // Pagination query params: page and limit (defaults: page=1, limit=10)
         let page = parseInt(req.query.page) || 1;
         let limit = parseInt(req.query.limit) || 10;
-        // Ensure positive values
         if (page < 1) page = 1;
         if (limit < 1) limit = 10;
 
         const offset = (page - 1) * limit;
 
-        // Find the customer account for this customer
         const account = await CustomerAccount.findOne({
             where: { customerId },
         });
@@ -264,45 +261,219 @@ export const getCustomerSellsFromTotal = async (req, res) => {
             return res.status(404).json({ message: 'Customer account not found' });
         }
 
-        // The total array contains the sell IDs
         const sellIds = account.total || [];
         const totalItems = sellIds.length;
 
         if (totalItems === 0) {
             return res.status(200).json({
                 data: [],
-                pagination: {
-                    page,
-                    limit,
-                    totalItems: 0,
-                    totalPages: 0,
-                },
+                pagination: { page, limit, totalItems: 0, totalPages: 0 },
             });
         }
 
-        // Fetch sells with those IDs, applying pagination
+        // ✅ Fixed: use alias 'stock'
         const sells = await Sell.findAll({
-            where: {
-                id: sellIds,
-            },
+            where: { id: sellIds },
+            include: [
+                {
+                    model: StockIncome,
+                    as: 'stock',
+                    attributes: ['name'],
+                    required: false,
+                },
+            ],
             order: [['createdAt', 'DESC']],
             offset,
             limit,
         });
 
-        const totalPages = Math.ceil(totalItems / limit);
+        const sellsWithName = sells.map(sell => {
+            const sellData = sell.toJSON();
+            sellData.name = sellData.stock ? sellData.stock.name : null;
+            delete sellData.stock;
+            return sellData;
+        });
 
+        const totalPages = Math.ceil(totalItems / limit);
         res.status(200).json({
-            data: sells,
-            pagination: {
-                page,
-                limit,
-                totalItems,
-                totalPages,
-            },
+            data: sellsWithName,
+            pagination: { page, limit, totalItems, totalPages },
         });
     } catch (error) {
         console.error('Error fetching customer sells from total:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+// Helper to format a sell record for frontend
+const formatSellForFrontend = (sell) => {
+    const sellData = sell.toJSON();
+    return {
+        id: sellData.id,
+        fileName: sellData.stock?.name || null,       // product name from StockIncome
+        size: null,                                    // not available in current schema
+        qnty: sellData.amount,
+        price: parseFloat(sellData.unitPrice) || 0,
+        money: parseFloat(sellData.total) || 0,
+        receipt: parseFloat(sellData.received) || 0,
+        remaining: parseFloat(sellData.remained) || 0,
+        createdAt: sellData.createdAt,
+        name: sellData.stock?.name || null,            // for consistency
+    };
+};
+
+// @desc    Get customer order items by type (all, paid, unpaid)
+// @route   GET /api/orderItems/:customerId/:type
+// @access  Private
+export const getCustomerOrderItemsByType = async (req, res) => {
+    try {
+        const { customerId, type } = req.params;
+
+        // Validate type
+        const validTypes = ['orderId', 'receiptOrders', 'remainOrders'];
+        if (!validTypes.includes(type)) {
+            return res.status(400).json({ message: 'Invalid type. Use orderId, receiptOrders, or remainOrders' });
+        }
+
+        // Find customer account
+        const account = await CustomerAccount.findOne({
+            where: { customerId },
+        });
+        if (!account) {
+            return res.status(404).json({ message: 'Customer account not found' });
+        }
+
+        let sellIds = [];
+        // Determine which array to use based on type
+        if (type === 'orderId') {
+            sellIds = account.total || [];
+        } else if (type === 'receiptOrders') {
+            sellIds = account.paid || [];
+        } else if (type === 'remainOrders') {
+            sellIds = account.unpaid || [];
+        }
+
+        if (sellIds.length === 0) {
+            return res.status(200).json({
+                items: [],
+                totalCount: 0,
+                totalMoney: 0,
+                totalReceipt: 0,
+                totalRemaining: 0,
+                customerName: null,
+            });
+        }
+
+        // Fetch sells with associated StockIncome (for product name)
+        const sells = await Sell.findAll({
+            where: { id: sellIds },
+            include: [
+                {
+                    model: StockIncome,
+                    as: 'stock',
+                    attributes: ['name'],
+                    required: false,
+                },
+            ],
+            order: [['createdAt', 'DESC']],
+        });
+
+        // Format items
+        const items = sells.map(formatSellForFrontend);
+
+        // Calculate totals
+        const totalCount = items.length;
+        const totalMoney = items.reduce((sum, item) => sum + item.money, 0);
+        const totalReceipt = items.reduce((sum, item) => sum + item.receipt, 0);
+        const totalRemaining = items.reduce((sum, item) => sum + item.remaining, 0);
+
+        // Get customer name
+        const customer = await Customer.findByPk(customerId, { attributes: ['fullname'] });
+        const customerName = customer ? customer.fullname : null;
+
+        res.status(200).json({
+            items,
+            totalCount,
+            totalMoney,
+            totalReceipt,
+            totalRemaining,
+            customerName,
+        });
+    } catch (error) {
+        console.error('Error in getCustomerOrderItemsByType:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+// @desc    Get customer order items within a date range
+// @route   GET /api/orderItems/customer/:customerId/date_range
+// @query   from (YYYY-MM-DD), to (YYYY-MM-DD)
+// @access  Private
+export const getCustomerOrderItemsByDateRange = async (req, res) => {
+    try {
+        const { customerId } = req.params;
+        let { from, to } = req.query;
+
+        if (!from || !to) {
+            return res.status(400).json({ message: 'Both "from" and "to" dates are required' });
+        }
+
+        // Parse dates (assume UTC or local; Sequelize will handle)
+        const startDate = new Date(from);
+        const endDate = new Date(to);
+        if (isNaN(startDate) || isNaN(endDate)) {
+            return res.status(400).json({ message: 'Invalid date format. Use YYYY-MM-DD' });
+        }
+        // Set endDate to end of day
+        endDate.setHours(23, 59, 59, 999);
+
+        // Find all sells for this customer within date range
+        const sells = await Sell.findAll({
+            where: {
+                customer: customerId,
+                createdAt: {
+                    [Op.between]: [startDate, endDate],
+                },
+            },
+            include: [
+                {
+                    model: StockIncome,
+                    as: 'stock',
+                    attributes: ['name'],
+                    required: false,
+                },
+            ],
+            order: [['createdAt', 'DESC']],
+        });
+
+        const items = sells.map(formatSellForFrontend);
+
+        // Summary
+        const totalItems = items.length;
+        const totalMoney = items.reduce((sum, item) => sum + item.money, 0);
+        const totalReceipt = items.reduce((sum, item) => sum + item.receipt, 0);
+        const totalRemaining = items.reduce((sum, item) => sum + item.remaining, 0);
+
+        // Get customer details
+        const customer = await Customer.findByPk(customerId, {
+            attributes: ['id', 'fullname', 'phoneNumber', 'address'],
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                customer,
+                items,
+                summary: {
+                    totalItems,
+                    totalMoney,
+                    totalReceipt,
+                    totalRemaining,
+                },
+            },
+        });
+    } catch (error) {
+        console.error('Error in getCustomerOrderItemsByDateRange:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };

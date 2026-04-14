@@ -41,12 +41,12 @@ const Signin = () => {
                 <img
                   src="logo.png"
                   alt="logo"
-                  className="h-14 w-14 rounded-full border-2 border-primary shadow-lg"
+                  className="h-14  rounded-full border-2 border-primary shadow-lg"
                 />
                 <div className="absolute -inset-1 bg-primary rounded-full blur opacity-30 animate-ping"></div>
               </div>
               <h1 className="text-3xl font-bold text-primary drop-shadow-sm">
-         Zanjera Omid
+         Zanjira Omid
               </h1>
             </div><p className="text-gray-600 mt-2">Please enter your details</p>
           </div>
@@ -152,10 +152,10 @@ const Signin = () => {
           {/* Footer */}
           <div className="text-center pt-4 border-t border-gray-100">
             <p className="text-gray-600 text-sm">
-           Zanjera Omid- High Quality Products
+           Zanjira Omid- High Quality Products
             </p>
             <p className="text-gray-500 text-xs mt-1">
-             ZANJERA OMID LTD
+             ZANJIRA OMID LTD
             </p>
           </div>
         </form>

@@ -77,7 +77,7 @@ const SellManager = () => {
   const fetchStockIncomes = async () => {
     try {
       const res = await axios.get(`${BASE_URL}/stockincome`);
-      setStockIncomes(res.data);
+      setStockIncomes(res.data.stockIncomes);
     } catch (error) {
       console.error("Error fetching stock incomes:", error);
     }
