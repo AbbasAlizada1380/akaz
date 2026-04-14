@@ -8,6 +8,7 @@ import {
 } from "react-icons/fa";
 import { useSelector } from "react-redux";
 import moment from "moment-jalaali";
+import SellerSells from "./SellerSells"; // Import the SellerSells component
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 const limit = 20;
@@ -27,6 +28,10 @@ const SellerManagement = ({ onStatsUpdate }) => {
   const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  
+  // New state for SellerSells modal
+  const [isSellerSellsOpen, setIsSellerSellsOpen] = useState(false);
+  const [selectedSellerForSells, setSelectedSellerForSells] = useState(null);
 
   // Filter states
   const [searchTerm, setSearchTerm] = useState("");
@@ -80,7 +85,7 @@ const SellerManagement = ({ onStatsUpdate }) => {
       }
     } catch (error) {
       console.error("Error fetching sellers:", error);
-      alert("خطا در دریافت اطلاعات فروشندگان");
+      alert("Error fetching seller data");
     } finally {
       setLoading(false);
     }
@@ -130,7 +135,7 @@ const SellerManagement = ({ onStatsUpdate }) => {
 
     // Validation
     if (!form.fullname.trim()) {
-      alert("لطفاً نام فروشنده را وارد کنید");
+      alert("Please enter seller name");
       return;
     }
 
@@ -139,17 +144,17 @@ const SellerManagement = ({ onStatsUpdate }) => {
 
       if (editingId) {
         await axios.put(`${BASE_URL}/seller/${editingId}`, form);
-        alert("فروشنده با موفقیت ویرایش شد");
+        alert("Seller updated successfully");
       } else {
         await axios.post(`${BASE_URL}/seller`, form);
-        alert("فروشنده با موفقیت اضافه شد");
+        alert("Seller added successfully");
       }
 
       resetForm();
       fetchSellers(currentPage);
     } catch (error) {
       console.error("Error saving seller:", error);
-      alert(error.response?.data?.message || "خطا در ذخیره اطلاعات");
+      alert(error.response?.data?.message || "Error saving data");
     } finally {
       setSubmitting(false);
     }
@@ -186,13 +191,13 @@ const SellerManagement = ({ onStatsUpdate }) => {
 
     try {
       await axios.delete(`${BASE_URL}/seller/${selectedSeller.id}`);
-      alert("فروشنده با موفقیت حذف شد");
+      alert("Seller deleted successfully");
       setIsDeleteModalOpen(false);
       setSelectedSeller(null);
       fetchSellers(currentPage);
     } catch (error) {
       console.error("Error deleting seller:", error);
-      alert(error.response?.data?.message || "خطا در حذف فروشنده");
+      alert(error.response?.data?.message || "Error deleting seller");
     }
   };
 
@@ -205,7 +210,7 @@ const SellerManagement = ({ onStatsUpdate }) => {
       fetchSellers(currentPage);
     } catch (error) {
       console.error("Error toggling status:", error);
-      alert("خطا در تغییر وضعیت");
+      alert("Error changing status");
     }
   };
 
@@ -240,96 +245,67 @@ const SellerManagement = ({ onStatsUpdate }) => {
     return moment(date).format("YYYY/MM/DD");
   };
 
+  /* ======================
+     Handle row click to open SellerSells
+  ====================== */
+  const handleRowClick = (seller) => {
+    setSelectedSellerForSells(seller);
+    setIsSellerSellsOpen(true);
+  };
+
   return (
     <div className="p-4 md:p-6">
       {/* Add / Edit Seller Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white w-full max-w-lg rounded-xl shadow-lg">
-
-            {/* Header */}
             <div className="flex justify-between items-center p-4 border-b">
               <h2 className="text-lg font-bold">
                 {editingId ? "Edit Seller" : "Add New Seller"}
               </h2>
-
-              <button
-                onClick={resetForm}
-                className="text-gray-500 hover:text-red-500"
-              >
+              <button onClick={resetForm} className="text-gray-500 hover:text-red-500">
                 <FaTimes />
               </button>
             </div>
-
-            {/* Form */}
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
-
-              {/* Full Name */}
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Full Name
-                </label>
-
+                <label className="block text-sm font-medium mb-1">Full Name</label>
                 <input
                   type="text"
                   value={form.fullname}
-                  onChange={(e) =>
-                    setForm({ ...form, fullname: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, fullname: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="Seller name"
                   required
                 />
               </div>
-
-              {/* Phone */}
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Phone Number
-                </label>
-
+                <label className="block text-sm font-medium mb-1">Phone Number</label>
                 <input
                   type="text"
                   value={form.phoneNumber}
-                  onChange={(e) =>
-                    setForm({ ...form, phoneNumber: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, phoneNumber: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                   placeholder="0700000000"
                 />
               </div>
-
-              {/* Address */}
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Address
-                </label>
-
+                <label className="block text-sm font-medium mb-1">Address</label>
                 <input
                   type="text"
                   value={form.address}
-                  onChange={(e) =>
-                    setForm({ ...form, address: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, address: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
-
-              {/* Department */}
               <div>
-                <label className="block text-sm font-medium mb-1">
-                  Department
-                </label>
-
+                <label className="block text-sm font-medium mb-1">Department</label>
                 <select
                   value={form.department}
-                  onChange={(e) =>
-                    setForm({ ...form, department: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, department: e.target.value })}
                   className="w-full border rounded-lg px-3 py-2"
                 >
                   <option value="">Select Department</option>
-
                   {departments.map((dept) => (
                     <option key={dept.id} value={dept.name}>
                       {dept.name}
@@ -337,31 +313,18 @@ const SellerManagement = ({ onStatsUpdate }) => {
                   ))}
                 </select>
               </div>
-
-              {/* Status */}
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   checked={form.isActive}
-                  onChange={(e) =>
-                    setForm({ ...form, isActive: e.target.checked })
-                  }
+                  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
                 />
-
                 <span className="text-sm">Active</span>
               </div>
-
-              {/* Buttons */}
               <div className="flex justify-end gap-3 pt-4">
-
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="px-4 py-2 border rounded-lg"
-                >
+                <button type="button" onClick={resetForm} className="px-4 py-2 border rounded-lg">
                   Cancel
                 </button>
-
                 <button
                   type="submit"
                   disabled={submitting}
@@ -370,24 +333,19 @@ const SellerManagement = ({ onStatsUpdate }) => {
                   {submitting && <FaSpinner className="animate-spin" />}
                   {editingId ? "Update Seller" : "Add Seller"}
                 </button>
-
               </div>
             </form>
           </div>
         </div>
       )}
+
       {/* Sellers Table */}
       <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-
-        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200">
           <div className="flex items-center gap-2">
             <FaUsers className="text-xl" />
-            <h3 className="text-lg font-bold text-gray-800">
-              Sellers List
-            </h3>
+            <h3 className="text-lg font-bold text-gray-800">Sellers List</h3>
           </div>
-
           {isAdmin && (
             <button
               onClick={() => setIsModalOpen(true)}
@@ -399,7 +357,6 @@ const SellerManagement = ({ onStatsUpdate }) => {
           )}
         </div>
 
-        {/* Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-center">
             <thead className="bg-gray-800 text-white">
@@ -425,55 +382,55 @@ const SellerManagement = ({ onStatsUpdate }) => {
                 </tr>
               ) : filteredSellers.length > 0 ? (
                 filteredSellers.map((seller) => (
-                  <tr key={seller.id} className="border-b hover:bg-gray-50 transition-colors">
+                  <tr
+                    key={seller.id}
+                    onClick={() => handleRowClick(seller)}
+                    className="border-b hover:bg-gray-50 transition-colors cursor-pointer"
+                  >
                     <td className="px-4 py-3 font-mono">{seller.id}</td>
-
                     <td className="px-4 py-3 font-medium">
                       <div className="flex items-center justify-center gap-2">
                         <FaUser className="text-gray-400" />
                         {seller.fullname}
                       </div>
                     </td>
-
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-2">
                         <FaPhone className="text-gray-400" />
                         {seller.phoneNumber || "—"}
                       </div>
                     </td>
-
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-2 max-w-xs">
                         <FaMapMarkerAlt className="text-gray-400 flex-shrink-0" />
-                        <span className="truncate">
-                          {seller.address || "—"}
-                        </span>
+                        <span className="truncate">{seller.address || "—"}</span>
                       </div>
                     </td>
-
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-2">
                         <FaBuilding className="text-gray-400" />
                         {getDepartmentName(seller.department)}
                       </div>
                     </td>
-
                     <td className="px-4 py-3">
                       <button
-                        onClick={() => handleToggleStatus(seller)}
-                        className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1 mx-auto ${seller.isActive
-                          ? "bg-primary text-white"
-                          : "bg-red-100 text-red-800 hover:bg-red-200"
-                          }`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleStatus(seller);
+                        }}
+                        className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-1 mx-auto ${
+                          seller.isActive
+                            ? "bg-primary text-white"
+                            : "bg-red-100 text-red-800 hover:bg-red-200"
+                        }`}
                       >
                         {seller.isActive ? <FaToggleOn /> : <FaToggleOff />}
                         {seller.isActive ? "Active" : "Inactive"}
                       </button>
                     </td>
-
                     <td className="px-4 py-3">
                       {isAdmin ? (
-                        <div className="flex justify-center gap-2">
+                        <div className="flex justify-center gap-2" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => handleViewDetails(seller)}
                             className="p-2 hover:bg-primary/10 rounded-lg transition-colors"
@@ -501,7 +458,10 @@ const SellerManagement = ({ onStatsUpdate }) => {
                         </div>
                       ) : (
                         <button
-                          onClick={() => handleViewDetails(seller)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleViewDetails(seller);
+                          }}
                           className="p-2 hover:bg-primary/10 rounded-lg transition-colors"
                           title="View Details"
                         >
@@ -521,18 +481,17 @@ const SellerManagement = ({ onStatsUpdate }) => {
             </tbody>
           </table>
         </div>
-      </div>{/* Seller Details Modal */}
+      </div>
+
+      {/* Seller Details Modal (existing) */}
       {isDetailsModalOpen && selectedSeller && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white w-full max-w-md rounded-xl shadow-lg">
-
-            {/* Header */}
             <div className="flex justify-between items-center p-4 border-b">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 <FaUser />
                 Seller Details
               </h2>
-
               <button
                 onClick={() => setIsDetailsModalOpen(false)}
                 className="text-gray-500 hover:text-red-500"
@@ -540,40 +499,32 @@ const SellerManagement = ({ onStatsUpdate }) => {
                 <FaTimes />
               </button>
             </div>
-
-            {/* Content */}
             <div className="p-6 space-y-4">
-
               <div className="flex items-center gap-3">
                 <FaIdCard className="text-gray-400" />
                 <span className="font-medium">ID:</span>
                 <span>{selectedSeller.id}</span>
               </div>
-
               <div className="flex items-center gap-3">
                 <FaUser className="text-gray-400" />
                 <span className="font-medium">Full Name:</span>
                 <span>{selectedSeller.fullname}</span>
               </div>
-
               <div className="flex items-center gap-3">
                 <FaPhone className="text-gray-400" />
                 <span className="font-medium">Phone:</span>
                 <span>{selectedSeller.phoneNumber || "—"}</span>
               </div>
-
               <div className="flex items-center gap-3">
                 <FaMapMarkerAlt className="text-gray-400" />
                 <span className="font-medium">Address:</span>
                 <span>{selectedSeller.address || "—"}</span>
               </div>
-
               <div className="flex items-center gap-3">
                 <FaBuilding className="text-gray-400" />
                 <span className="font-medium">Department:</span>
                 <span>{getDepartmentName(selectedSeller.department)}</span>
               </div>
-
               <div className="flex items-center gap-3">
                 {selectedSeller.isActive ? (
                   <FaCheck className="text-green-500" />
@@ -581,20 +532,14 @@ const SellerManagement = ({ onStatsUpdate }) => {
                   <FaTimes className="text-red-500" />
                 )}
                 <span className="font-medium">Status:</span>
-                <span>
-                  {selectedSeller.isActive ? "Active" : "Inactive"}
-                </span>
+                <span>{selectedSeller.isActive ? "Active" : "Inactive"}</span>
               </div>
-
               <div className="flex items-center gap-3">
                 <FaCalendarAlt className="text-gray-400" />
                 <span className="font-medium">Created:</span>
                 <span>{formatDate(selectedSeller.createdAt)}</span>
               </div>
-
             </div>
-
-            {/* Footer */}
             <div className="flex justify-end p-4 border-t">
               <button
                 onClick={() => setIsDetailsModalOpen(false)}
@@ -603,9 +548,45 @@ const SellerManagement = ({ onStatsUpdate }) => {
                 Close
               </button>
             </div>
-
           </div>
         </div>
+      )}
+
+      {/* Delete Confirmation Modal (existing - add if missing) */}
+      {isDeleteModalOpen && selectedSeller && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-xl shadow-lg">
+            <div className="p-6">
+              <h3 className="text-lg font-bold mb-4">Confirm Delete</h3>
+              <p className="mb-6">
+                Are you sure you want to delete seller "{selectedSeller.fullname}"?
+              </p>
+              <div className="flex justify-end gap-3">
+                <button
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className="px-4 py-2 border rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SellerSells Modal (new) */}
+      {isSellerSellsOpen && selectedSellerForSells && (
+        
+            <SellerSells
+              seller={selectedSellerForSells}
+              onClose={() => setIsSellerSellsOpen(false)}
+            />
       )}
     </div>
   );

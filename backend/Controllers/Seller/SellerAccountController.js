@@ -280,3 +280,177 @@ export const getSellerSellsFromTotal = async (req, res) => {
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
+// @desc    Get seller sells within a date range (for PDF report)
+// @route   GET /api/sellerAccount/seller/:sellerId/date_range?from=YYYY-MM-DD&to=YYYY-MM-DD
+export const getSellerSellsDateRange = async (req, res) => {
+    try {
+        const { sellerId } = req.params;
+        const { from, to } = req.query;
+
+        if (!from || !to) {
+            return res.status(400).json({ message: 'Both from and to dates are required' });
+        }
+
+        // Validate seller existence
+        const seller = await Seller.findByPk(sellerId, {
+            attributes: ['id', 'fullname', 'phoneNumber', 'address']
+        });
+        if (!seller) {
+            return res.status(404).json({ message: 'Seller not found' });
+        }
+
+        // Build date filter
+        const dateFilter = {
+            [Op.between]: [new Date(from), new Date(to)]
+        };
+
+        // Fetch all sells for this seller within the date range
+        const sells = await StockIncome.findAll({
+            where: {
+                sellerId,
+                createdAt: dateFilter
+            },
+            order: [['createdAt', 'DESC']],
+            raw: true
+        });
+
+        // Prepare summary totals
+        let totalItems = sells.length;
+        let totalMoney = 0;
+        let totalReceipt = 0;
+        let totalRemaining = 0;
+
+        sells.forEach(sell => {
+            totalMoney += parseFloat(sell.money) || 0;
+            totalReceipt += parseFloat(sell.receipt) || 0;
+            totalRemaining += parseFloat(sell.remaining) || 0;
+        });
+
+        // Format items as expected by frontend (keys: remaining, receipt, money, qnty, fileName, createdAt, id)
+        const items = sells.map(sell => ({
+            id: sell.id,
+            remaining: sell.remaining,
+            receipt: sell.receipt,
+            money: sell.money,
+            qnty: sell.qnty,
+            fileName: sell.fileName,
+            createdAt: sell.createdAt
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: {
+                items,
+                seller: {
+                    id: seller.id,
+                    fullname: seller.fullname
+                },
+                summary: {
+                    totalItems,
+                    totalMoney,
+                    totalReceipt,
+                    totalRemaining
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error in getSellerSellsDateRange:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+// @desc    Get seller sells by type: all (orderId), paid (receiptOrders), unpaid (remainOrders)
+// @route   GET /api/sellerAccount/:sellerId/:type
+//         type can be "orderId", "receiptOrders", "remainOrders"
+export const getSellerSellsByType = async (req, res) => {
+    try {
+        const { sellerId, type } = req.params;
+
+        // Validate seller existence
+        const seller = await Seller.findByPk(sellerId, {
+            attributes: ['id', 'fullname']
+        });
+        if (!seller) {
+            return res.status(404).json({ message: 'Seller not found' });
+        }
+
+        // Find the seller's account
+        const account = await SellerAccount.findOne({
+            where: { sellerId }
+        });
+        if (!account) {
+            return res.status(404).json({ message: 'Seller account not found' });
+        }
+
+        let sellIds = [];
+        switch (type) {
+            case 'orderId':       // all sells
+                sellIds = account.total || [];
+                break;
+            case 'receiptOrders': // paid sells
+                sellIds = account.paid || [];
+                break;
+            case 'remainOrders':  // unpaid sells
+                sellIds = account.unpaid || [];
+                break;
+            default:
+                return res.status(400).json({ message: 'Invalid type. Use orderId, receiptOrders, or remainOrders' });
+        }
+
+        if (!sellIds.length) {
+            // Return empty response with zero totals
+            return res.status(200).json({
+                success: true,
+                data: {
+                    items: [],
+                    sellerName: seller.fullname,
+                    totalCount: 0,
+                    totalMoney: 0,
+                    totalReceipt: 0,
+                    totalRemaining: 0
+                }
+            });
+        }
+
+        // Fetch all sells by their IDs (no pagination – needed for PDF)
+        const sells = await StockIncome.findAll({
+            where: { id: sellIds },
+            order: [['createdAt', 'DESC']],
+            raw: true
+        });
+
+        // Calculate totals
+        let totalMoney = 0, totalReceipt = 0, totalRemaining = 0;
+        sells.forEach(sell => {
+            totalMoney += parseFloat(sell.money) || 0;
+            totalReceipt += parseFloat(sell.receipt) || 0;
+            totalRemaining += parseFloat(sell.remaining) || 0;
+        });
+
+        // Format items for frontend
+        const items = sells.map(sell => ({
+            id: sell.id,
+            remaining: sell.remaining,
+            receipt: sell.receipt,
+            money: sell.money,
+            qnty: sell.qnty,
+            name: sell.name,
+            createdAt: sell.createdAt
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: {
+                items,
+                sellerName: seller.fullname,
+                totalCount: sells.length,
+                totalMoney,
+                totalReceipt,
+                totalRemaining
+            }
+        });
+    } catch (error) {
+        console.error('Error in getSellerSellsByType:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
