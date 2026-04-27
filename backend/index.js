@@ -65,7 +65,7 @@ app.use("/department", DepartmentRoute);
 // app.use("/seller", SellerRoute);
 // app.use("/customer", CustomerRoute);
 // app.use("/expense", ExpenseRoute);
-// app.use("/stockIncome", StockIncomeRoute);
+app.use("/stockIncome", StockIncomeRoute);
 // app.use("/sells", SellsRoute);
 app.use("/stockExist", StockExistRoute);
 // app.use("/pay", PayRoute);
