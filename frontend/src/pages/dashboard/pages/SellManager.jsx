@@ -6,6 +6,7 @@ import { useSelector } from "react-redux";
 import PrintBillOrder from "./PrintOrderBill";
 import SellsDateDownload from "./report/SellsDateDownload";
 import Pagination from "../pagination/Pagination"; // Import your Pagination component
+import PrintMultipleOrders from "./report/PrintMultipleOrders";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -25,6 +26,10 @@ const SellManager = () => {
   const [editingRecord, setEditingRecord] = useState(null);
   const [viewingRecord, setViewingRecord] = useState(null);
   const [deleteId, setDeleteId] = useState(null);
+  // New state for multi‑select
+  const [selectedSellIds, setSelectedSellIds] = useState([]);
+  const [printMultipleOpen, setPrintMultipleOpen] = useState(false);
+  const [selectedSellsForPrint, setSelectedSellsForPrint] = useState([]);
 
   // Pagination state
   const [pagination, setPagination] = useState({
@@ -54,6 +59,39 @@ const SellManager = () => {
 
   const total = formData.amount && formData.unitPrice ? formData.amount * formData.unitPrice : 0;
   const remained = total - (formData.received || 0);
+
+
+  const getSelectedSells = () => {
+    return sells.filter(sell => selectedSellIds.includes(sell.id));
+  };
+
+  const handleSelectAll = () => {
+    if (selectedSellIds.length === sells.length) {
+      setSelectedSellIds([]);
+    } else {
+      setSelectedSellIds(sells.map(s => s.id));
+    }
+  };
+
+  const handleSelectOne = (id) => {
+    setSelectedSellIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  };
+
+  const handlePrintSelected = () => {
+    const selected = getSelectedSells();
+    if (selected.length === 0) return;
+    setSelectedSellsForPrint(selected);
+    setPrintMultipleOpen(true);
+  };
+
+  // ... (fetchSells, fetchCustomers, etc. unchanged)
+
+  // After fetching sells, you may want to clear selection when page changes
+  useEffect(() => {
+    setSelectedSellIds([]);
+  }, [pagination.currentPage]);
 
   // Handler to print an existing sell
   const handlePrintSell = (sell) => {
@@ -299,181 +337,146 @@ const SellManager = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
-      {/* Header (unchanged) */}
-      <div className="mb-8 relative">
-        <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary/70 rounded-2xl -z-10"></div>
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-primary rounded-xl">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-              </svg>
+      <div className="p-6 max-w-7xl mx-auto">
+        {/* Header – add "Print Selected" button */}
+        <div className="mb-8 relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-primary to-primary/70 rounded-2xl -z-10"></div>
+          <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-primary rounded-xl">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">Sell Management</h1>
+                <p className="text-sm text-gray-500 mt-1">Track and manage all sales transactions</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Sell Management</h1>
-              <p className="text-sm text-gray-500 mt-1">Track and manage all sales transactions</p>
+            <div className="flex gap-3">
+              {selectedSellIds.length > 0 && (
+                <button
+                  onClick={handlePrintSelected}
+                  className="bg-purple-600 text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all hover:bg-purple-700"
+                >
+                  <FaPrint className="w-5 h-5" />
+                  Print Selected ({selectedSellIds.length})
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  resetForm();
+                  setModalVisible(true);
+                }}
+                className="bg-primary text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all transform hover:scale-105 hover:shadow-lg group"
+              >
+                <FiPlus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
+                Add New Sell
+              </button>
             </div>
           </div>
-          <button
-            onClick={() => {
-              resetForm();
-              setModalVisible(true);
-            }}
-            className="bg-primary text-white px-6 py-3 rounded-xl flex items-center gap-2 transition-all transform hover:scale-105 hover:shadow-lg group"
-          >
-            <FiPlus className="w-5 h-5 group-hover:rotate-90 transition-transform" />
-            Add New Sell
-          </button>
         </div>
-      </div>
 
-      {/* Table */}
-      <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        <SellsDateDownload />
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-primary">
-              <tr>
-                <SortableHeader label="ID" sortKey="id" />
-                <SortableHeader label="type" sortKey="is_returned" />
-                <SortableHeader label="Stock Income" sortKey="stockIncomeName" />
-                <SortableHeader label="Customer" sortKey="customer" />
-                <SortableHeader label="Amount" sortKey="amount" />
-                <SortableHeader label="Unit Price" sortKey="unitPrice" />
-                <SortableHeader label="Total" sortKey="total" />
-                <SortableHeader label="Received" sortKey="received" />
-                <SortableHeader label="Remained" sortKey="remained" />
-                <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {loading ? (
+        {/* Table */}
+        <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
+          <SellsDateDownload />
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-primary">
                 <tr>
-                  <td colSpan="10" className="px-6 py-12 text-center">
-                    <div className="flex justify-center">
-                      <div className="relative">
-                        <div className="animate-spin rounded-full h-12 w-12 border-4 border-primary border-t-transparent"></div>
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <div className="h-4 w-4 bg-primary rounded-full animate-pulse"></div>
-                        </div>
-                      </div>
-                    </div>
-                  </td>
+                  <th className="px-6 py-3 text-left text-sm font-bold text-white uppercase tracking-wider">
+                    <input
+                      type="checkbox"
+                      checked={selectedSellIds.length === sells.length && sells.length > 0}
+                      onChange={handleSelectAll}
+                      className="rounded border-gray-300 text-primary focus:ring-primary"
+                    />
+                  </th>
+                  <SortableHeader label="ID" sortKey="id" />
+                  <SortableHeader label="Type" sortKey="is_returned" />
+                  <SortableHeader label="Stock Income" sortKey="stockIncomeName" />
+                  <SortableHeader label="Customer" sortKey="customer" />
+                  <SortableHeader label="Amount" sortKey="amount" />
+                  <SortableHeader label="Unit Price" sortKey="unitPrice" />
+                  <SortableHeader label="Total" sortKey="total" />
+                  <SortableHeader label="Received" sortKey="received" />
+                  <SortableHeader label="Remained" sortKey="remained" />
+                  <th className="px-6 py-4 text-left text-sm font-bold text-white uppercase tracking-wider">
+                    Actions
+                  </th>
                 </tr>
-              ) : sells.length === 0 ? (
-                <tr>
-                  <td colSpan="10" className="px-6 py-16 text-center">
-                    <div className="flex flex-col items-center gap-3">
-                      <svg className="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                      </svg>
-                      <p className="text-gray-500 text-lg">No sell records found</p>
-                      <p className="text-gray-400 text-sm">Try adjusting your filters or add a new one</p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                sells.map((sell) => {
-                  return (
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {loading ? (
+                  <tr><td colSpan="11" className="px-6 py-12 text-center">Loading...</td></tr>
+                ) : sells.length === 0 ? (
+                  <tr><td colSpan="11" className="px-6 py-16 text-center">No sell records found</td></tr>
+                ) : (
+                  sells.map((sell) => (
                     <tr key={sell.id} className="hover:bg-primary/5 transition-colors group">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-gray-900">#{sell.id}</span>
+                        <input
+                          type="checkbox"
+                          checked={selectedSellIds.includes(sell.id)}
+                          onChange={() => handleSelectOne(sell.id)}
+                          className="rounded border-gray-300 text-primary focus:ring-primary"
+                        />
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap">#{sell.id}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center space-x-2">
-                          {sell.is_returned ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                              Returned
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                              Sold
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {(
-                          <span className="text-sm text-gray-500"> {sell.stock.name}</span>
+                        {sell.is_returned ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">Returned</span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">Sold</span>
                         )}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap">{sell.stock?.name}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">{sell.customer}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">{sell.amount}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">${parseFloat(sell.unitPrice).toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap">${parseFloat(sell.total).toFixed(2)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-green-600">${parseFloat(sell.received).toFixed(2)}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-gray-600">{getCustomerName(sell.customer)}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-gray-900">{sell.amount}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-gray-600">${parseFloat(sell.unitPrice).toFixed(2)}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-medium text-gray-900">${parseFloat(sell.total).toFixed(2)}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-green-600 font-medium">${parseFloat(sell.received).toFixed(2)}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${parseFloat(sell.remained) > 0
-                          ? 'bg-yellow-100 text-yellow-700'
-                          : 'bg-green-100 text-green-700'
-                          }`}>
+                        <span className={`px-3 py-1 rounded-full text-xs font-medium ${parseFloat(sell.remained) > 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
                           ${parseFloat(sell.remained).toFixed(2)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => handleView(sell)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                            title="View"
-                          >
-                            <FiEye className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() => handleEdit(sell)}
-                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
-                            title="Edit"
-                          >
-                            <FiEdit2 className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteClick(sell.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                            title="Delete"
-                          >
-                            <FiTrash2 className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() => handlePrintSell(sell)}
-                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
-                            title="Print Bill"
-                          >
-                            <FaPrint className="w-5 h-5" />
-                          </button>
+                          <button onClick={() => handleView(sell)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="View"><FiEye /></button>
+                          <button onClick={() => handleEdit(sell)} className="p-2 text-green-600 hover:bg-green-50 rounded-lg" title="Edit"><FiEdit2 /></button>
+                          <button onClick={() => handleDeleteClick(sell.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg" title="Delete"><FiTrash2 /></button>
+                          <button onClick={() => handlePrintSell(sell)} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg" title="Print Bill"><FaPrint /></button>
                         </div>
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          {!loading && pagination.totalPages > 1 && (
+            <div className="border-t border-gray-200 px-4 py-3">
+              <Pagination currentPage={pagination.currentPage} totalPages={pagination.totalPages} onPageChange={handlePageChange} />
+            </div>
+          )}
         </div>
 
-        {/* Pagination Component */}
-        {!loading && pagination.totalPages > 1 && (
-          <div className="border-t border-gray-200 px-4 py-3">
-            <Pagination
-              currentPage={pagination.currentPage}
-              totalPages={pagination.totalPages}
-              onPageChange={handlePageChange}
-            />
-          </div>
-        )}
-      </div>
+        {/* Modals (Create/Edit, View, Delete) – unchanged */}
 
+        {/* Print Multiple Orders Modal */}
+        <PrintMultipleOrders
+          isOpen={printMultipleOpen}
+          onClose={() => setPrintMultipleOpen(false)}
+          orders={selectedSellsForPrint}
+          autoPrint={false}
+        />
+
+        {/* Single Print Modal */}
+        <PrintBillOrder isOpen={printBillOpen} onClose={() => setPrintBillOpen(false)} order={printBillData} autoPrint={false} />
+      </div>
       {/* Modals (Create/Edit, View, Delete) – unchanged except refresh uses current page */}
       {modalVisible && (
         <div className="fixed inset-0 bg-gray-900 bg-opacity-50 overflow-y-auto h-full w-full z-50 backdrop-blur-sm">
@@ -829,13 +832,6 @@ const SellManager = () => {
           </div>
         </div>
       )}
-
-      <PrintBillOrder
-        isOpen={printBillOpen}
-        onClose={() => setPrintBillOpen(false)}
-        order={printBillData}
-        autoPrint={false}
-      />
     </div>
   );
 };

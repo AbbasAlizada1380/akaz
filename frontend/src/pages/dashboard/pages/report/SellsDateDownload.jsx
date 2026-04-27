@@ -79,11 +79,10 @@ const SellsDateDownload = () => {
       doc.text(title, doc.internal.pageSize.width - 40, 60, { align: "right" });
 
       const headers = [
-        ["Customer", "Department", "Product", "Qty", "Unit Price (AFN)", "Total (AFN)", "Received (AFN)", "Remaining (AFN)", "Date"]
+        ["Customer", "Product", "Qty", "Unit Price (AFN)", "Total (AFN)", "Received (AFN)", "Remaining (AFN)", "Date"]
       ];
       const body = items.map((sell) => [
-        sell.customer?.fullname || "Unknown",
-        sell.stock?.department?.name || "-",
+        sell.customerInfo?.fullname || "Unknown",
         sell.stock?.name || "-",
         sell.amount || 0,
         Number(sell.unitPrice).toLocaleString(),
@@ -157,7 +156,7 @@ const SellsDateDownload = () => {
 
       // Prepare data for Excel
       const excelData = items.map((sell) => ({
-        Customer: sell.customer?.fullname || "Unknown",
+        Customer: sell.customerInfo?.fullname || "Unknown",
         Department: sell.stock?.department?.name || "-",
         Product: sell.stock?.name || "-",
         Quantity: sell.amount || 0,

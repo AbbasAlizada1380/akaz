@@ -1,14 +1,21 @@
 import StockExist from "../../Models/Stock/StockExist.js";
 import Department from "../../Models/Department.js";
 
-import StockIncome from "../../Models/Stock/StockIncome.js";
-
 /* =========================
    Create StockExist
 ========================= */
 export const createStockExist = async (req, res) => {
   try {
-    const stockExist = await StockExist.create(req.body);
+    const { name, departmentId, amount, sell_price, unit_price } = req.body;
+
+    const stockExist = await StockExist.create({
+      name,
+      departmentId,
+      amount,
+      sell_price,
+      unit_price,
+    });
+
     res.status(201).json(stockExist);
   } catch (error) {
     console.error(error);
@@ -16,14 +23,15 @@ export const createStockExist = async (req, res) => {
   }
 };
 
+/* =========================
+   Get All StockExist
+========================= */
 export const getAllStockExist = async (req, res) => {
   try {
-    // Pagination parameters
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    // Fetch paginated StockExist records with department include
     const { count, rows } = await StockExist.findAndCountAll({
       include: [
         {
@@ -33,48 +41,23 @@ export const getAllStockExist = async (req, res) => {
         },
       ],
       order: [["createdAt", "DESC"]],
-      limit: limit,
-      offset: offset,
+      limit,
+      offset,
     });
-
-    // For each StockExist, fetch its associated StockIncome records
-    const result = [];
-    for (const stock of rows) {
-      const allStockIds = stock.allStockIds || [];
-
-      const stockIncomes = await StockIncome.findAll({
-        where: {
-          id: allStockIds,
-        },
-      });
-
-      result.push({
-        ...stock.toJSON(),
-        stockIncomes,
-      });
-    }
-
-    // Pagination metadata
-    const totalPages = Math.ceil(count / limit);
 
     res.status(200).json({
       success: true,
-      data: result,
+      data: rows,
       pagination: {
         totalItems: count,
-        totalPages: totalPages,
+        totalPages: Math.ceil(count / limit),
         currentPage: page,
         itemsPerPage: limit,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
       },
     });
   } catch (error) {
-    console.error("Error fetching stock exist:", error);
-    res.status(500).json({
-      message: "Failed to fetch stock exist",
-      error: error.message,
-    });
+    console.error(error);
+    res.status(500).json({ message: error.message });
   }
 };
 
@@ -83,7 +66,15 @@ export const getAllStockExist = async (req, res) => {
 ========================= */
 export const getStockExistById = async (req, res) => {
   try {
-    const stock = await StockExist.findByPk(req.params.id);
+    const stock = await StockExist.findByPk(req.params.id, {
+      include: [
+        {
+          model: Department,
+          as: "department",
+          attributes: ["id", "name"],
+        },
+      ],
+    });
 
     if (!stock) {
       return res.status(404).json({ message: "StockExist not found" });
@@ -95,7 +86,6 @@ export const getStockExistById = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 /* =========================
    Update StockExist
@@ -108,7 +98,15 @@ export const updateStockExist = async (req, res) => {
       return res.status(404).json({ message: "StockExist not found" });
     }
 
-    await stock.update(req.body);
+    const { name, departmentId, amount, sell_price, unit_price } = req.body;
+
+    await stock.update({
+      name,
+      departmentId,
+      amount,
+      sell_price,
+      unit_price,
+    });
 
     res.json(stock);
   } catch (error) {
@@ -116,7 +114,6 @@ export const updateStockExist = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
-
 
 /* =========================
    Delete StockExist

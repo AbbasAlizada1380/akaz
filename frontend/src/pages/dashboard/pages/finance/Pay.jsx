@@ -107,9 +107,9 @@ export default function Pay() {
     setLoading(true);
     try {
       if (editingId) {
-        await axios.put(`${BASE_URL}/pays/${editingId}`, payload);
+        await axios.put(`${BASE_URL}/pay/${editingId}`, payload);
       } else {
-        await axios.post(`${BASE_URL}/pays`, payload);
+        await axios.post(`${BASE_URL}/pay`, payload);
       }
       resetForm();
       // Stay on same page after operation, but refresh data

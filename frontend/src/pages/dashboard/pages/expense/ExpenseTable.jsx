@@ -1,5 +1,6 @@
 import React from "react";
 import Pagination from "../../pagination/Pagination"; // adjust path to your Pagination component
+import ExpenseDateDownload from "../report/ExpenseDateDownload";
 
 const ExpenseTable = ({
   expenses = [],
@@ -13,7 +14,7 @@ const ExpenseTable = ({
 }) => {
   const formatDate = (dateString) => {
     if (!dateString) return "-";
-    return new Date(dateString).toLocaleDateString("fa-IR");
+    return new Date(dateString).toLocaleDateString("eng-en");
   };
 
   return (
@@ -30,7 +31,9 @@ const ExpenseTable = ({
 
       {/* Table Content */}
       <div className="overflow-x-auto">
+        <ExpenseDateDownload />
         <table className="w-full">
+
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">#</th>

@@ -10,6 +10,21 @@ const Department = sequelize.define(
     holding: {
       type: DataTypes.JSON,
     },
+    stockIncome: {
+      type: DataTypes.JSON,
+    },
+    exist: {
+      type: DataTypes.JSON,
+    },
+    sell: {
+      type: DataTypes.JSON,
+    },
+    deposit: {
+      type: DataTypes.JSON,
+    },
+    withdraw: {
+      type: DataTypes.JSON,
+    },
     isActive: {
       type: DataTypes.BOOLEAN,
     },

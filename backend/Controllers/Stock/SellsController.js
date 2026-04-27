@@ -2,12 +2,11 @@ import Sell from "../../Models/Stock/Sells.js";
 import StockIncome from "../../Models/Stock/StockIncome.js";
 import StockExist from "../../Models/Stock/StockExist.js";
 import sequelize from "../../dbconnection.js";
-import { Customer } from "../../Models/Association.js"
-import { Receive } from "../../Models/Association.js";
+import { Customer } from "../../Models/index.js"
+import { Receive } from "../../Models/index.js";
 import CustomerAccount from "../../Models/Customer/CustomerAccount.js"; // adjust import path
 import Return_Pay from "../../Models/Finance/Return_Pay.js";
 import { Op } from "sequelize";
-
 export const createSell = async (req, res) => {
   const transaction = await sequelize.transaction();
 
@@ -225,32 +224,38 @@ export const createSell = async (req, res) => {
 };
 
 
-/* =================================
-   GET ALL SELLS
-================================= */
 export const getAllSells = async (req, res) => {
   try {
-    // Get pagination parameters from query string, with defaults
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    // Use findAndCountAll to get both data and total count
     const { count, rows } = await Sell.findAndCountAll({
       include: [
-        { model: StockIncome, as: "stock" }
+        { model: StockIncome, as: "stock" },
+        {
+          model: Customer,
+          as: "customerInfo",  // alias defined in Sells.associate
+          attributes: ["id", "fullname", "phoneNumber"]
+        }
       ],
       order: [["createdAt", "DESC"]],
       limit: limit,
       offset: offset,
     });
 
-    // Calculate total pages
     const totalPages = Math.ceil(count / limit);
 
-    // Send paginated response
+    // Optional: flatten customer fullname into a `customer` field
+    const sells = rows.map(sell => {
+      const sellObj = sell.toJSON();
+      sellObj.customer = sellObj.customerInfo?.fullname || null;
+      delete sellObj.customerInfo; // remove if not needed
+      return sellObj;
+    });
+
     res.json({
-      sells: rows,
+      sells: sells, // or `rows` if you keep customerInfo
       pagination: {
         totalItems: count,
         totalPages: totalPages,
@@ -622,6 +627,7 @@ export const getSellsByDateRange = async (req, res) => {
       createdAt: {
         [Op.between]: [startDate, endDate],
       },
+      is_returned: false, // ✅ Only fetch returned sells
     };
 
     // Add customer filter if provided
@@ -647,7 +653,7 @@ export const getSellsByDateRange = async (req, res) => {
         stockInclude,
         {
           model: Customer,
-          as: "customerInfo",   // ✅ fixed alias
+          as: "customerInfo",
           attributes: ["id", "fullname", "phoneNumber", "address"],
         },
       ],

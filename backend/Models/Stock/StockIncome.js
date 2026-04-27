@@ -1,56 +1,37 @@
 import { DataTypes } from "sequelize";
 import sequelize from "../../dbconnection.js";
 
-
 const StockIncome = sequelize.define(
   "StockIncome",
   {
-    name: {
-      type: DataTypes.STRING,
+    exist: {
+      type: DataTypes.INTEGER, // 👈 ارتباط با StockExist (id)
       allowNull: false,
     },
 
-    type: {
-      type: DataTypes.STRING,
-    },
-
-    quantity: {
+    amount: {
       type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+
+    net_unite_price: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+    },
+
+    expense: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
       defaultValue: 0,
     },
 
-    unitPrice: {
-      type: DataTypes.DECIMAL(12, 2),
-      defaultValue: 0,
+    unite_price: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
     },
 
-    total: {
-      type: DataTypes.DECIMAL(12, 2),
-      defaultValue: 0,
-    },
-
-    received: {
-      type: DataTypes.DECIMAL(12, 2),
-      defaultValue: 0,
-    },
-
-    remaining: {
-      type: DataTypes.DECIMAL(12, 2),
-      defaultValue: 0,
-    },
-    // In your StockIncome model definition
-    soldQuantity: {
-      type: DataTypes.INTEGER,
-      defaultValue: 0,
-      allowNull: false
-    },
-    specifications: {
-      type: DataTypes.JSON,
-      allowNull: true,
-    },
-
-    departmentId: {
-      type: DataTypes.INTEGER,
+    sell_price: {
+      type: DataTypes.FLOAT,
       allowNull: false,
     },
 
@@ -58,33 +39,27 @@ const StockIncome = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+
+    total: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+    },
+
+    paid: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0,
+    },
+
+    remaind: {
+      type: DataTypes.FLOAT,
+      allowNull: false,
+      defaultValue: 0,
+    },
   },
   {
     timestamps: true,
   }
 );
-
-/* =========================
-   Associations - Fixed
-========================= */
-
-// Instead of defining associate as a method, create a setup function
-export const setupStockIncomeAssociations = (models) => {
-  if (models.Department) {
-    StockIncome.belongsTo(models.Department, {
-      foreignKey: "departmentId",
-      as: "department",
-    });
-  }
-
-  if (models.Seller) {
-    StockIncome.belongsTo(models.Seller, {
-      foreignKey: "sellerId",
-      as: "seller",
-    });
-  }
-
-  return StockIncome;
-};
 
 export default StockIncome;

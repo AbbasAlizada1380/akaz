@@ -1,5 +1,5 @@
-import { Receive } from '../../Models/Association.js';
-import { Customer } from '../../Models/Association.js';
+import { Receive } from '../../Models/index.js';
+import { Customer } from '../../Models/index.js';
 import Sell from '../../Models/Stock/Sells.js';
 import CustomerAccount from '../../Models/Customer/CustomerAccount.js';
 import sequelize from '../../dbconnection.js';
@@ -291,7 +291,7 @@ export const getReceivesByDateRange = async (req, res) => {
       include: [
         {
           model: Customer,
-          as: "customerInfo", // Must match the alias defined in your association
+          as: "customerInfo", // Must match the alias defined in your index
           attributes: ["id", "fullname", "phoneNumber"],
         },
       ],

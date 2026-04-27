@@ -3,7 +3,7 @@ import Seller from "../../Models/Seller/Seller.js"
 import sequelize from '../../dbconnection.js';
 import Sell from "../../Models/Stock/Sells.js";
 import { Op } from "sequelize";
-import { StockIncome } from "../../Models/Association.js";
+import { StockIncome } from "../../Models/index.js";
 
 
 // @desc    Create a new seller account

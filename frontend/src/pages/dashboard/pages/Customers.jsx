@@ -347,26 +347,6 @@ const Customers = ({ onStatsUpdate }) => {
           )}
         </div>
 
-        {/* Filters (optional – you can add search/status/department UI here) */}
-        <div className="p-4 border-b flex flex-wrap gap-2">
-          <input
-            type="text"
-            placeholder="Search by name, phone or ID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="border px-3 py-1 rounded"
-          />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border px-3 py-1 rounded">
-            <option value="all">All status</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-          <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)} className="border px-3 py-1 rounded">
-            <option value="all">All departments</option>
-            {departments.map(d => <option key={d.id} value={d.name}>{d.name}</option>)}
-          </select>
-        </div>
-
         <div className="overflow-x-auto">
           <table className="w-full text-center">
             <thead className="bg-gray-800 text-white">

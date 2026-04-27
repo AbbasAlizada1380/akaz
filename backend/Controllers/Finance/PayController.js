@@ -1,5 +1,5 @@
-import { Pay, SellerAccount, sequelize, StockIncome } from "../../Models/Association.js";
-import { Seller } from "../../Models/Association.js";
+import { Pay, SellerAccount, sequelize, StockIncome } from "../../Models/index.js";
+import { Seller } from "../../Models/index.js";
 import { Op } from "sequelize";
 export const createPay = async (req, res) => {
   const transaction = await sequelize.transaction();

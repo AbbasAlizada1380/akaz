@@ -1,7 +1,6 @@
 // controllers/stockIncomeController.js
 import Pay from "../../Models/Finance/Pay.js"
-import { Department, Seller, SellerAccount, StockIncome } from '../../Models/Association.js';
-import StockExist from "../../Models/Stock/StockExist.js";
+import { Department, Seller, SellerAccount, StockIncome,StockExist } from '../../Models/index.js';
 import sequelize from "../../dbconnection.js";
 import { Op } from "sequelize";
 

@@ -3,7 +3,7 @@ import Customer from '../../Models/Customer/Customers.js';
 import sequelize from '../../dbconnection.js';
 import Sell from "../../Models/Stock/Sells.js";
 import { Op } from "sequelize";
-import { StockIncome } from "../../Models/Association.js";
+import { StockIncome } from "../../Models/index.js";
 
 
 // @desc    Create a new customer account
@@ -58,7 +58,7 @@ export const getCustomerAccounts = async (req, res) => {
             include: [
                 {
                     model: Customer,
-                    as: 'customer', // ensure this alias matches the association
+                    as: 'customer', // ensure this alias matches the index
                     attributes: ['id', 'fullname', 'phoneNumber', 'address'],
                 },
             ],

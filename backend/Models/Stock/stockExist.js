@@ -4,27 +4,29 @@ import sequelize from "../../dbconnection.js";
 const StockExist = sequelize.define(
     "StockExist",
     {
+        name: {
+            type: DataTypes.STRING,
+            allowNull: false,
+        },
+
         departmentId: {
             type: DataTypes.INTEGER,
             allowNull: false,
         },
-
-        allStockIds: {
-            type: DataTypes.JSON,
+        amount: {
+            type: DataTypes.INTEGER,
             allowNull: false,
-            defaultValue: [],
+            defaultValue: 0,
         },
 
-        soldStockIds: {
-            type: DataTypes.JSON,
+        sell_price: {
+            type: DataTypes.FLOAT,
             allowNull: false,
-            defaultValue: [],
         },
 
-        remainingStockIds: {
-            type: DataTypes.JSON,
+        unit_price: {
+            type: DataTypes.FLOAT,
             allowNull: false,
-            defaultValue: [],
         },
     },
     {
