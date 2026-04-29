@@ -1,9 +1,8 @@
 // controllers/stockIncomeController.js
 import Pay from "../../Models/Finance/Pay.js"
-import { Department, Seller, SellerAccount, StockIncome,StockExist } from '../../Models/index.js';
+import { Department, Seller, SellerAccount, StockIncome, StockExist } from '../../Models/index.js';
 import sequelize from "../../dbconnection.js";
-import { Op } from "sequelize";
-
+import { Op, Transaction } from "sequelize";
 export const getAllStockIncome = async (req, res) => {
   try {
     // Get pagination parameters from query string, with defaults
@@ -89,219 +88,155 @@ export const getStockIncomeById = async (req, res) => {
   }
 };
 
-
-export const createStockIncome = async (req, res) => {
+export const createBatchStockIncome = async (req, res) => {
   const transaction = await sequelize.transaction();
-
   try {
-    // Destructure to separate seller-related fields from the rest
-    let { sellerId, newSellerName, ...incomeData } = req.body;
-    console.log(incomeData);
+    const { seller, items } = req.body;
 
-    // --- Seller resolution (unchanged) ---
-    let finalSellerId = null;
+    if (!seller || !items || !Array.isArray(items) || items.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid payload. Need seller and items array.' });
+    }
 
-    if (newSellerName) {
-      const newSeller = await Seller.create(
-        { fullname: newSellerName.trim(), isActive: true },
-        { transaction }
-      );
-      finalSellerId = newSeller.id;
-    } else if (sellerId) {
-      const existingSeller = await Seller.findByPk(sellerId, { transaction });
+    // ---------- 1. Handle Seller ----------
+    let sellerId;
+    if (seller.id) {
+      const existingSeller = await Seller.findByPk(parseInt(seller.id), { transaction });
       if (!existingSeller) {
         await transaction.rollback();
-        return res.status(404).json({
-          success: false,
-          message: "Seller not found",
-        });
+        return res.status(404).json({ error: `Seller with id ${seller.id} not found` });
       }
-      finalSellerId = sellerId;
+      sellerId = existingSeller.id;
+    } else if (seller.name) {
+      const newSeller = await Seller.create({ fullname: seller.name }, { transaction });
+      sellerId = newSeller.id;
     } else {
       await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Either sellerId or newSellerName is required",
-      });
+      return res.status(400).json({ error: 'Seller must provide either id or name' });
     }
 
-    incomeData.sellerId = finalSellerId;
+    // ---------- 2. Process each item ----------
+    const createdIncomes = [];
 
-    // --- Validate & compute financial fields ---
-    // Convert numeric strings to numbers
-    let quantity = parseFloat(incomeData.quantity) || 0;
-    let unitPrice = parseFloat(incomeData.unitPrice) || 0;
-    let total = parseFloat(incomeData.total) || 0;
-    let received = parseFloat(incomeData.received) || 0;
+    for (const item of items) {
+      const { exist, type, amount, sell_price, net_unite_price, expense = 0 } = item;
 
-    // If total is missing or zero but quantity and unitPrice are provided, compute total
-    if ((!total || total === 0) && quantity && unitPrice) {
-      total = quantity * unitPrice;
-    }
-
-    // Ensure received does not exceed total
-    if (received > total) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Received amount cannot be greater than total amount",
-      });
-    }
-
-    // Compute remaining balance
-    const remaining = total - received;
-
-    // Set soldQuantity to 0 (new stock, not yet sold)
-    let soldQuantity = parseInt(incomeData.soldQuantity) || 0;
-    if (soldQuantity < 0) soldQuantity = 0;
-
-    // Prepare final data object for creation
-    const finalData = {
-      name: incomeData.name,
-      type: incomeData.type || null,
-      quantity: quantity,
-      unitPrice: unitPrice,
-      total: total,
-      received: received,
-      remaining: remaining,
-      soldQuantity: soldQuantity,
-      specifications: incomeData.specifications || null,
-      departmentId: incomeData.departmentId,
-      sellerId: finalSellerId,
-    };
-
-    // Validate required fields
-    if (!finalData.name) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Stock income name is required",
-      });
-    }
-    if (!finalData.departmentId) {
-      await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: "Department ID is required",
-      });
-    }
-
-    // 1. Create the StockIncome record
-    const income = await StockIncome.create(finalData, { transaction });
-
-    const departmentId = income.departmentId;
-
-    // 2. Update StockExist (department-level tracking) - unchanged
-    let stockExist = await StockExist.findOne({
-      where: { departmentId },
-      transaction,
-    });
-
-    if (!stockExist) {
-      stockExist = await StockExist.create(
-        {
-          departmentId,
-          allStockIds: [income.id],
-          soldStockIds: [],
-          remainingStockIds: [income.id],
-        },
-        { transaction }
-      );
-    } else {
-      const allStockIds = [...(stockExist.allStockIds || []), income.id];
-      const remainingStockIds = [...(stockExist.remainingStockIds || []), income.id];
-      await stockExist.update(
-        { allStockIds, remainingStockIds },
-        { transaction }
-      );
-    }
-
-    // 3. Record payment in Pay table (only if received > 0)
-    if (received > 0) {
-      await Pay.create(
-        {
-          amount: received,
-          seller: income.sellerId,
-          description: `Payment for stock income #${income.id} in department ${departmentId}`,
-        },
-        { transaction }
-      );
-    }
-
-    // 4. Update SellerAccount (financial tracking) - unchanged
-    let sellerAccount = await SellerAccount.findOne({
-      where: { sellerId: income.sellerId },
-      transaction,
-    });
-
-    const isFullyPaid = received >= total;
-
-    if (!sellerAccount) {
-      sellerAccount = await SellerAccount.create(
-        {
-          sellerId: income.sellerId,
-          paid: isFullyPaid ? [income.id] : [],
-          unpaid: !isFullyPaid ? [income.id] : [],
-          total: [income.id],
-        },
-        { transaction }
-      );
-    } else {
-      const currentPaid = Array.isArray(sellerAccount.paid) ? [...sellerAccount.paid] : [];
-      const currentUnpaid = Array.isArray(sellerAccount.unpaid) ? [...sellerAccount.unpaid] : [];
-      const currentTotal = Array.isArray(sellerAccount.total) ? [...sellerAccount.total] : [];
-
-      if (!currentTotal.includes(income.id)) {
-        currentTotal.push(income.id);
+      // Validation: required fields
+      if (!exist || (!exist.id && !exist.name)) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Each item must have exist.id or exist.name' });
+      }
+      if (!type || !amount || amount <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Each item must have type and a positive amount' });
+      }
+      if (net_unite_price === undefined || net_unite_price === null) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Each item must have net_unite_price' });
       }
 
-      if (isFullyPaid) {
-        if (!currentPaid.includes(income.id)) currentPaid.push(income.id);
-        const unpaidIndex = currentUnpaid.indexOf(income.id);
-        if (unpaidIndex > -1) currentUnpaid.splice(unpaidIndex, 1);
+      // Parse numeric values
+      const parsedAmount = parseFloat(amount);
+      const parsedNetUnitPrice = parseFloat(net_unite_price);
+      const parsedExpense = parseFloat(expense) || 0;
+      const parsedSellPrice = parseFloat(sell_price);
+
+      // Compute unit_price = (expense / amount) + net_unite_price
+      const computedUnitPrice = (parsedExpense / parsedAmount) + parsedNetUnitPrice;
+      const totalPrice = parsedAmount * computedUnitPrice;
+
+      // ----- Handle StockExist and retrieve departmentId -----
+      let existId;
+      let departmentId;
+
+      if (exist.id) {
+        // Existing product: fetch full record to get departmentId
+        const existingExist = await StockExist.findByPk(parseInt(exist.id), { transaction });
+        if (!existingExist) {
+          await transaction.rollback();
+          return res.status(404).json({ error: `StockExist with id ${exist.id} not found` });
+        }
+        existId = existingExist.id;
+        departmentId = existingExist.departmentId;
+      } else if (exist.name) {
+        // Try to find by name
+        let found = await StockExist.findOne({ where: { name: exist.name }, transaction });
+        if (found) {
+          existId = found.id;
+          departmentId = found.departmentId;
+        } else {
+          // Extract department ID from exist.department (object or primitive) or exist.departmentId
+          let deptId = null;
+          if (exist.department) {
+            if (typeof exist.department === 'object' && exist.department.id) {
+              deptId = exist.department.id;
+            } else if (typeof exist.department === 'number' || !isNaN(parseInt(exist.department))) {
+              deptId = parseInt(exist.department);
+            }
+          } else if (exist.departmentId) {
+            // In case the frontend sends departmentId directly (first format)
+            deptId = parseInt(exist.departmentId);
+          }
+
+          if (!deptId) {
+            await transaction.rollback();
+            return res.status(400).json({ error: `Department ID is required for new product: ${exist.name}` });
+          }
+
+          // Verify department exists
+          const dept = await Department.findByPk(deptId, { transaction });
+          if (!dept) {
+            await transaction.rollback();
+            return res.status(404).json({ error: `Department with id ${deptId} not found` });
+          }
+
+          const newExist = await StockExist.create({
+            name: exist.name,
+            departmentId: deptId
+          }, { transaction });
+          existId = newExist.id;
+          departmentId = deptId;
+        }
       } else {
-        if (!currentUnpaid.includes(income.id)) currentUnpaid.push(income.id);
-        const paidIndex = currentPaid.indexOf(income.id);
-        if (paidIndex > -1) currentPaid.splice(paidIndex, 1);
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Invalid exist reference in item' });
       }
 
-      await sellerAccount.update(
-        { paid: currentPaid, unpaid: currentUnpaid, total: currentTotal },
-        { transaction }
-      );
+      // Create StockIncome record with computed unit_price and departmentId
+      const income = await StockIncome.create({
+        sellerId: sellerId,
+        existId: existId,
+        departmentId: departmentId,          // <-- now stored
+        type: type,
+        amount: parsedAmount,
+        unit_price: computedUnitPrice,
+        net_unite_price: parsedNetUnitPrice,
+        expense: parsedExpense,
+        sell_price: parsedSellPrice,
+        total: totalPrice
+      }, { transaction });
+
+      createdIncomes.push({
+        ...income.toJSON(),
+        total_price: totalPrice
+      });
     }
 
     await transaction.commit();
 
-    // Fetch the newly created stock income with associations
-    const newIncome = await StockIncome.findByPk(income.id, {
-      include: [
-        { model: Department, as: "department" },
-        { model: Seller, as: "seller" },
-      ],
-    });
-
-    const updatedSellerAccount = await SellerAccount.findOne({
-      where: { sellerId: income.sellerId },
-    });
-
     res.status(201).json({
-      success: true,
-      message: "Stock income created successfully",
-      data: {
-        stockIncome: newIncome,
-        sellerAccount: updatedSellerAccount,
-      },
+      message: 'Batch stock incomes created successfully',
+      sellerId: sellerId,
+      incomesCount: createdIncomes.length,
+      incomes: createdIncomes
     });
   } catch (error) {
-    await transaction.rollback();
-    console.error("Error creating stock income:", error);
-    res.status(500).json({
-      success: false,
-      message: error.message,
-    });
+    if (transaction) await transaction.rollback();
+    console.error('Batch create error:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 };
+
 
 export const undoCreateStockIncome = async (req, res) => {
   const { id } = req.params; // expects the stock income ID in the URL, e.g. /api/stock-income/:id/undo

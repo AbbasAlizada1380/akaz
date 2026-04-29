@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { LuUsers, LuPlus, LuTrash2 } from "react-icons/lu";
 import Pagination from "../pagination/Pagination.jsx";
+import DepartmentTransactionManager from "./finance/DepartmentTransactionManager.jsx";
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const DepartmentManager = () => {
@@ -520,17 +521,17 @@ const DepartmentManager = () => {
                   )}
                 </tbody>
               </table>      {(
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={handlePageChange}
-        />
-      )}
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={handlePageChange}
+                />
+              )}
             </div>
           </div>
         </div>
       </div>
-
+      <DepartmentTransactionManager />
     </div>
   );
 };

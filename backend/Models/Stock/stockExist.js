@@ -6,7 +6,7 @@ const StockExist = sequelize.define(
     {
         name: {
             type: DataTypes.STRING,
-            allowNull: false,
+            allowNull: true,
         },
 
         departmentId: {
@@ -15,18 +15,18 @@ const StockExist = sequelize.define(
         },
         amount: {
             type: DataTypes.INTEGER,
-            allowNull: false,
+            allowNull: true,
             defaultValue: 0,
         },
 
         sell_price: {
             type: DataTypes.FLOAT,
-            allowNull: false,
+            allowNull: true,
         },
 
         unit_price: {
             type: DataTypes.FLOAT,
-            allowNull: false,
+            allowNull: true,
         },
     },
     {

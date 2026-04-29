@@ -4,11 +4,6 @@ import sequelize from "../../dbconnection.js";
 const StockIncome = sequelize.define(
   "StockIncome",
   {
-    exist: {
-      type: DataTypes.INTEGER, // 👈 ارتباط با StockExist (id)
-      allowNull: false,
-    },
-
     amount: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -25,7 +20,7 @@ const StockIncome = sequelize.define(
       defaultValue: 0,
     },
 
-    unite_price: {
+    unit_price: {
       type: DataTypes.FLOAT,
       allowNull: false,
     },

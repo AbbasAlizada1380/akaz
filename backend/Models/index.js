@@ -9,6 +9,7 @@ import Pay from './Finance/Pay.js';
 import Receive from './Finance/Receive.js';
 import Customer from './Customer/Customers.js';
 import CustomerAccount from './Customer/CustomerAccount.js';
+import DepartmentTransaction from './Finance/DepartmentTransaction.js';   // ✅ added
 
 const models = {
   Department,
@@ -21,6 +22,7 @@ const models = {
   Receive,
   Customer,
   CustomerAccount,
+  DepartmentTransaction,   // ✅ added
 };
 
 /* ===============================
@@ -50,16 +52,20 @@ StockIncome.associate = (models) => {
 };
 
 Department.associate = (models) => {
-  // ✅ Only ONE alias "stockIncomes" – remove any duplicate elsewhere
   Department.hasMany(models.StockIncome, {
     foreignKey: "departmentId",
-    as: "stockIncomes",        // keep this one
+    as: "stockIncomes",
   });
 
-  // ✅ Second association uses a DIFFERENT alias
   Department.hasMany(models.StockExist, {
     foreignKey: "departmentId",
-    as: "stockExists",         // was "stockIncomes"? No, this is fine
+    as: "stockExists",
+  });
+
+  // ✅ NEW: Department ↔ DepartmentTransaction
+  Department.hasMany(models.DepartmentTransaction, {
+    foreignKey: "depId",
+    as: "transactions",
   });
 };
 
@@ -149,6 +155,14 @@ Pay.associate = (models) => {
   });
 };
 
+// ✅ NEW: DepartmentTransaction association
+DepartmentTransaction.associate = (models) => {
+  DepartmentTransaction.belongsTo(models.Department, {
+    foreignKey: "depId",
+    as: "department",
+  });
+};
+
 /* ===============================
    Setup associations
 ================================ */
@@ -171,4 +185,5 @@ export {
   Receive,
   Customer,
   CustomerAccount,
+  DepartmentTransaction,   // ✅ exported
 };

@@ -18,6 +18,7 @@ import SellerAccountRoute from "./Routes/Seller/SellerAccountRoute.js";
 import ReportRoute from "./Routes/ReportRoute.js";
 import StaffRoute from "./Routes/Staff/StaffRoute.js";
 import AttendenceRoute from "./Routes/Staff/AttendenceRoute.js";
+import DepartmentTransactionRouter from "./Routes/Finance/DepartmentTransactionRouter.js";
 const FRONT_URL = process.env.FRONT_URL
 const port = 8038;
 const app = express();
@@ -62,19 +63,20 @@ app.use("/uploads", express.static(uploadsDirectory));
 // Routes
 app.use("/users", userrouter);
 app.use("/department", DepartmentRoute);
-// app.use("/seller", SellerRoute);
-// app.use("/customer", CustomerRoute);
-// app.use("/expense", ExpenseRoute);
+app.use("/seller", SellerRoute);
+app.use("/customer", CustomerRoute);
+app.use("/expense", ExpenseRoute);
 app.use("/stockIncome", StockIncomeRoute);
 // app.use("/sells", SellsRoute);
 app.use("/stockExist", StockExistRoute);
 // app.use("/pay", PayRoute);
 // app.use("/receive", ReceiveRoute);
-// app.use("/customerAccount", CustomerAccountRoute);
-// app.use("/sellerAccount", SellerAccountRoute);
-// app.use("/report", ReportRoute);
-// app.use("/staff", StaffRoute);
-// app.use("/attendence", AttendenceRoute);
+app.use("/customerAccount", CustomerAccountRoute);
+app.use("/sellerAccount", SellerAccountRoute);
+app.use("/report", ReportRoute);
+app.use("/staff", StaffRoute);
+app.use("/attendence", AttendenceRoute);
+app.use("/departmentTransaction", DepartmentTransactionRouter);
 
 // Sync database and start server
 sequelize
