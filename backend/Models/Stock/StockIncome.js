@@ -34,7 +34,9 @@ const StockIncome = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: false,
     },
-
+    type: {
+      type: DataTypes.STRING,
+    },
     total: {
       type: DataTypes.FLOAT,
       allowNull: false,

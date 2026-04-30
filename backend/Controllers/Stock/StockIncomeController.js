@@ -3,6 +3,70 @@ import Pay from "../../Models/Finance/Pay.js"
 import { Department, Seller, SellerAccount, StockIncome, StockExist } from '../../Models/index.js';
 import sequelize from "../../dbconnection.js";
 import { Op, Transaction } from "sequelize";
+
+async function updateSellerAccountPaid(sellerId, incomeIds, transaction) {
+  if (!incomeIds || incomeIds.length === 0) return null;
+
+  let sellerAccount = await SellerAccount.findOne({ where: { sellerId }, transaction });
+
+  if (!sellerAccount) {
+    // Create new account: paid = [], unpaid = incomeIds, total = incomeIds
+    sellerAccount = await SellerAccount.create({
+      sellerId,
+      paid: [],
+      unpaid: incomeIds,
+      total: incomeIds          // ✅ total gets the same IDs
+    }, { transaction });
+  } else {
+    // Append new income IDs to both unpaid and total arrays
+    const currentUnpaid = sellerAccount.unpaid || [];
+    const currentTotal = sellerAccount.total || [];
+    const newUnpaid = [...currentUnpaid, ...incomeIds];
+    const newTotal = [...currentTotal, ...incomeIds];
+
+    await sellerAccount.update({
+      unpaid: newUnpaid,
+      total: newTotal
+    }, { transaction });
+  }
+
+  return sellerAccount;
+}
+
+
+async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, transaction) {
+  // Fetch the StockExist record
+  const stockExist = await StockExist.findByPk(existId, { transaction });
+  if (!stockExist) {
+    throw new Error(`StockExist with id ${existId} not found`);
+  }
+
+  // Sum all amounts and total value (amount * unit_price) for this existId
+  // This includes the newly created income because the transaction is still open
+  const result = await StockIncome.findAll({
+    where: { existId },
+    attributes: [
+      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
+      [sequelize.fn('SUM', sequelize.literal('amount * unit_price')), 'totalValue']
+    ],
+    raw: true,
+    transaction
+  });
+
+  const totalAmount = parseFloat(result[0]?.totalAmount) || 0;
+  const totalValue = parseFloat(result[0]?.totalValue) || 0;
+  const avgUnitPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
+
+  // Update StockExist with new total amount and average unit price
+  await stockExist.update({
+    amount: totalAmount,
+    unit_price: avgUnitPrice
+  }, { transaction });
+
+  return stockExist;
+}
+
+
 export const getAllStockIncome = async (req, res) => {
   try {
     // Get pagination parameters from query string, with defaults
@@ -117,11 +181,11 @@ export const createBatchStockIncome = async (req, res) => {
 
     // ---------- 2. Process each item ----------
     const createdIncomes = [];
+    const createdIncomeIds = []; // <-- NEW: store IDs for SellerAccount update
 
     for (const item of items) {
       const { exist, type, amount, sell_price, net_unite_price, expense = 0 } = item;
 
-      // Validation: required fields
       if (!exist || (!exist.id && !exist.name)) {
         await transaction.rollback();
         return res.status(400).json({ error: 'Each item must have exist.id or exist.name' });
@@ -135,22 +199,18 @@ export const createBatchStockIncome = async (req, res) => {
         return res.status(400).json({ error: 'Each item must have net_unite_price' });
       }
 
-      // Parse numeric values
       const parsedAmount = parseFloat(amount);
       const parsedNetUnitPrice = parseFloat(net_unite_price);
       const parsedExpense = parseFloat(expense) || 0;
       const parsedSellPrice = parseFloat(sell_price);
 
-      // Compute unit_price = (expense / amount) + net_unite_price
       const computedUnitPrice = (parsedExpense / parsedAmount) + parsedNetUnitPrice;
       const totalPrice = parsedAmount * computedUnitPrice;
 
-      // ----- Handle StockExist and retrieve departmentId -----
       let existId;
       let departmentId;
 
       if (exist.id) {
-        // Existing product: fetch full record to get departmentId
         const existingExist = await StockExist.findByPk(parseInt(exist.id), { transaction });
         if (!existingExist) {
           await transaction.rollback();
@@ -159,13 +219,11 @@ export const createBatchStockIncome = async (req, res) => {
         existId = existingExist.id;
         departmentId = existingExist.departmentId;
       } else if (exist.name) {
-        // Try to find by name
         let found = await StockExist.findOne({ where: { name: exist.name }, transaction });
         if (found) {
           existId = found.id;
           departmentId = found.departmentId;
         } else {
-          // Extract department ID from exist.department (object or primitive) or exist.departmentId
           let deptId = null;
           if (exist.department) {
             if (typeof exist.department === 'object' && exist.department.id) {
@@ -174,7 +232,6 @@ export const createBatchStockIncome = async (req, res) => {
               deptId = parseInt(exist.department);
             }
           } else if (exist.departmentId) {
-            // In case the frontend sends departmentId directly (first format)
             deptId = parseInt(exist.departmentId);
           }
 
@@ -183,7 +240,6 @@ export const createBatchStockIncome = async (req, res) => {
             return res.status(400).json({ error: `Department ID is required for new product: ${exist.name}` });
           }
 
-          // Verify department exists
           const dept = await Department.findByPk(deptId, { transaction });
           if (!dept) {
             await transaction.rollback();
@@ -202,11 +258,10 @@ export const createBatchStockIncome = async (req, res) => {
         return res.status(400).json({ error: 'Invalid exist reference in item' });
       }
 
-      // Create StockIncome record with computed unit_price and departmentId
       const income = await StockIncome.create({
         sellerId: sellerId,
         existId: existId,
-        departmentId: departmentId,          // <-- now stored
+        departmentId: departmentId,
         type: type,
         amount: parsedAmount,
         unit_price: computedUnitPrice,
@@ -215,11 +270,15 @@ export const createBatchStockIncome = async (req, res) => {
         sell_price: parsedSellPrice,
         total: totalPrice
       }, { transaction });
+  await updateStockExistFromIncome(existId, parsedAmount, computedUnitPrice, transaction);
 
-      createdIncomes.push({
-        ...income.toJSON(),
-        total_price: totalPrice
-      });
+  createdIncomes.push({ ...income.toJSON(), total_price: totalPrice });
+  createdIncomeIds.push(income.id);
+    }
+
+    // ---------- 3. Update SellerAccount.paid ---------- // <-- NEW
+    if (createdIncomeIds.length > 0) {
+      await updateSellerAccountPaid(sellerId, createdIncomeIds, transaction);
     }
 
     await transaction.commit();
@@ -467,3 +526,5 @@ export const getStockIncomeByDateRange = async (req, res) => {
     });
   }
 };
+
+
