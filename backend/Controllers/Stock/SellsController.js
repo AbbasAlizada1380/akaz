@@ -1,264 +1,266 @@
-import Sell from "../../Models/Stock/Sells.js";
-import StockIncome from "../../Models/Stock/StockIncome.js";
-import StockExist from "../../Models/Stock/StockExist.js";
-import sequelize from "../../dbconnection.js";
-import { Customer } from "../../Models/index.js"
-import { Receive } from "../../Models/index.js";
-import CustomerAccount from "../../Models/Customer/CustomerAccount.js"; // adjust import path
-import Return_Pay from "../../Models/Finance/Return_Pay.js";
 import { Op } from "sequelize";
+import sequelize from "../../dbconnection.js";
+import Sells from "../../Models/Stock/Sells.js";
+import Bill from "../../Models/Bill.js";
+import StockExist from "../../Models/Stock/StockExist.js";
+import Customer from "../../Models/Customer/Customers.js";
+import CustomerAccount from "../../Models/Customer/CustomerAccount.js";
+import Receive from "../../Models/Finance/Receive.js";
+import Return_Pay from "../../Models/Finance/Return_Pay.js";
+
+// Helper to generate a unique bill number
+const generateBillNumber = async () => {
+  const lastBill = await Bill.findOne({ order: [["createdAt", "DESC"]] });
+  const lastNumber = lastBill ? parseInt(lastBill.billNumber.split("-")[1]) : 0;
+  const newNumber = (lastNumber + 1).toString().padStart(6, "0");
+  return `INV-${newNumber}`;
+};
+
+/* ===============================
+   CREATE SELL (with Bill & items)
+================================ */
 export const createSell = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { stockIncome, customer, newCustomerName, amount, unitPrice, received } = req.body;
+    const { customerId, newCustomerName, items, receipt, notes } = req.body;
 
-    // --- Validation (modified) ---
-    if (!stockIncome) {
-      return res.status(400).json({ message: "StockIncome ID is required" });
+    // --- Validation (unchanged) ---
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "At least one item is required" });
     }
-    if (!amount || amount <= 0) {
-      return res.status(400).json({ message: "Amount must be greater than 0" });
-    }
-    if (!unitPrice || unitPrice < 0) {
-      return res.status(400).json({ message: "Unit price is required" });
+    if (receipt && receipt < 0) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "Receipt cannot be negative" });
     }
 
-    // --- Customer handling (either existing or new) ---
-    let customerId;
-    let customerRecord;
-
-    if (customer) {
-      // Existing customer
-      if (typeof customer === 'object' && customer !== null) {
-        if (!customer.id) {
-          await transaction.rollback();
-          return res.status(400).json({ message: "Customer object must contain an id" });
-        }
-        customerId = customer.id;
-      } else {
-        customerId = parseInt(customer, 10);
-        if (isNaN(customerId)) {
-          await transaction.rollback();
-          return res.status(400).json({ message: "Customer must be a valid ID or an object with id" });
-        }
-      }
-
-      customerRecord = await Customer.findByPk(customerId, { transaction });
-      if (!customerRecord) {
+    // --- Customer handling (unchanged) ---
+    let finalCustomerId;
+    if (customerId) {
+      const customer = await Customer.findByPk(customerId, { transaction });
+      if (!customer) {
         await transaction.rollback();
         return res.status(404).json({ message: "Customer not found" });
       }
+      finalCustomerId = customer.id;
     } else if (newCustomerName) {
-      // Create new customer
-      customerRecord = await Customer.create(
-        {
-          fullname: newCustomerName.trim(),
-          isActive: false,   // adjust as per your business logic
-        },
+      const newCustomer = await Customer.create(
+        { fullname: newCustomerName.trim(), isActive: false },
         { transaction }
       );
-      customerId = customerRecord.id;
+      finalCustomerId = newCustomer.id;
     } else {
       await transaction.rollback();
-      return res.status(400).json({ message: "Either customer or newCustomerName is required" });
+      return res.status(400).json({ message: "Either customerId or newCustomerName is required" });
     }
 
-    // --- Fetch stock (unchanged) ---
-    const stock = await StockIncome.findByPk(stockIncome, {
-      transaction,
-      lock: transaction.LOCK.UPDATE,
-    });
-
-    if (!stock) {
-      await transaction.rollback();
-      return res.status(404).json({ message: "StockIncome not found" });
-    }
-
-    if (parseFloat(stock.quantity) < parseFloat(amount)) {
-      await transaction.rollback();
-      return res.status(400).json({
-        message: `Not enough stock. Available: ${stock.quantity}`,
-      });
-    }
-
-    // --- Calculate financials (unchanged) ---
-    const total = parseFloat(amount) * parseFloat(unitPrice);
-    const receivedAmount = received ? parseFloat(received) : 0;
-    const remained = total - receivedAmount;
-
-    // --- Reduce stock (unchanged) ---
-    stock.quantity = parseFloat(stock.quantity) - parseFloat(amount);
-    stock.soldQuantity = parseFloat(stock.soldQuantity || 0) + parseFloat(amount);
-    await stock.save({ transaction });
-
-    // --- Update StockExist (unchanged) ---
-    if (stock.quantity === 0) {
-      const stockExist = await StockExist.findOne({
-        where: { departmentId: stock.departmentId },
-        transaction,
-        lock: transaction.LOCK.UPDATE,
-      });
-
-      if (stockExist) {
-        const stockId = Number(stockIncome);
-        stockExist.remainingStockIds = stockExist.remainingStockIds.filter(
-          id => Number(id) !== stockId
-        );
-        if (!stockExist.soldStockIds.map(Number).includes(stockId)) {
-          stockExist.soldStockIds = [...stockExist.soldStockIds, stockId];
-        }
-        await stockExist.save({ transaction });
+    // --- Validate stock & prepare items (unchanged) ---
+    const preparedItems = [];
+    let totalAmount = 0;
+    for (const item of items) {
+      const { existId, amount, unit_price } = item;
+      if (!existId || !amount || amount <= 0 || !unit_price || unit_price <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Each item must have existId, positive amount and unit_price" });
       }
+      const stock = await StockExist.findByPk(existId, { transaction, lock: transaction.LOCK.UPDATE });
+      if (!stock) {
+        await transaction.rollback();
+        return res.status(404).json({ message: `Product with id ${existId} not found` });
+      }
+      if (stock.amount < amount) {
+        await transaction.rollback();
+        return res.status(400).json({ message: `Insufficient stock for ${stock.name}. Available: ${stock.amount}` });
+      }
+      const lineTotal = amount * unit_price;
+      totalAmount += lineTotal;
+      preparedItems.push({
+        existId,
+        amount,
+        unit_price,
+        total: lineTotal,
+        stockRecord: stock,
+      });
     }
 
-    // --- Create Sell record ---
-    const newSell = await Sell.create(
+    const receiptAmount = receipt ? parseFloat(receipt) : 0;
+    const remainingAmount = totalAmount - receiptAmount;
+
+    // --- Create Bill (unchanged) ---
+    const billNumber = await generateBillNumber();
+    const bill = await Bill.create(
       {
-        stockIncome,
-        customer: customerId,
-        amount,
-        unitPrice,
-        total,
-        received: receivedAmount,
-        remained,
+        billNumber,
+        customerId: finalCustomerId,
+        date: new Date(),
+        totalAmount,
+        paidAmount: receiptAmount,
+        remainingAmount,
+        status: remainingAmount === 0 ? "paid" : receiptAmount > 0 ? "partial" : "unpaid",
+        notes: notes || null,
       },
       { transaction }
     );
 
-    // --- Create Receive record if payment exists ---
-    let newReceive = null;
-    if (receivedAmount > 0) {
-      newReceive = await Receive.create(
+    // --- Create Sells & update stock (unchanged) ---
+    const createdSells = [];
+    for (const item of preparedItems) {
+      const sell = await Sells.create(
         {
-          customer: customerId,
-          amount: receivedAmount,
-          description: `Payment received for sale #${newSell.id}`,
+          exist: item.existId,
+          amount: item.amount,
+          billId: bill.id,
+          unit_price: item.unit_price,
+          total: item.total,
+          receipt: 0,
+          remaind: item.total,
         },
+        { transaction }
+      );
+      createdSells.push(sell);
+      await item.stockRecord.update(
+        { amount: item.stockRecord.amount - item.amount },
         { transaction }
       );
     }
 
-    // --- Find or create CustomerAccount with lock ---
+    const sellIds = createdSells.map(s => s.id);
+    await bill.update({ sells: sellIds }, { transaction });
+
+    // --- Create Receive record if payment was made ---
+    let receiveId = null;
+    if (receiptAmount > 0) {
+      const receive = await Receive.create(
+        {
+          customer: finalCustomerId,
+          amount: receiptAmount,
+          description: `Payment for bill ${billNumber}`,
+        },
+        { transaction }
+      );
+      receiveId = receive.id;
+    }
+
+    // --- Handle CustomerAccount (fixed to include receive ID) ---
     let customerAccount = await CustomerAccount.findOne({
-      where: { customerId },
+      where: { customerId: finalCustomerId },
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
 
-    const isFullyPaid = remained === 0;
+    const isFullyPaid = remainingAmount === 0;
 
     if (!customerAccount) {
-      // Create new account with initial arrays containing the sell ID
+      // New account: receive array contains the receiveId if payment exists
       customerAccount = await CustomerAccount.create(
         {
-          customerId,
-          paid: isFullyPaid ? [newSell.id] : [],
-          unpaid: !isFullyPaid ? [newSell.id] : [],
-          total: [newSell.id],
-          receive: newReceive ? [newReceive.id] : [],
+          customerId: finalCustomerId,
+          paid: isFullyPaid ? sellIds : [],
+          unpaid: !isFullyPaid ? sellIds : [],
+          total: sellIds,
+          receive: receiveId ? [receiveId] : [],
         },
         { transaction }
       );
     } else {
-      // Existing account – update arrays carefully
+      // Existing account: update arrays safely
       const currentPaid = Array.isArray(customerAccount.paid) ? [...customerAccount.paid] : [];
       const currentUnpaid = Array.isArray(customerAccount.unpaid) ? [...customerAccount.unpaid] : [];
       const currentTotal = Array.isArray(customerAccount.total) ? [...customerAccount.total] : [];
-      const currentReceived = Array.isArray(customerAccount.receive) ? [...customerAccount.receive] : [];
+      const currentReceive = Array.isArray(customerAccount.receive) ? [...customerAccount.receive] : [];
 
-      // Always add sell ID to total (if not already present)
-      if (!currentTotal.includes(newSell.id)) {
-        currentTotal.push(newSell.id);
+      // Add sell IDs to total (avoid duplicates)
+      for (const id of sellIds) {
+        if (!currentTotal.includes(id)) currentTotal.push(id);
       }
 
-      // Handle sell ID in paid/unpaid based on payment status
       if (isFullyPaid) {
-        if (!currentPaid.includes(newSell.id)) {
-          currentPaid.push(newSell.id);
-        }
-        const unpaidIndex = currentUnpaid.indexOf(newSell.id);
-        if (unpaidIndex > -1) {
-          currentUnpaid.splice(unpaidIndex, 1);
+        for (const id of sellIds) {
+          if (!currentPaid.includes(id)) currentPaid.push(id);
+          const idx = currentUnpaid.indexOf(id);
+          if (idx !== -1) currentUnpaid.splice(idx, 1);
         }
       } else {
-        if (!currentUnpaid.includes(newSell.id)) {
-          currentUnpaid.push(newSell.id);
-        }
-        const paidIndex = currentPaid.indexOf(newSell.id);
-        if (paidIndex > -1) {
-          currentPaid.splice(paidIndex, 1);
+        for (const id of sellIds) {
+          if (!currentUnpaid.includes(id)) currentUnpaid.push(id);
+          const idx = currentPaid.indexOf(id);
+          if (idx !== -1) currentPaid.splice(idx, 1);
         }
       }
 
-      // Add receive ID to received array if a receive was created
-      if (newReceive && !currentReceived.includes(newReceive.id)) {
-        currentReceived.push(newReceive.id);
+      // Add receive ID if payment was made
+      if (receiveId && !currentReceive.includes(receiveId)) {
+        currentReceive.push(receiveId);
       }
 
-      // Save updated arrays
       await customerAccount.update(
         {
           paid: currentPaid,
           unpaid: currentUnpaid,
           total: currentTotal,
-          receive: currentReceived,
+          receive: currentReceive,
         },
         { transaction }
       );
     }
 
-    // --- Commit transaction ---
     await transaction.commit();
 
     res.status(201).json({
-      message: "Sell created and stock updated successfully",
-      data: newSell,
+      message: "Sale recorded successfully",
+      bill: {
+        id: bill.id,
+        billNumber: bill.billNumber,
+        totalAmount,
+        paidAmount: receiptAmount,
+        remainingAmount,
+        status: bill.status,
+      },
+      sells: createdSells,
+      receive: receiveId ? { id: receiveId, amount: receiptAmount } : null,
     });
-
   } catch (error) {
-    await transaction.rollback();
-    console.error("SELL ERROR:", error);
+    if (transaction) await transaction.rollback();
+    console.error("CREATE SELL ERROR:", error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-
+/* ===============================
+   GET ALL SELLS (with bill & product)
+================================ */
 export const getAllSells = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    const { count, rows } = await Sell.findAndCountAll({
+    const { count, rows } = await Sells.findAndCountAll({
       include: [
-        { model: StockIncome, as: "stock" },
         {
-          model: Customer,
-          as: "customerInfo",  // alias defined in Sells.associate
-          attributes: ["id", "fullname", "phoneNumber"]
-        }
+          model: StockExist,
+          as: "product",
+          attributes: ["id", "name", "departmentId"],
+        },
+        {
+          model: Bill,
+          as: "bill",
+          attributes: ["id", "billNumber", "date", "totalAmount", "paidAmount", "remainingAmount", "status", "sells"],
+        },
       ],
       order: [["createdAt", "DESC"]],
-      limit: limit,
-      offset: offset,
+      limit,
+      offset,
     });
 
     const totalPages = Math.ceil(count / limit);
 
-    // Optional: flatten customer fullname into a `customer` field
-    const sells = rows.map(sell => {
-      const sellObj = sell.toJSON();
-      sellObj.customer = sellObj.customerInfo?.fullname || null;
-      delete sellObj.customerInfo; // remove if not needed
-      return sellObj;
-    });
-
     res.json({
-      sells: sells, // or `rows` if you keep customerInfo
+      sells: rows,
       pagination: {
         totalItems: count,
-        totalPages: totalPages,
+        totalPages,
         currentPage: page,
         itemsPerPage: limit,
         hasNextPage: page < totalPages,
@@ -271,432 +273,329 @@ export const getAllSells = async (req, res) => {
   }
 };
 
-
-/* =================================
+/* ===============================
    GET SELL BY ID
-================================= */
+================================ */
 export const getSellById = async (req, res) => {
   try {
     const { id } = req.params;
-
-    const sell = await Sell.findByPk(id, {
+    const sell = await Sells.findByPk(id, {
       include: [
-        {
-          model: StockIncome,
-          as: "stock",
-        },
+        { model: StockExist, as: "product" },
+        { model: Bill, as: "bill" },
       ],
     });
-
-    if (!sell) {
-      return res.status(404).json({ message: "Sell not found" });
-    }
-
+    if (!sell) return res.status(404).json({ message: "Sell not found" });
     res.json(sell);
-
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-
-/* =================================
-   UPDATE SELL
-================================= */
+/* ===============================
+   UPDATE SELL (requires careful stock & bill adjustment)
+================================ */
 export const updateSell = async (req, res) => {
   const transaction = await sequelize.transaction();
   const { id } = req.params;
-
   try {
-    const { stockIncome, customer, amount, unitPrice, received } = req.body;
-
-    /* ========= Find Existing Sell ========= */
-    const existingSell = await Sell.findByPk(id, { transaction });
-    if (!existingSell) {
+    const { amount, unit_price } = req.body;
+    const sell = await Sells.findByPk(id, { transaction });
+    if (!sell) {
       await transaction.rollback();
-      return res.status(404).json({ message: "Sell record not found" });
+      return res.status(404).json({ message: "Sell not found" });
     }
 
-    /* ========= Find Related Stock ========= */
-    const stock = await StockIncome.findByPk(stockIncome || existingSell.stockIncome, { transaction });
+    const oldAmount = sell.amount;
+    const oldUnitPrice = sell.unit_price;
+    const newAmount = amount ?? oldAmount;
+    const newUnitPrice = unit_price ?? oldUnitPrice;
+
+    if (newAmount <= 0 || newUnitPrice <= 0) {
+      await transaction.rollback();
+      return res.status(400).json({ message: "Amount and unit price must be positive" });
+    }
+
+    // Update stock (StockExist)
+    const stock = await StockExist.findByPk(sell.exist, { transaction, lock: transaction.LOCK.UPDATE });
     if (!stock) {
       await transaction.rollback();
-      return res.status(404).json({ message: "StockIncome not found" });
+      return res.status(404).json({ message: "Associated product not found" });
     }
 
-    /* ========= Calculate Quantity Difference ========= */
-    const oldAmount = existingSell.amount;
-    const newAmount = amount || oldAmount;
-    const quantityDifference = newAmount - oldAmount;
-
-    // If increasing quantity, check if enough stock available
-    if (quantityDifference > 0 && stock.quantity < quantityDifference) {
+    const quantityDiff = newAmount - oldAmount;
+    if (quantityDiff > 0 && stock.amount < quantityDiff) {
       await transaction.rollback();
-      return res.status(400).json({
-        message: "Insufficient stock quantity for update",
-        availableQuantity: stock.quantity,
-        requiredAdditional: quantityDifference
-      });
+      return res.status(400).json({ message: "Insufficient stock for increase" });
     }
 
-    /* ========= Calculations ========= */
-    const total = parseFloat(newAmount) * parseFloat(unitPrice || existingSell.unitPrice);
-    const receivedAmount = received !== undefined ? parseFloat(received) : existingSell.received;
-    const remained = total - receivedAmount;
+    // Update stock amount
+    await stock.update({ amount: stock.amount - quantityDiff }, { transaction });
 
-    /* ========= Update Sell Record ========= */
-    await existingSell.update(
+    // Update sell record
+    const newTotal = newAmount * newUnitPrice;
+    await sell.update(
       {
-        stockIncome: stockIncome || existingSell.stockIncome,
-        customer: customer || existingSell.customer,
         amount: newAmount,
-        unitPrice: unitPrice || existingSell.unitPrice,
-        total,
-        received: receivedAmount,
-        remained,
+        unit_price: newUnitPrice,
+        total: newTotal,
+        remaind: newTotal,
       },
       { transaction }
     );
 
-    /* ========= Update Stock Income Quantity ========= */
-    const newStockQuantity = stock.quantity - quantityDifference;
-
-    // Recalculate stock totals
-    const stockTotal = newStockQuantity * parseFloat(stock.unitPrice);
-    const stockRemaining = stockTotal - (parseFloat(stock.received) || 0);
-
-    await stock.update(
-      {
-        quantity: newStockQuantity,
-        total: stockTotal,
-        remaining: stockRemaining > 0 ? stockRemaining : 0,
-      },
-      { transaction }
-    );
+    // Update linked bill totals
+    const bill = await Bill.findByPk(sell.billId, { transaction });
+    if (bill) {
+      const allSells = await Sells.findAll({ where: { billId: bill.id }, transaction });
+      const newBillTotal = allSells.reduce((sum, s) => sum + parseFloat(s.total), 0);
+      const newRemaining = newBillTotal - bill.paidAmount;
+      await bill.update(
+        {
+          totalAmount: newBillTotal,
+          remainingAmount: newRemaining > 0 ? newRemaining : 0,
+          status: newRemaining === 0 ? "paid" : bill.paidAmount > 0 ? "partial" : "unpaid",
+        },
+        { transaction }
+      );
+    }
 
     await transaction.commit();
-
-    res.status(200).json({
-      message: "Sell updated successfully",
-      data: {
-        sell: existingSell,
-        stockUpdate: {
-          id: stock.id,
-          name: stock.name,
-          quantityChange: -quantityDifference,
-          newQuantity: stock.quantity
-        }
-      },
-    });
-
+    res.json({ message: "Sell updated successfully", sell: await sell.reload() });
   } catch (error) {
     await transaction.rollback();
-    console.error("Error in updateSell:", error);
+    console.error(error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-/* =================================
+/* ===============================
    DELETE SELL
-================================= */
+================================ */
 export const deleteSell = async (req, res) => {
   const transaction = await sequelize.transaction();
   const { id } = req.params;
-
   try {
-    /* ========= Find Sell Record ========= */
-    const sell = await Sell.findByPk(id, { transaction });
+    const sell = await Sells.findByPk(id, { transaction });
     if (!sell) {
       await transaction.rollback();
-      return res.status(404).json({ message: "Sell record not found" });
+      return res.status(404).json({ message: "Sell not found" });
     }
 
-    /* ========= Find Related Stock ========= */
-    const stock = await StockIncome.findByPk(sell.stockIncome, { transaction });
-    if (!stock) {
-      await transaction.rollback();
-      return res.status(404).json({ message: "Associated StockIncome not found" });
+    // Restore stock
+    const stock = await StockExist.findByPk(sell.exist, { transaction });
+    if (stock) {
+      await stock.update({ amount: stock.amount + sell.amount }, { transaction });
     }
 
-    /* ========= Restore Stock Quantity ========= */
-    const restoredQuantity = stock.quantity + sell.amount;
+    // Update bill totals and remove sell ID from bill.sells array
+    const bill = await Bill.findByPk(sell.billId, { transaction });
+    if (bill) {
+      // Remove this sell ID from bill.sells
+      const updatedSellsArray = (bill.sells || []).filter(sid => sid !== sell.id);
+      await bill.update({ sells: updatedSellsArray }, { transaction });
 
-    // Recalculate stock totals
-    const stockTotal = restoredQuantity * parseFloat(stock.unitPrice);
-    const stockRemaining = stockTotal - (parseFloat(stock.received) || 0);
+      const allSells = await Sells.findAll({ where: { billId: bill.id }, transaction });
+      const remainingSells = allSells.filter(s => s.id !== sell.id);
+      const newBillTotal = remainingSells.reduce((sum, s) => sum + parseFloat(s.total), 0);
+      const newRemaining = newBillTotal - bill.paidAmount;
+      await bill.update(
+        {
+          totalAmount: newBillTotal,
+          remainingAmount: newRemaining > 0 ? newRemaining : 0,
+          status: newRemaining === 0 ? "paid" : bill.paidAmount > 0 ? "partial" : "unpaid",
+        },
+        { transaction }
+      );
+    }
 
-    await stock.update(
-      {
-        quantity: restoredQuantity,
-        total: stockTotal,
-        remaining: stockRemaining > 0 ? stockRemaining : 0,
-      },
-      { transaction }
-    );
-
-    /* ========= Delete Sell Record ========= */
-    await sell.destroy({ transaction });
-
-    await transaction.commit();
-
-    res.status(200).json({
-      message: "Sell deleted successfully",
-      data: {
-        restoredStock: {
-          id: stock.id,
-          name: stock.name,
-          restoredQuantity: sell.amount,
-          newQuantity: stock.quantity
-        }
-      },
+    // Remove sell ID from CustomerAccount arrays
+    const customerAccount = await CustomerAccount.findOne({
+      where: { customerId: bill?.customerId },
+      transaction,
     });
+    if (customerAccount) {
+      const filterId = (arr) => arr.filter(i => i !== sell.id);
+      await customerAccount.update(
+        {
+          total: filterId(customerAccount.total),
+          paid: filterId(customerAccount.paid),
+          unpaid: filterId(customerAccount.unpaid),
+        },
+        { transaction }
+      );
+    }
 
+    await sell.destroy({ transaction });
+    await transaction.commit();
+    res.json({ message: "Sell deleted successfully" });
   } catch (error) {
     await transaction.rollback();
-    console.error("Error in deleteSell:", error);
+    console.error(error);
     res.status(500).json({ message: "Server error", error: error.message });
   }
 };
 
-
-
+/* ===============================
+   RETURN SELL
+================================ */
 export const returnSell = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    const { unitPrice, quantity, refundedMoney, returnSell } = req.body;
-    console.log(unitPrice, quantity, refundedMoney, returnSell);
-
-    // --- Basic validation ---
-    if (!quantity || !refundedMoney || !returnSell?.id) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    const { sellId, quantity, refundedMoney, unitPrice } = req.body;
+    if (!sellId || !quantity || quantity <= 0 || !refundedMoney || refundedMoney < 0) {
+      return res.status(400).json({ error: "sellId, quantity (>0) and refundedMoney are required" });
     }
 
-    const returnedQty = parseFloat(quantity);
-    const refund = parseFloat(refundedMoney);
-
-    if (isNaN(returnedQty) || returnedQty <= 0) {
-      return res.status(400).json({ error: 'Returned quantity must be a positive number' });
-    }
-    if (isNaN(refund) || refund < 0) {
-      return res.status(400).json({ error: 'Refunded money must be a non‑negative number' });
-    }
-
-    // --- Find the original sell record ---
-    const originalSell = await Sell.findByPk(returnSell.id, { transaction });
+    const originalSell = await Sells.findByPk(sellId, { transaction });
     if (!originalSell) {
       await transaction.rollback();
-      return res.status(404).json({ error: 'Original sell record not found' });
+      return res.status(404).json({ error: "Original sell not found" });
     }
 
-    // --- Check that returned quantity does not exceed original amount ---
-    if (returnedQty > originalSell.amount) {
+    if (quantity > originalSell.amount) {
       await transaction.rollback();
-      return res.status(400).json({
-        error: `Cannot return more than the original amount (${originalSell.amount})`
-      });
+      return res.status(400).json({ error: "Return quantity exceeds sold amount" });
     }
 
-    // --- Find the related StockIncome ---
-    const stockIncome = await StockIncome.findByPk(originalSell.stockIncome, { transaction });
-    if (!stockIncome) {
+    const stock = await StockExist.findByPk(originalSell.exist, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!stock) {
       await transaction.rollback();
-      return res.status(404).json({ error: 'StockIncome record not found' });
+      return res.status(404).json({ error: "Product not found" });
     }
 
-    const customerId = parseInt(originalSell.customer, 10);
-    if (isNaN(customerId)) {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'Invalid customer ID in sell record' });
+    // Increase stock
+    await stock.update({ amount: stock.amount + quantity }, { transaction });
+
+    // Create return sell record
+    const returnSell = await Sells.create(
+      {
+        exist: originalSell.exist,
+        amount: quantity,
+        billId: originalSell.billId,
+        unit_price: unitPrice || originalSell.unit_price,
+        total: quantity * (unitPrice || originalSell.unit_price),
+        receipt: 0,
+        remaind: 0,
+        is_returned: true,
+      },
+      { transaction }
+    );
+
+    // Update bill: add return sell ID to sells array and adjust totals
+    const bill = await Bill.findByPk(originalSell.billId, { transaction });
+    if (bill) {
+      // Add return sell ID to bill.sells array
+      const currentSells = bill.sells || [];
+      if (!currentSells.includes(returnSell.id)) {
+        await bill.update({ sells: [...currentSells, returnSell.id] }, { transaction });
+      }
+
+      const newTotal = bill.totalAmount - returnSell.total;
+      const newRemaining = newTotal - bill.paidAmount;
+      await bill.update(
+        {
+          totalAmount: newTotal,
+          remainingAmount: newRemaining > 0 ? newRemaining : 0,
+          status: newRemaining === 0 ? "paid" : bill.paidAmount > 0 ? "partial" : "unpaid",
+        },
+        { transaction }
+      );
     }
-    const customer = await Customer.findByPk(customerId, { transaction });
-    if (!customer) {
-      await transaction.rollback();
-      return res.status(404).json({ error: 'Customer not found' });
-    }
 
-    // --- Calculate values for the new return sell record ---
-    const total = returnedQty * unitPrice;
-
-    // Prevent refund exceeding the total value of returned items
-    if (refund > total) {
-      await transaction.rollback();
-      return res.status(400).json({
-        error: `Refunded amount (${refund}) cannot exceed the value of returned items (${total})`
-      });
-    }
-
-    const received = refund;
-    const remained = total - received;
-
-    // --- 1. Create the new return sell record ---
-    const newReturnSell = await Sell.create({
-      stockIncome: originalSell.stockIncome,
-      customer: originalSell.customer,
-      amount: returnedQty,
-      unitPrice: unitPrice,
-      total: total,
-      received: received,
-      remained: remained,
-      is_returned: true,
-    }, { transaction });
-
-    // --- 2. Find or create CustomerAccount ---
-    let customerAccount = await CustomerAccount.findOne({
-      where: { customerId: customer.id },
-      transaction
+    // Update CustomerAccount: add returnSell.id to `returned` array
+    const customerAccount = await CustomerAccount.findOne({
+      where: { customerId: bill.customerId },
+      transaction,
     });
-
-    if (!customerAccount) {
-      customerAccount = await CustomerAccount.create({
-        customerId: customer.id,
-        paid: [],
-        unpaid: [],
-        total: [],
-        returned: [],
-        pay: [],
-        receive: []
-      }, { transaction });
+    if (customerAccount) {
+      const returnedArr = [...(customerAccount.returned || []), returnSell.id];
+      await customerAccount.update({ returned: returnedArr }, { transaction });
     }
 
-    // --- Prepare update object for CustomerAccount ---
-    const updateData = {
-      returned: [...(customerAccount.returned || []), newReturnSell.id]
-    };
-
-    // --- 3. Create Return_Pay record if refund > 0 ---
-    if (refund > 0) {
-      const returnPay = await Return_Pay.create({
-        To: customer.fullname,
-        amount: refund,
-        description: `Refund for return of sell #${originalSell.id}`,
-      }, { transaction });
-
-      // Add the returnPay.id to the pay array (new array)
-      updateData.pay = [...(customerAccount.pay || []), returnPay.id];
+    // If refundedMoney > 0, create Return_Pay record
+    if (refundedMoney > 0) {
+      const customer = await Customer.findByPk(bill.customerId, { transaction });
+      await Return_Pay.create(
+        {
+          To: customer.fullname,
+          amount: refundedMoney,
+          description: `Refund for return of sell #${originalSell.id}`,
+        },
+        { transaction }
+      );
     }
 
-    // --- Apply all CustomerAccount updates in one go ---
-    await customerAccount.update(updateData, { transaction });
-
-    // --- 4. Update StockIncome (unchanged) ---
-    const newSoldQuantity = stockIncome.soldQuantity - returnedQty;
-    if (newSoldQuantity < 0) {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'Return would make sold quantity negative' });
-    }
-    await stockIncome.update({
-      quantity: stockIncome.quantity + returnedQty,
-      soldQuantity: newSoldQuantity
-    }, { transaction });
-
-    // --- Commit transaction ---
     await transaction.commit();
-
-    // --- Respond with the newly created return sell ---
-    res.status(201).json({
-      message: 'Return processed successfully',
-      returnSell: newReturnSell
-    });
-
+    res.status(201).json({ message: "Return processed", returnSell });
   } catch (error) {
     if (transaction) await transaction.rollback();
-    console.error('Error processing return:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error(error);
+    res.status(500).json({ error: "Internal server error" });
   }
 };
 
-
+/* ===============================
+   GET SELLS BY DATE RANGE
+================================ */
 export const getSellsByDateRange = async (req, res) => {
   const { from, to, customerId, departmentId } = req.query;
-
-  // Validate required date parameters
   if (!from || !to) {
-    return res.status(400).json({
-      success: false,
-      message: "from and to dates are required",
-    });
+    return res.status(400).json({ success: false, message: "from and to dates required" });
   }
 
   try {
-    // Convert to full day range
     const startDate = new Date(`${from}T00:00:00`);
     const endDate = new Date(`${to}T23:59:59`);
 
-    // Build where clause for Sell
     const whereClause = {
-      createdAt: {
-        [Op.between]: [startDate, endDate],
-      },
-      is_returned: false, // ✅ Only fetch returned sells
+      createdAt: { [Op.between]: [startDate, endDate] },
     };
 
-    // Add customer filter if provided
+    const include = [
+      { model: StockExist, as: "product", attributes: ["id", "name", "departmentId"] },
+      { model: Bill, as: "bill", attributes: ["id", "billNumber", "totalAmount", "paidAmount", "sells"] },
+    ];
+
     if (customerId) {
-      whereClause.customer = customerId;
+      include.push({
+        model: Bill,
+        as: "bill",
+        where: { customerId },
+      });
     }
-
-    // Prepare include for StockIncome with optional department filter
-    const stockInclude = {
-      model: StockIncome,
-      as: "stock",
-      attributes: ["id", "name", "departmentId", "unitPrice", "quantity"],
-    };
-
     if (departmentId) {
-      stockInclude.where = { departmentId };
+      include[0].where = { departmentId };
     }
 
-    // Fetch sells with associated stock and customer
-    const sells = await Sell.findAll({
+    const sells = await Sells.findAll({
       where: whereClause,
-      include: [
-        stockInclude,
-        {
-          model: Customer,
-          as: "customerInfo",
-          attributes: ["id", "fullname", "phoneNumber", "address"],
-        },
-      ],
+      include,
       order: [["createdAt", "DESC"]],
     });
 
-    // Calculate totals
-    const totalAmount = sells.reduce(
-      (sum, sell) => sum + parseFloat(sell.total || 0),
-      0
-    );
-    const totalReceived = sells.reduce(
-      (sum, sell) => sum + parseFloat(sell.received || 0),
-      0
-    );
-    const totalRemained = sells.reduce(
-      (sum, sell) => sum + parseFloat(sell.remained || 0),
-      0
-    );
+    // Aggregate by bill
+    const uniqueBills = new Map();
+    for (const s of sells) {
+      if (s.bill && !uniqueBills.has(s.bill.id)) uniqueBills.set(s.bill.id, s.bill);
+    }
+    const totalBillPaid = Array.from(uniqueBills.values()).reduce((sum, b) => sum + b.paidAmount, 0);
+    const totalBillAmount = Array.from(uniqueBills.values()).reduce((sum, b) => sum + b.totalAmount, 0);
+    const totalRemaining = totalBillAmount - totalBillPaid;
 
-    return res.status(200).json({
+    res.json({
       success: true,
-      message: "Sells fetched successfully",
       data: {
         sells,
         totalCount: sells.length,
-        totalAmount,
-        totalReceived,
-        totalRemained,
-        filters: {
-          from,
-          to,
-          customerId: customerId || null,
-          departmentId: departmentId || null,
-        },
+        totalAmount: totalBillAmount,
+        totalReceived: totalBillPaid,
+        totalRemained: totalRemaining,
+        filters: { from, to, customerId: customerId || null, departmentId: departmentId || null },
       },
     });
   } catch (error) {
-    console.error("Error in getSellsByDateRange:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Error fetching sells",
-      error: error.message,
-    });
+    console.error(error);
+    res.status(500).json({ success: false, message: "Error fetching sells", error: error.message });
   }
 };

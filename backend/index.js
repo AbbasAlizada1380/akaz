@@ -19,6 +19,7 @@ import ReportRoute from "./Routes/ReportRoute.js";
 import StaffRoute from "./Routes/Staff/StaffRoute.js";
 import AttendenceRoute from "./Routes/Staff/AttendenceRoute.js";
 import DepartmentTransactionRouter from "./Routes/Finance/DepartmentTransactionRouter.js";
+import BillRouter from "./Routes/BillRouter.js";
 const FRONT_URL = process.env.FRONT_URL
 const port = 8038;
 const app = express();
@@ -67,7 +68,7 @@ app.use("/seller", SellerRoute);
 app.use("/customer", CustomerRoute);
 app.use("/expense", ExpenseRoute);
 app.use("/stockIncome", StockIncomeRoute);
-// app.use("/sells", SellsRoute);
+app.use("/sells", SellsRoute);
 app.use("/stockExist", StockExistRoute);
 // app.use("/pay", PayRoute);
 // app.use("/receive", ReceiveRoute);
@@ -77,6 +78,7 @@ app.use("/report", ReportRoute);
 app.use("/staff", StaffRoute);
 app.use("/attendence", AttendenceRoute);
 app.use("/departmentTransaction", DepartmentTransactionRouter);
+app.use("/Bill", BillRouter);
 
 // Sync database and start server
 sequelize

@@ -16,7 +16,7 @@ const SellsRoute = express.Router();
 ================================ */
 
 // Create
-SellsRoute.post("/create", createSell);
+SellsRoute.post("/", createSell);
 SellsRoute.post("/return", returnSell);
 
 // Get All

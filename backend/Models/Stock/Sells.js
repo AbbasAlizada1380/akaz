@@ -1,53 +1,42 @@
 import { DataTypes } from "sequelize";
 import sequelize from "../../dbconnection.js";
+const Sells = sequelize.define(
 
-const Sell = sequelize.define(
-  "Sell",
+  "Sells",
   {
-    stockIncome: {
+    exist: {
       type: DataTypes.INTEGER,
       allowNull: false,
+      references: { model: "StockExists", key: "id" },
     },
-
-    customer: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-    },
-
     amount: {
       type: DataTypes.INTEGER,
       allowNull: false,
       defaultValue: 0,
     },
-
-    unitPrice: {
+    billId: {                       // changed from 'bill' to 'billId' for clarity
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: { model: "Bills", key: "id" },
+    },
+    unit_price: {
       type: DataTypes.DECIMAL(12, 2),
       allowNull: false,
       defaultValue: 0,
     },
-
     total: {
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 0,
     },
-
-    received: {
+    receipt: {
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 0,
     },
-
-    remained: {
+    remaind: {
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 0,
     },
-    is_returned: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
-    }
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
-
-export default Sell;
+export default Sells
