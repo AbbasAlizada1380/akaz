@@ -1,9 +1,14 @@
-import CustomerAccount from "../../Models/Customer/CustomerAccount.js"
-import Customer from '../../Models/Customer/Customers.js';
 import sequelize from '../../dbconnection.js';
-import Sell from "../../Models/Stock/Sells.js";
-import { Op } from "sequelize";
 import { StockIncome } from "../../Models/index.js";
+import {
+    Receive,
+    Sells,
+    Bill,
+    Customer,
+    CustomerAccount,
+    StockExist,
+} from '../../Models/index.js';
+import { Op } from 'sequelize';
 
 
 // @desc    Create a new customer account
@@ -168,16 +173,17 @@ export const deleteCustomerAccount = async (req, res) => {
 };
 
 
+
 export const getCustomersWithUnpaid = async (req, res) => {
     try {
-        // 1. Find CustomerAccount records where unpaid array length > 0
+        // 1. Find CustomerAccount records where unpaid object has at least one department with non‑empty array
         const accountsWithUnpaid = await CustomerAccount.findAll({
             where: sequelize.where(
                 sequelize.fn('JSON_LENGTH', sequelize.col('unpaid')),
                 '>',
                 0
             ),
-            attributes: ['customerId'],
+            attributes: ['customerId', 'unpaid'],
             raw: true,
         });
 
@@ -186,53 +192,121 @@ export const getCustomersWithUnpaid = async (req, res) => {
                 success: true,
                 data: [],
                 total: 0,
-                message: "No customers with unpaid entries",
+                message: 'No customers with unpaid entries',
             });
         }
 
-        // Extract customer IDs
-        const customerIds = accountsWithUnpaid.map((a) => a.customerId);
+        // 2. Flatten all unpaid sell IDs from the department‑wise object
+        const allUnpaidSellIds = [];
+        for (const acc of accountsWithUnpaid) {
+            let unpaidObj = acc.unpaid;
+            if (typeof unpaidObj === 'string') {
+                try {
+                    unpaidObj = JSON.parse(unpaidObj);
+                } catch (e) {
+                    console.error('Error parsing unpaid JSON:', e);
+                    continue;
+                }
+            }
+            if (unpaidObj && typeof unpaidObj === 'object') {
+                for (const deptId of Object.keys(unpaidObj)) {
+                    const sellIds = unpaidObj[deptId];
+                    if (Array.isArray(sellIds)) {
+                        allUnpaidSellIds.push(...sellIds);
+                    }
+                }
+            }
+        }
 
-        // 2. Fetch customer details
+        if (allUnpaidSellIds.length === 0) {
+            return res.status(200).json({
+                success: true,
+                data: [],
+                total: 0,
+                message: 'No unpaid sells found',
+            });
+        }
+
+        // 3. Query Sells with Bill and StockExist (alias 'product') to get customerId and departmentId
+        const unpaidSells = await Sells.findAll({
+            where: {
+                id: allUnpaidSellIds,
+                remaind: { [Op.gt]: 0 },
+            },
+            include: [
+                {
+                    model: Bill,
+                    as: 'bill',
+                    attributes: ['customerId'],
+                    required: true,
+                },
+                {
+                    model: StockExist,
+                    as: 'product', // ✅ matches the association in your model
+                    attributes: ['departmentId'],
+                    required: true,
+                },
+            ],
+            attributes: [
+                'id',
+                'remaind',
+                [sequelize.col('product.departmentId'), 'departmentId'],
+                [sequelize.col('bill.customerId'), 'customerId'],
+            ],
+            raw: true,
+        });
+
+        // 4. Group by customerId and departmentId, summing remaind
+        const customerMap = new Map(); // key: customerId, value: { total: number, departments: Map<deptId, sum> }
+        for (const sell of unpaidSells) {
+            const custId = sell.customerId;
+            const deptId = sell.departmentId;
+            const amount = parseFloat(sell.remaind) || 0;
+
+            if (!customerMap.has(custId)) {
+                customerMap.set(custId, {
+                    total: 0,
+                    departments: new Map(),
+                });
+            }
+            const entry = customerMap.get(custId);
+            entry.total += amount;
+            const deptSum = entry.departments.get(deptId) || 0;
+            entry.departments.set(deptId, deptSum + amount);
+        }
+
+        // 5. Get customer details
+        const customerIds = Array.from(customerMap.keys());
         const customers = await Customer.findAll({
             where: { id: customerIds },
             attributes: ['id', 'fullname'],
             raw: true,
         });
 
-        // 3. Sum remained amount per customer
-        const results = await Sell.findAll({
-            attributes: [
-                'customer',
-                [sequelize.fn('SUM', sequelize.col('remained')), 'totalDue'],
-            ],
-            where: {
-                customer: customerIds.map(id => String(id)),
-                remained: { [Op.gt]: 0 },
-            },
-            group: ['customer'],
-            raw: true,
-        });
+        // 6. Build response
+        const responseData = [];
+        let grandTotal = 0;
 
-        // Map customerId -> totalDue
-        const dueMap = new Map();
-        results.forEach((r) => dueMap.set(r.customer, parseFloat(r.totalDue) || 0));
+        for (const cust of customers) {
+            const custData = customerMap.get(cust.id);
+            if (!custData) continue;
 
-        // Combine customer info with total due
-        const responseData = customers.map((cust) => ({
-            customer: cust,
-            totalDue: dueMap.get(String(cust.id)) || 0,
-        }));
-
-        // ✅ Calculate total due of all customers
-        const total = responseData.reduce((sum, item) => sum + item.totalDue, 0);
+            const item = {
+                customer: { id: cust.id, fullname: cust.fullname },
+                total_due: custData.total,
+            };
+            for (const [deptId, amount] of custData.departments.entries()) {
+                item[`department${deptId}`] = amount;
+            }
+            responseData.push(item);
+            grandTotal += custData.total;
+        }
 
         return res.status(200).json({
             success: true,
             data: responseData,
-            total: total,   // 👈 added total property
+            total: grandTotal,
         });
-
     } catch (error) {
         console.error('Error fetching customers with unpaid sells:', error);
         return res.status(500).json({

@@ -1,54 +1,114 @@
 import Seller from "../../Models/Seller/Seller.js";
 import StockIncome from "../../Models/Stock/StockIncome.js";
 import { Sequelize } from "sequelize";
+import sequelize from "../../dbconnection.js";
+import { Op } from "sequelize";
+import SellerAccount from "../../Models/Seller/SellerAccount.js";
 
-/* =========================
-   GET SELLERS WITH UNPAID STOCKINCOME
-========================= */
 export const getSellersWithUnpaidStockIncome = async (req, res) => {
   try {
+    // 1. Find SellerAccount records where unpaid array has at least one item
+    const accountsWithUnpaid = await SellerAccount.findAll({
+      where: sequelize.where(
+        sequelize.fn('JSON_LENGTH', sequelize.col('unpaid')),
+        '>',
+        0
+      ),
+      attributes: ['sellerId', 'unpaid'],
+      raw: true,
+    });
 
+    if (!accountsWithUnpaid.length) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        total: 0,
+        message: "No sellers with unpaid stock incomes",
+      });
+    }
+
+    // Collect all unpaid StockIncome IDs from all accounts
+    let allUnpaidIncomeIds = [];
+    const sellerUnpaidMap = new Map(); // sellerId -> array of its unpaid income IDs
+
+    for (const account of accountsWithUnpaid) {
+      let unpaidIds = account.unpaid;
+      if (typeof unpaidIds === 'string') unpaidIds = JSON.parse(unpaidIds);
+      if (Array.isArray(unpaidIds) && unpaidIds.length) {
+        allUnpaidIncomeIds.push(...unpaidIds);
+        sellerUnpaidMap.set(account.sellerId, unpaidIds);
+      }
+    }
+
+    if (allUnpaidIncomeIds.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        total: 0,
+        message: "Unpaid arrays are empty after parsing",
+      });
+    }
+
+    // 2. Fetch the relevant StockIncome records (unpaid, with remaind > 0)
+    const unpaidIncomes = await StockIncome.findAll({
+      where: {
+        id: allUnpaidIncomeIds,
+        remaind: { [Op.gt]: 0 },
+      },
+      attributes: ['id', 'sellerId', 'remaind'],
+      raw: true,
+    });
+
+    if (unpaidIncomes.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        total: 0,
+        message: "No unpaid incomes with remaind > 0 found",
+      });
+    }
+
+    // 3. Sum remaind per seller
+    const sellerDueMap = new Map(); // sellerId -> total due
+    for (const income of unpaidIncomes) {
+      const sellerId = income.sellerId;
+      const remaind = parseFloat(income.remaind) || 0;
+      sellerDueMap.set(sellerId, (sellerDueMap.get(sellerId) || 0) + remaind);
+    }
+
+    // 4. Get seller details for those seller IDs
+    const sellerIds = Array.from(sellerDueMap.keys());
     const sellers = await Seller.findAll({
-      attributes: [
-        "id",
-        "fullname",
-        "phoneNumber",
-        "department",
-        "isActive",
-        [
-          Sequelize.fn("SUM", Sequelize.col("stockIncomes.remaining")),
-          "totalUnpaidAmount"
-        ]
-      ],
-      include: [
-        {
-          model: StockIncome,
-          as: "stockIncomes",
-          attributes: [],
-          where: {
-            remaining: {
-              [Sequelize.Op.gt]: 0
-            }
-          },
-          required: true
-        }
-      ],
-      group: ["Seller.id"],
-      order: [[Sequelize.literal("totalUnpaidAmount"), "DESC"]]
+      where: { id: sellerIds },
+      attributes: ['id', 'fullname', 'phoneNumber', 'department', 'isActive'],
+      raw: true,
     });
 
-    return res.status(200).json({
+    // 5. Build response data
+    const responseData = sellers.map(seller => ({
+      seller: {
+        id: seller.id,
+        fullname: seller.fullname,
+        phoneNumber: seller.phoneNumber,
+        department: seller.department,
+        isActive: seller.isActive,
+      },
+      totalDue: sellerDueMap.get(seller.id) || 0,
+    }));
+
+    const total = responseData.reduce((sum, item) => sum + item.totalDue, 0);
+
+    res.status(200).json({
       success: true,
-      count: sellers.length,
-      data: sellers
+      data: responseData,
+      total,
     });
-
   } catch (error) {
-    console.error("Error fetching unpaid sellers:", error);
-
-    return res.status(500).json({
+    console.error("Error in getSellersWithUnpaidStockIncome:", error);
+    res.status(500).json({
       success: false,
-      message: "Server error while fetching unpaid sellers"
+      message: "Server error",
+      error: error.message,
     });
   }
 };

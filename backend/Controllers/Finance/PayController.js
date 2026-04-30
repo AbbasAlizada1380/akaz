@@ -105,7 +105,7 @@ export const createPay = async (req, res) => {
         continue;
       }
 
-      const stockRemaining = parseFloat(stockIncome.remaining) || 0;
+      const stockRemaining = parseFloat(stockIncome.remaind) || 0;
 
       if (stockRemaining <= 0) {
         // This stock income has no remaining balance, should it be in unpaid?
@@ -121,8 +121,8 @@ export const createPay = async (req, res) => {
         // Update stock income to fully paid
         await stockIncome.update(
           {
-            received: (parseFloat(stockIncome.received) || 0) + stockRemaining,
-            remaining: 0,
+            paid: (parseFloat(stockIncome.paid) || 0) + stockRemaining,
+            remaind: 0,
           },
           { transaction }
         );
@@ -131,13 +131,13 @@ export const createPay = async (req, res) => {
         processedPaidIds.push(stockIncome.id);
       } else {
         // Partially pay this stock income
-        const newReceived = (parseFloat(stockIncome.received) || 0) + remainingAmount;
+        const newReceived = (parseFloat(stockIncome.paid) || 0) + remainingAmount;
         const newRemaining = stockRemaining - remainingAmount;
 
         await stockIncome.update(
           {
-            received: newReceived,
-            remaining: newRemaining,
+            paid: newReceived,
+            remaind: newRemaining,
           },
           { transaction }
         );
@@ -206,7 +206,7 @@ export const createPay = async (req, res) => {
           remainingAmount: remainingAmount,
           fullyPaidIds: processedPaidIds,
           partiallyPaidIds: remainingUnpaidIds.filter(id =>
-            affectedStockIncomes.find(s => s.id === id && parseFloat(s.remaining) > 0)
+            affectedStockIncomes.find(s => s.id === id && parseFloat(s.remaind) > 0)
           ),
           unpaidIds: remainingUnpaidIds,
         },

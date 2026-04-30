@@ -5,7 +5,7 @@ import SellerReport from "./SellerReport";
 import PayDateDownload from "../report/PayDateDownload";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
-const SELLER_API = `${BASE_URL}/seller/dept`;
+const SELLER_API = `${BASE_URL}/selleraccount/debt`;
 
 const initialForm = {
   seller: "",
@@ -16,13 +16,13 @@ const initialForm = {
 export default function Pay() {
   const [activeTab, setActiveTab] = useState("payments");
   const [pays, setPays] = useState([]);
-  const [sellers, setSellers] = useState([]);
+  const [sellers, setSellers] = useState([]); // will be array of { id, fullname, totalUnpaidAmount }
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [sellerFilter, setSellerFilter] = useState(""); // optional filter
+  const [sellerFilter, setSellerFilter] = useState("");
   const limit = 20;
 
   // Fetch payments with pagination and optional seller filter
@@ -32,7 +32,6 @@ export default function Pay() {
       const params = { page, limit };
       if (sellerFilter) params.seller = sellerFilter;
       const res = await axios.get(`${BASE_URL}/pay`, { params });
-      // Backend response: { success, page, limit, totalRecords, totalPages, data }
       setPays(res.data.data || []);
       setTotalPages(res.data.totalPages || 1);
     } catch (error) {
@@ -43,15 +42,27 @@ export default function Pay() {
     }
   };
 
-  // Fetch sellers (for dropdown and report)
+  // Fetch sellers from /seller/debt and transform to flat structure
   const fetchSellers = async () => {
     try {
       const res = await axios.get(SELLER_API);
-      if (res.data.success) {
-        setSellers(res.data.data || []);
+      if (res.data.success && Array.isArray(res.data.data)) {
+        // Transform: each item has { seller: { id, fullname, ... }, totalDue }
+        const transformed = res.data.data.map(item => ({
+          id: item.seller.id,
+          fullname: item.seller.fullname,
+          phoneNumber: item.seller.phoneNumber,
+          department: item.seller.department,
+          isActive: item.seller.isActive,
+          totalUnpaidAmount: item.totalDue   // rename to match expected field
+        }));
+        setSellers(transformed);
+      } else {
+        setSellers([]);
       }
     } catch (error) {
       console.error("Error fetching sellers:", error);
+      setSellers([]);
     }
   };
 
@@ -112,7 +123,6 @@ export default function Pay() {
         await axios.post(`${BASE_URL}/pay`, payload);
       }
       resetForm();
-      // Stay on same page after operation, but refresh data
       fetchPays();
       fetchSellers();
     } catch (error) {
@@ -137,8 +147,7 @@ export default function Pay() {
     if (!window.confirm("Are you sure you want to delete this payment?")) return;
     setLoading(true);
     try {
-      await axios.delete(`${BASE_URL}/pays/${id}`);
-      // If current page becomes empty after deletion, go to previous page
+      await axios.delete(`${BASE_URL}/pay/${id}`);
       if (pays.length === 1 && page > 1) {
         setPage(page - 1);
       } else {
@@ -176,19 +185,21 @@ export default function Pay() {
               setActiveTab("payments");
               setPage(1);
             }}
-            className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${activeTab === "payments"
-              ? "bg-primary text-white shadow-lg"
-              : "text-gray-600 hover:text-primary hover:bg-gray-100"
-              }`}
+            className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${
+              activeTab === "payments"
+                ? "bg-primary text-white shadow-lg"
+                : "text-gray-600 hover:text-primary hover:bg-gray-100"
+            }`}
           >
             Payments
           </button>
           <button
             onClick={() => setActiveTab("report")}
-            className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${activeTab === "report"
-              ? "bg-primary text-white shadow-lg"
-              : "text-gray-600 hover:text-primary hover:bg-gray-100"
-              }`}
+            className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${
+              activeTab === "report"
+                ? "bg-primary text-white shadow-lg"
+                : "text-gray-600 hover:text-primary hover:bg-gray-100"
+            }`}
           >
             Seller Report
           </button>
@@ -207,7 +218,7 @@ export default function Pay() {
               <p className="mt-2 ml-1">Manage and track all seller payments efficiently</p>
             </div>
 
-            {/* Filter Bar (optional) */}
+            {/* Filter Bar */}
             <div className="mb-4 flex justify-end">
               <select
                 value={sellerFilter}
@@ -254,7 +265,7 @@ export default function Pay() {
                       <option value="">Choose a seller...</option>
                       {sellers.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.fullname} {s.phoneNumber ? `- ${s.phoneNumber}` : ""} (unpaid: ${s.totalUnpaidAmount || 0})
+                          {s.fullname} (unpaid: ${s.totalUnpaidAmount || 0})
                         </option>
                       ))}
                     </select>
@@ -297,8 +308,9 @@ export default function Pay() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className={`px-8 py-3.5 bg-primary text-white font-semibold rounded-xl transition-all transform hover:scale-105 hover:shadow-lg ${loading ? "opacity-50 cursor-not-allowed hover:scale-100" : "hover:bg-primary-dark"
-                      }`}
+                    className={`px-8 py-3.5 bg-primary text-white font-semibold rounded-xl transition-all transform hover:scale-105 hover:shadow-lg ${
+                      loading ? "opacity-50 cursor-not-allowed hover:scale-100" : "hover:bg-primary-dark"
+                    }`}
                   >
                     {loading ? (
                       <div className="flex items-center space-x-2">

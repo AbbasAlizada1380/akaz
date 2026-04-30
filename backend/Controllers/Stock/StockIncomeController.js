@@ -268,7 +268,8 @@ export const createBatchStockIncome = async (req, res) => {
         net_unite_price: parsedNetUnitPrice,
         expense: parsedExpense,
         sell_price: parsedSellPrice,
-        total: totalPrice
+        total: totalPrice,
+        remaind: totalPrice
       }, { transaction });
   await updateStockExistFromIncome(existId, parsedAmount, computedUnitPrice, transaction);
 

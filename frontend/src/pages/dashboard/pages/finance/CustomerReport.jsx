@@ -5,24 +5,45 @@ const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const CustomerReport = () => {
   const [totalDue, setTotalDue] = useState(0);
-  const [customers, setCustomers] = useState([]);      // list of customers with debt
+  const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [departmentColumns, setDepartmentColumns] = useState([]);
 
   // Format currency
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('eng-en', { style: 'currency', currency: 'AFN' }).format(amount);
   };
 
-  // Fetch total debt and customer list on mount
+  // Extract unique department keys from all customers
+  const extractDepartmentKeys = (data) => {
+    const keysSet = new Set();
+    data.forEach(customer => {
+      Object.keys(customer).forEach(key => {
+        if (key.startsWith('department') && customer[key] > 0) {
+          keysSet.add(key);
+        }
+      });
+    });
+    return Array.from(keysSet).sort((a, b) => {
+      const numA = parseInt(a.replace('department', ''));
+      const numB = parseInt(b.replace('department', ''));
+      return numA - numB;
+    });
+  };
+
+  // Fetch debt data
   useEffect(() => {
     const fetchDebtData = async () => {
       try {
         setLoading(true);
         const res = await axios.get(`${BASE_URL}/customeraccount/debt`);
         if (res.data.success) {
-          setCustomers(res.data.data || []);
+          const customersData = res.data.data || [];
+          setCustomers(customersData);
           setTotalDue(res.data.total || 0);
+          const deptKeys = extractDepartmentKeys(customersData);
+          setDepartmentColumns(deptKeys);
         } else {
           setError('Failed to load debt data');
         }
@@ -37,11 +58,22 @@ const CustomerReport = () => {
     fetchDebtData();
   }, []);
 
+  // Helper to get department amount safely
+  const getDepartmentAmount = (customer, deptKey) => {
+    return customer[deptKey] || 0;
+  };
+
+  // Format department label (e.g., "department1" -> "Dept 1")
+  const formatDepartmentLabel = (deptKey) => {
+    const num = deptKey.replace('department', '');
+    return `Dept ${num}`;
+  };
+
   return (
     <div className="min-h-screen p-4 md:p-6 bg-gray-50">
       <div className="max-w-7xl mx-auto">
 
-        {/* Header with decorative elements */}
+        {/* Header */}
         <div className="mb-8 relative">
           <div className="absolute inset-0 flex items-center" aria-hidden="true">
             <div className="w-full border-t border-primary"></div>
@@ -50,7 +82,7 @@ const CustomerReport = () => {
             <span className="pr-4 text-3xl font-bold bg-gray-50">Debt List</span>
           </div>
           <p className="mt-2 ml-1 text-gray-600">
-            Customers with outstanding balances
+            Customers with outstanding balances – department breakdown
           </p>
         </div>
 
@@ -76,13 +108,13 @@ const CustomerReport = () => {
             ) : (
               <>
                 <div className="text-4xl font-bold text-primary">{formatCurrency(totalDue)}</div>
-                <p className="text-gray-500 mt-2">Sum of all unpaid customer balances</p>
+                <p className="text-gray-500 mt-2">Sum of all unpaid customer balances (all departments)</p>
               </>
             )}
           </div>
         </div>
 
-        {/* Customer Debt Table */}
+        {/* Customer Debt Table with Department Columns */}
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary">
           <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
             <div className="flex items-center space-x-3">
@@ -97,17 +129,22 @@ const CustomerReport = () => {
 
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead className="bg-primary border-t ">
+              <thead className="bg-primary">
                 <tr>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-white">#</th>
                   <th className="px-6 py-4 text-left text-sm font-semibold text-white">Customer Name</th>
-                  <th className="px-6 py-4 text-left text-sm font-semibold text-white">Outstanding Debt</th>
+                  <th className="px-6 py-4 text-left text-sm font-semibold text-white">Total Due</th>
+                  {departmentColumns.map((deptKey) => (
+                    <th key={deptKey} className="px-6 py-4 text-left text-sm font-semibold text-white">
+                      {formatDepartmentLabel(deptKey)}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-primary">
                 {loading ? (
                   <tr>
-                    <td colSpan="3" className="px-6 py-12 text-center">
+                    <td colSpan={3 + departmentColumns.length} className="px-6 py-12 text-center">
                       <div className="flex justify-center">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                       </div>
@@ -115,30 +152,34 @@ const CustomerReport = () => {
                   </tr>
                 ) : error ? (
                   <tr>
-                    <td colSpan="3" className="px-6 py-12 text-center text-red-500">
+                    <td colSpan={3 + departmentColumns.length} className="px-6 py-12 text-center text-red-500">
                       {error}
                     </td>
                   </tr>
                 ) : customers.length === 0 ? (
                   <tr>
-                    <td colSpan="3" className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={3 + departmentColumns.length} className="px-6 py-12 text-center text-gray-500">
                       No customers with outstanding debt.
                     </td>
                   </tr>
                 ) : (
                   customers.map((item, index) => (
                     <tr key={item.customer.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                        {index + 1}
-                      </td>
-                      <td className="px-6 py-4 text-sm text-gray-900">
-                        {item.customer.fullname}
-                      </td>
+                      <td className="px-6 py-4 text-sm font-medium text-gray-900">{index + 1}</td>
+                      <td className="px-6 py-4 text-sm text-gray-900 font-medium">{item.customer.fullname}</td>
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center px-3 py-1.5 bg-yellow-100 text-yellow-800 rounded-xl font-semibold">
-                          {formatCurrency(item.totalDue)}
+                          {formatCurrency(item.total_due)}
                         </span>
                       </td>
+                      {departmentColumns.map((deptKey) => {
+                        const amount = getDepartmentAmount(item, deptKey);
+                        return (
+                          <td key={deptKey} className="px-6 py-4 text-sm text-gray-600">
+                            {amount > 0 ? formatCurrency(amount) : '—'}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))
                 )}

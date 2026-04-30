@@ -8,6 +8,7 @@ import CustomerAccount from "../../Models/Customer/CustomerAccount.js";
 import Receive from "../../Models/Finance/Receive.js";
 import Return_Pay from "../../Models/Finance/Return_Pay.js";
 
+
 // Helper to generate a unique bill number
 const generateBillNumber = async () => {
   const lastBill = await Bill.findOne({ order: [["createdAt", "DESC"]] });
@@ -16,16 +17,13 @@ const generateBillNumber = async () => {
   return `INV-${newNumber}`;
 };
 
-/* ===============================
-   CREATE SELL (with Bill & items)
-================================ */
 export const createSell = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
     const { customerId, newCustomerName, items, receipt, notes } = req.body;
 
-    // --- Validation (unchanged) ---
+    // --- Validation ---
     if (!items || !Array.isArray(items) || items.length === 0) {
       await transaction.rollback();
       return res.status(400).json({ message: "At least one item is required" });
@@ -35,7 +33,7 @@ export const createSell = async (req, res) => {
       return res.status(400).json({ message: "Receipt cannot be negative" });
     }
 
-    // --- Customer handling (unchanged) ---
+    // --- Customer handling ---
     let finalCustomerId;
     if (customerId) {
       const customer = await Customer.findByPk(customerId, { transaction });
@@ -55,7 +53,7 @@ export const createSell = async (req, res) => {
       return res.status(400).json({ message: "Either customerId or newCustomerName is required" });
     }
 
-    // --- Validate stock & prepare items (unchanged) ---
+    // --- Prepare items & validate stock ---
     const preparedItems = [];
     let totalAmount = 0;
     for (const item of items) {
@@ -80,14 +78,39 @@ export const createSell = async (req, res) => {
         amount,
         unit_price,
         total: lineTotal,
+        departmentId: stock.departmentId,
         stockRecord: stock,
       });
     }
 
     const receiptAmount = receipt ? parseFloat(receipt) : 0;
-    const remainingAmount = totalAmount - receiptAmount;
+    const effectiveReceipt = Math.min(receiptAmount, totalAmount);
+    const remainingAmount = totalAmount - effectiveReceipt;
 
-    // --- Create Bill (unchanged) ---
+    // --- Allocate receipt to each sell (starting from first item) ---
+    let remainingReceipt = effectiveReceipt;
+    const sellsData = [];
+    for (const item of preparedItems) {
+      const lineTotal = item.total;
+      let allocatedReceipt = 0;
+      if (remainingReceipt > 0) {
+        allocatedReceipt = Math.min(remainingReceipt, lineTotal);
+        remainingReceipt -= allocatedReceipt;
+      }
+      const remaind = lineTotal - allocatedReceipt;
+      sellsData.push({
+        existId: item.existId,
+        amount: item.amount,
+        unit_price: item.unit_price,
+        total: lineTotal,
+        receipt: allocatedReceipt,
+        remaind: remaind,
+        departmentId: item.departmentId,
+        stockRecord: item.stockRecord,
+      });
+    }
+
+    // --- Create Bill ---
     const billNumber = await generateBillNumber();
     const bill = await Bill.create(
       {
@@ -95,34 +118,54 @@ export const createSell = async (req, res) => {
         customerId: finalCustomerId,
         date: new Date(),
         totalAmount,
-        paidAmount: receiptAmount,
+        paidAmount: effectiveReceipt,
         remainingAmount,
-        status: remainingAmount === 0 ? "paid" : receiptAmount > 0 ? "partial" : "unpaid",
+        status: remainingAmount === 0 ? "paid" : effectiveReceipt > 0 ? "partial" : "unpaid",
         notes: notes || null,
       },
       { transaction }
     );
 
-    // --- Create Sells & update stock (unchanged) ---
+    // --- Create Sells, update stock, and collect data for CustomerAccount ---
     const createdSells = [];
-    for (const item of preparedItems) {
+    const allSellsByDept = {};
+    const paidSellsByDept = {};
+    const unpaidSellsByDept = {};
+
+    for (const sellInfo of sellsData) {
       const sell = await Sells.create(
         {
-          exist: item.existId,
-          amount: item.amount,
+          exist: sellInfo.existId,
+          amount: sellInfo.amount,
           billId: bill.id,
-          unit_price: item.unit_price,
-          total: item.total,
-          receipt: 0,
-          remaind: item.total,
+          unit_price: sellInfo.unit_price,
+          total: sellInfo.total,
+          receipt: sellInfo.receipt,
+          remaind: sellInfo.remaind,
+          departmentId: sellInfo.departmentId,
         },
         { transaction }
       );
       createdSells.push(sell);
-      await item.stockRecord.update(
-        { amount: item.stockRecord.amount - item.amount },
+
+      // Update stock
+      await sellInfo.stockRecord.update(
+        { amount: sellInfo.stockRecord.amount - sellInfo.amount },
         { transaction }
       );
+
+      const deptId = sellInfo.departmentId;
+
+      if (!allSellsByDept[deptId]) allSellsByDept[deptId] = [];
+      allSellsByDept[deptId].push(sell.id);
+
+      if (sellInfo.remaind === 0) {
+        if (!paidSellsByDept[deptId]) paidSellsByDept[deptId] = [];
+        paidSellsByDept[deptId].push(sell.id);
+      } else {
+        if (!unpaidSellsByDept[deptId]) unpaidSellsByDept[deptId] = [];
+        unpaidSellsByDept[deptId].push(sell.id);
+      }
     }
 
     const sellIds = createdSells.map(s => s.id);
@@ -130,11 +173,11 @@ export const createSell = async (req, res) => {
 
     // --- Create Receive record if payment was made ---
     let receiveId = null;
-    if (receiptAmount > 0) {
+    if (effectiveReceipt > 0) {
       const receive = await Receive.create(
         {
           customer: finalCustomerId,
-          amount: receiptAmount,
+          amount: effectiveReceipt,
           description: `Payment for bill ${billNumber}`,
         },
         { transaction }
@@ -142,68 +185,15 @@ export const createSell = async (req, res) => {
       receiveId = receive.id;
     }
 
-    // --- Handle CustomerAccount (fixed to include receive ID) ---
-    let customerAccount = await CustomerAccount.findOne({
-      where: { customerId: finalCustomerId },
+    // --- Update CustomerAccount (including the receive ID) ---
+    await updateCustomerAccountAdvanced({
+      customerId: finalCustomerId,
+      allSellsByDept,
+      paidSellsByDept,
+      unpaidSellsByDept,
+      receiveIds: receiveId ? [receiveId] : [],   // <-- NEW: pass array of receive IDs
       transaction,
-      lock: transaction.LOCK.UPDATE,
     });
-
-    const isFullyPaid = remainingAmount === 0;
-
-    if (!customerAccount) {
-      // New account: receive array contains the receiveId if payment exists
-      customerAccount = await CustomerAccount.create(
-        {
-          customerId: finalCustomerId,
-          paid: isFullyPaid ? sellIds : [],
-          unpaid: !isFullyPaid ? sellIds : [],
-          total: sellIds,
-          receive: receiveId ? [receiveId] : [],
-        },
-        { transaction }
-      );
-    } else {
-      // Existing account: update arrays safely
-      const currentPaid = Array.isArray(customerAccount.paid) ? [...customerAccount.paid] : [];
-      const currentUnpaid = Array.isArray(customerAccount.unpaid) ? [...customerAccount.unpaid] : [];
-      const currentTotal = Array.isArray(customerAccount.total) ? [...customerAccount.total] : [];
-      const currentReceive = Array.isArray(customerAccount.receive) ? [...customerAccount.receive] : [];
-
-      // Add sell IDs to total (avoid duplicates)
-      for (const id of sellIds) {
-        if (!currentTotal.includes(id)) currentTotal.push(id);
-      }
-
-      if (isFullyPaid) {
-        for (const id of sellIds) {
-          if (!currentPaid.includes(id)) currentPaid.push(id);
-          const idx = currentUnpaid.indexOf(id);
-          if (idx !== -1) currentUnpaid.splice(idx, 1);
-        }
-      } else {
-        for (const id of sellIds) {
-          if (!currentUnpaid.includes(id)) currentUnpaid.push(id);
-          const idx = currentPaid.indexOf(id);
-          if (idx !== -1) currentPaid.splice(idx, 1);
-        }
-      }
-
-      // Add receive ID if payment was made
-      if (receiveId && !currentReceive.includes(receiveId)) {
-        currentReceive.push(receiveId);
-      }
-
-      await customerAccount.update(
-        {
-          paid: currentPaid,
-          unpaid: currentUnpaid,
-          total: currentTotal,
-          receive: currentReceive,
-        },
-        { transaction }
-      );
-    }
 
     await transaction.commit();
 
@@ -213,12 +203,18 @@ export const createSell = async (req, res) => {
         id: bill.id,
         billNumber: bill.billNumber,
         totalAmount,
-        paidAmount: receiptAmount,
+        paidAmount: effectiveReceipt,
         remainingAmount,
         status: bill.status,
       },
-      sells: createdSells,
-      receive: receiveId ? { id: receiveId, amount: receiptAmount } : null,
+      sells: createdSells.map(s => ({
+        id: s.id,
+        total: s.total,
+        receipt: s.receipt,
+        remaind: s.remaind,
+        departmentId: s.departmentId,
+      })),
+      receive: receiveId ? { id: receiveId, amount: effectiveReceipt } : null,
     });
   } catch (error) {
     if (transaction) await transaction.rollback();
@@ -227,6 +223,63 @@ export const createSell = async (req, res) => {
   }
 };
 
+async function updateCustomerAccountAdvanced({
+  customerId,
+  allSellsByDept,
+  paidSellsByDept,
+  unpaidSellsByDept,
+  receiveIds = [],   // array of receive IDs to append
+  transaction,
+}) {
+  let account = await CustomerAccount.findOne({
+    where: { customerId },
+    transaction,
+    lock: transaction.LOCK.UPDATE,
+  });
+
+  if (!account) {
+    account = await CustomerAccount.create(
+      {
+        customerId,
+        total: {},
+        paid: {},
+        unpaid: {},
+        receive: [],   // initialize as empty array
+      },
+      { transaction }
+    );
+  }
+
+  // Helper to merge arrays (append new IDs)
+  const mergeArrays = (existingObj, additions) => {
+    const newObj = { ...existingObj };
+    for (const [deptId, ids] of Object.entries(additions)) {
+      if (!newObj[deptId]) newObj[deptId] = [];
+      newObj[deptId] = [...newObj[deptId], ...ids];
+    }
+    return newObj;
+  };
+
+  // Helper to merge a simple array (for receive field)
+  const mergeReceiveArray = (existingArray, newIds) => {
+    return [...(existingArray || []), ...newIds];
+  };
+
+  const updatedTotal = mergeArrays(account.total || {}, allSellsByDept);
+  const updatedPaid = mergeArrays(account.paid || {}, paidSellsByDept);
+  const updatedUnpaid = mergeArrays(account.unpaid || {}, unpaidSellsByDept);
+  const updatedReceive = mergeReceiveArray(account.receive || [], receiveIds);
+
+  await account.update(
+    {
+      total: updatedTotal,
+      paid: updatedPaid,
+      unpaid: updatedUnpaid,
+      receive: updatedReceive,
+    },
+    { transaction }
+  );
+}
 /* ===============================
    GET ALL SELLS (with bill & product)
 ================================ */

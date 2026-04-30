@@ -156,6 +156,7 @@ export const deleteSellerAccount = async (req, res) => {
 
 // @desc Get sellers with unpaid
 // @desc Get sellers with unpaid
+
 export const getSellersWithUnpaid = async (req, res) => {
     try {
         // 1. Find sellers with at least one unpaid item in their account
@@ -171,7 +172,6 @@ export const getSellersWithUnpaid = async (req, res) => {
 
         const sellerIds = accountsWithUnpaid.map(a => a.sellerId);
 
-        // If no sellers have unpaid items, return empty response
         if (sellerIds.length === 0) {
             return res.status(200).json({
                 success: true,
@@ -187,24 +187,23 @@ export const getSellersWithUnpaid = async (req, res) => {
             raw: true,
         });
 
-        // 3. Sum remaining amount per seller from StockIncome
+        // 3. Sum remaind amount per seller from StockIncome
         const results = await StockIncome.findAll({
             attributes: [
                 'sellerId',
-                [sequelize.fn('SUM', sequelize.col('remaining')), 'totalDue'],
+                [sequelize.fn('SUM', sequelize.col('remaind')), 'totalDue'],
             ],
             where: {
                 sellerId: sellerIds,
-                remaining: { [Op.gt]: 0 },
+                remaind: { [Op.gt]: 0 },
             },
             group: ['sellerId'],
             raw: true,
         });
 
-        // Build a map of sellerId -> totalDue (as number)
+        // Build map of sellerId -> totalDue
         const dueMap = new Map();
         results.forEach(r => {
-            // Ensure totalDue is a number (Sequelize may return a string for DECIMAL)
             const totalDue = parseFloat(r.totalDue) || 0;
             dueMap.set(r.sellerId, totalDue);
         });
@@ -215,7 +214,7 @@ export const getSellersWithUnpaid = async (req, res) => {
                 id: s.id,
                 fullname: s.fullname,
             },
-            totalDue: dueMap.get(s.id) || 0,  // use s.id directly (no string conversion)
+            totalDue: dueMap.get(s.id) || 0,
         }));
 
         // 5. Calculate grand total
@@ -323,13 +322,13 @@ export const getSellerSellsDateRange = async (req, res) => {
         sells.forEach(sell => {
             totalMoney += parseFloat(sell.money) || 0;
             totalReceipt += parseFloat(sell.receipt) || 0;
-            totalRemaining += parseFloat(sell.remaining) || 0;
+            totalRemaining += parseFloat(sell.remaind) || 0;
         });
 
         // Format items as expected by frontend (keys: remaining, receipt, money, qnty, fileName, createdAt, id)
         const items = sells.map(sell => ({
             id: sell.id,
-            remaining: sell.remaining,
+            remaind: sell.remaind,
             receipt: sell.receipt,
             money: sell.money,
             qnty: sell.qnty,
@@ -424,13 +423,13 @@ export const getSellerSellsByType = async (req, res) => {
         sells.forEach(sell => {
             totalMoney += parseFloat(sell.money) || 0;
             totalReceipt += parseFloat(sell.receipt) || 0;
-            totalRemaining += parseFloat(sell.remaining) || 0;
+            totalRemaining += parseFloat(sell.remaind) || 0;
         });
 
         // Format items for frontend
         const items = sells.map(sell => ({
             id: sell.id,
-            remaining: sell.remaining,
+            remaind: sell.remaind,
             receipt: sell.receipt,
             money: sell.money,
             qnty: sell.qnty,
