@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import Pagination from "../pagination/Pagination.jsx"; // adjust path
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -16,28 +17,56 @@ export default function StockIncomePage() {
         { existId: "", newExist: "", department: "", type: "quantity", amount: "", net_unite_price: "", sell_price: "", expense: "" }
     ]);
 
-    // ================= FETCH =================
-    const fetchData = async () => {
+    // Pagination state
+    const [currentPage, setCurrentPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalRecords, setTotalRecords] = useState(0);
+    const limit = 5;
+
+    // ================= FETCH MASTER DATA (once) =================
+    const fetchMasterData = async () => {
         try {
-            const [sRes, eRes, iRes, dRes] = await Promise.all([
+            const [sRes, eRes, dRes] = await Promise.all([
                 axios.get(`${BASE_URL}/seller`),
                 axios.get(`${BASE_URL}/stockExist`),
-                axios.get(`${BASE_URL}/stockincome`),
                 axios.get(`${BASE_URL}/department`)
             ]);
             setSellers(sRes.data.data || []);
             setExists(eRes.data.data || []);
-            setIncomes(iRes.data.stockIncomes || []);
             setDepartments(dRes.data.data || []);
         } catch (err) {
-            console.error(err);
+            console.error("Error fetching master data:", err);
+        }
+    };
+
+    // ================= FETCH PAGINATED INCOMES =================
+    const fetchIncomes = async (page = 1) => {
+        try {
+            const res = await axios.get(`${BASE_URL}/stockincome`, {
+                params: { page, limit }
+            });
+            // Actual response structure:
+            // { stockIncomes: [], pagination: { totalItems, totalPages, currentPage, ... } }
+            setIncomes(res.data.stockIncomes || []);
+            setTotalPages(res.data.pagination?.totalPages || 1);
+            setTotalRecords(res.data.pagination?.totalItems || 0);
+        } catch (err) {
+            console.error("Error fetching incomes:", err);
+            setIncomes([]);
+            setTotalPages(1);
+            setTotalRecords(0);
         }
     };
 
     useEffect(() => {
-        fetchData();
+        fetchMasterData();
     }, []);
 
+    useEffect(() => {
+        fetchIncomes(currentPage);
+    }, [currentPage]);
+
+    // ================= ROW HANDLERS =================
     const addRow = () => {
         setRows([...rows, { existId: "", newExist: "", department: "", type: "quantity", amount: "", net_unite_price: "", sell_price: "", expense: "" }]);
     };
@@ -79,7 +108,7 @@ export default function StockIncomePage() {
                 return;
             }
             if (!row.amount || !row.net_unite_price || !row.sell_price) {
-                alert(`Row ${i + 1}: Amount, Unit Price, Net Unit Price and Sell Price are required.`);
+                alert(`Row ${i + 1}: Amount, Net Unit Price and Sell Price are required.`);
                 return;
             }
         }
@@ -115,18 +144,26 @@ export default function StockIncomePage() {
         };
 
         try {
-            console.log(payload);
-            
             await axios.post(`${BASE_URL}/stockIncome`, payload);
             alert("All data saved successfully (batch)");
+            // Reset form
             setRows([{ existId: "", newExist: "", department: "", type: "quantity", amount: "", net_unite_price: "", sell_price: "", expense: "" }]);
             setSellerMode("existing");
             setSellerId("");
             setNewSeller("");
-            fetchData();
+            // Refresh incomes by going back to first page (triggers useEffect)
+            setCurrentPage(1);
+            // Also refresh master data to get new exists
+            fetchMasterData();
         } catch (err) {
             console.error(err);
             alert("Error saving batch data. Check console.");
+        }
+    };
+
+    const handlePageChange = (newPage) => {
+        if (newPage >= 1 && newPage <= totalPages) {
+            setCurrentPage(newPage);
         }
     };
 
@@ -327,7 +364,6 @@ export default function StockIncomePage() {
                         ))}
                     </div>
 
-                    {/* Submit Button */}
                     <div className="flex justify-end pt-4">
                         <button
                             type="submit"
@@ -338,9 +374,12 @@ export default function StockIncomePage() {
                     </div>
                 </form>
 
-                {/* Submitted Incomes Table */}
+                {/* Stock Incomes Table with Pagination */}
                 <div className="mt-10 bg-white rounded-lg shadow-sm overflow-hidden border border-gray-100">
-                    <h2 className="text-lg font-semibold text-gray-700 p-5 pb-2">Recent Stock Incomes</h2>
+                    <div className="flex justify-between items-center p-5 pb-2">
+                        <h2 className="text-lg font-semibold text-gray-700">Recent Stock Incomes</h2>
+                        <span className="text-sm text-gray-500">Total: {totalRecords} records</span>
+                    </div>
                     <div className="overflow-x-auto">
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
@@ -349,7 +388,6 @@ export default function StockIncomePage() {
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Exist</th>
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit Price</th>
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Net Unit Price</th>
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sell Price</th>
                                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expense</th>
@@ -359,7 +397,10 @@ export default function StockIncomePage() {
                                 {incomes.map(inc => (
                                     <tr key={inc.id} className="hover:bg-gray-50 transition">
                                         <td className="px-4 py-2 text-sm text-gray-800">{inc.seller?.fullname || inc.seller?.name}</td>
-                                        <td className="px-4 py-2 text-sm text-gray-800">{inc.stock?.name}</td>
+                                        <td className="px-4 py-2 text-sm text-gray-800">
+                                            {/* If your backend includes stock info, use inc.stock?.name, otherwise fallback to existId */}
+                                            {inc.stock?.name || `Product ID: ${inc.existId}`}
+                                        </td>
                                         <td className="px-4 py-2 text-sm text-gray-600">{inc.type}</td>
                                         <td className="px-4 py-2 text-sm text-gray-600">{inc.amount}</td>
                                         <td className="px-4 py-2 text-sm text-gray-600">{inc.net_unite_price}</td>
@@ -369,12 +410,19 @@ export default function StockIncomePage() {
                                 ))}
                                 {incomes.length === 0 && (
                                     <tr>
-                                        <td colSpan="8" className="px-4 py-8 text-center text-gray-400">No income records yet</td>
+                                        <td colSpan="7" className="px-4 py-8 text-center text-gray-400">No income records yet</td>
                                     </tr>
                                 )}
                             </tbody>
                         </table>
                     </div>
+                    {totalPages > 1 && (
+                        <Pagination
+                            currentPage={currentPage}
+                            totalPages={totalPages}
+                            onPageChange={handlePageChange}
+                        />
+                    )}
                 </div>
             </div>
         </div>

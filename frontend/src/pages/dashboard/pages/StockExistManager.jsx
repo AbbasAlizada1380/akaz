@@ -2,13 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { Package, Plus, Trash2, Pencil, Search, X } from 'lucide-react';
+import Pagination from '../pagination/Pagination.jsx'; // adjust import path to your Pagination component
 
-// Get base URL from environment, with fallback warning
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 if (!BASE_URL) {
   console.error('VITE_BASE_URL is not defined in .env file');
 }
-const API_BASE = BASE_URL || 'http://localhost:5000/api'; // fallback for dev
+const API_BASE = BASE_URL || 'http://localhost:5000/api';
 
 const StockExistManager = () => {
   const [stocks, setStocks] = useState([]);
@@ -37,7 +37,6 @@ const StockExistManager = () => {
     setLoading(true);
     try {
       const res = await axios.get(`${API_BASE}/stockExist`);
-      // Ensure we always work with an array
       setStocks(Array.isArray(res.data.data) ? res.data.data : []);
     } catch (err) {
       console.error('Fetch stocks error:', err);
@@ -51,7 +50,6 @@ const StockExistManager = () => {
   const fetchDepartments = async () => {
     try {
       const res = await axios.get(`${API_BASE}/department`);
-      // Adapt to your actual API response structure
       const depts = res.data?.data || res.data || [];
       setDepartments(Array.isArray(depts) ? depts : []);
     } catch (err) {
@@ -60,7 +58,6 @@ const StockExistManager = () => {
     }
   };
 
-  // Helper to get department name (works whether relation is populated or not)
   const getDepartmentName = (stock) => {
     if (stock.department?.name) return stock.department.name;
     if (stock.departmentId) {
@@ -106,7 +103,6 @@ const StockExistManager = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // Validate numeric fields
     if (parseFloat(formData.amount) < 0) {
       alert('Amount cannot be negative');
       return;
@@ -123,7 +119,7 @@ const StockExistManager = () => {
         await axios.post(`${API_BASE}/stockExist`, formData);
       }
       resetForm();
-      fetchStocks(); // refresh list
+      fetchStocks();
     } catch (err) {
       console.error('Save error:', err);
       alert(editingStock ? 'Update failed' : 'Create failed');
@@ -150,7 +146,6 @@ const StockExistManager = () => {
       sell_price: stock.sell_price || '',
       unit_price: stock.unit_price || '',
     });
-    // Optional: scroll to form
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -376,42 +371,15 @@ const StockExistManager = () => {
                         </tr>
                       )}
                     </tbody>
-                   </table>
+                  </table>
                 </div>
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <div className="flex justify-center mt-6">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handlePageChange(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                      >
-                        Previous
-                      </button>
-                      {[...Array(totalPages)].map((_, idx) => (
-                        <button
-                          key={idx}
-                          onClick={() => handlePageChange(idx + 1)}
-                          className={`px-3 py-1 border rounded-md ${currentPage === idx + 1
-                            ? 'bg-primary text-secondary border-primary'
-                            : 'border-gray-300 hover:bg-gray-50'
-                          }`}
-                        >
-                          {idx + 1}
-                        </button>
-                      ))}
-                      <button
-                        onClick={() => handlePageChange(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        className="px-3 py-1 border border-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-                      >
-                        Next
-                      </button>
-                    </div>
-                  </div>
-                )}
+                {/* Pagination Component */}
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={handlePageChange}
+                />
               </>
             )}
           </div>

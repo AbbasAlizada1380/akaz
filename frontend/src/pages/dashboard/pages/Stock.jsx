@@ -1,6 +1,6 @@
 import { useState } from "react";
 import StockIncomManager from "./StockIncomeManager"
-import ExistingStock from "./ExistingStock";
+import ExistingStock from "./StockExistManager";
 import SellManager from "./SellManager";
 import ReturnManager from "./returnManager";
 import { useUserDepartments } from "../../../utils/useUserDepartment";

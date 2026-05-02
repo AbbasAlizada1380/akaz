@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Receive from "./Receive";
 import Pay from "./Pay";
-import ExistingStock from "../ExistingStock";
+import ExistingStock from "../StockExistManager";
 
 const Finance = () => {
   const [activeTab, setActiveTab] = useState("receive");

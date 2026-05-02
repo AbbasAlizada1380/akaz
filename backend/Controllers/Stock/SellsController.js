@@ -228,7 +228,7 @@ async function updateCustomerAccountAdvanced({
   allSellsByDept,
   paidSellsByDept,
   unpaidSellsByDept,
-  receiveIds = [],   // array of receive IDs to append
+  receiveIds = [],
   transaction,
 }) {
   let account = await CustomerAccount.findOne({
@@ -244,25 +244,31 @@ async function updateCustomerAccountAdvanced({
         total: {},
         paid: {},
         unpaid: {},
-        receive: [],   // initialize as empty array
+        receive: [],
       },
       { transaction }
     );
   }
 
-  // Helper to merge arrays (append new IDs)
+  // Safely merge arrays: ensure existing values are arrays, additions are arrays
   const mergeArrays = (existingObj, additions) => {
     const newObj = { ...existingObj };
     for (const [deptId, ids] of Object.entries(additions)) {
-      if (!newObj[deptId]) newObj[deptId] = [];
-      newObj[deptId] = [...newObj[deptId], ...ids];
+      if (!Array.isArray(ids)) continue; // skip invalid additions
+
+      // Get existing value; if not an array, treat as empty
+      let existing = newObj[deptId];
+      if (!Array.isArray(existing)) {
+        existing = [];
+      }
+      newObj[deptId] = [...existing, ...ids];
     }
     return newObj;
   };
 
-  // Helper to merge a simple array (for receive field)
   const mergeReceiveArray = (existingArray, newIds) => {
-    return [...(existingArray || []), ...newIds];
+    if (!Array.isArray(existingArray)) existingArray = [];
+    return [...existingArray, ...newIds];
   };
 
   const updatedTotal = mergeArrays(account.total || {}, allSellsByDept);

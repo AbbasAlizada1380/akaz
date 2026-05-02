@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import Pagination from "../pagination/Pagination.jsx"; // adjust import path as needed
+import Pagination from "../pagination/Pagination.jsx"; // adjust path to your Pagination component
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -12,7 +12,7 @@ const BillsList = () => {
     currentPage: 1,
     totalPages: 1,
     totalItems: 0,
-    itemsPerPage: 10,
+    itemsPerPage: 1,
   });
   const [selectedBill, setSelectedBill] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -21,7 +21,7 @@ const BillsList = () => {
   const fetchBills = async (page = 1) => {
     setLoading(true);
     try {
-      const res = await axios.get(`${BASE_URL}/Bill/bills?limit=10&page=${page}`);
+      const res = await axios.get(`${BASE_URL}/Bill/bills?limit=${pagination.itemsPerPage}&page=${page}`);
       if (res.data.success) {
         setBills(res.data.bills);
         setPagination({
@@ -116,13 +116,12 @@ const BillsList = () => {
                     </td>
                     <td className="px-4 py-2">
                       <span
-                        className={`px-2 py-1 rounded text-xs font-medium ${
-                          bill.status === "paid"
+                        className={`px-2 py-1 rounded text-xs font-medium ${bill.status === "paid"
                             ? "bg-green-100 text-green-800"
                             : bill.status === "partial"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-red-100 text-red-800"
-                        }`}
+                              ? "bg-yellow-100 text-yellow-800"
+                              : "bg-red-100 text-red-800"
+                          }`}
                       >
                         {bill.status}
                       </span>
@@ -150,7 +149,7 @@ const BillsList = () => {
         </>
       )}
 
-      {/* Bill Detail Modal */}
+      {/* Bill Detail Modal (unchanged) */}
       {selectedBill && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
@@ -161,40 +160,24 @@ const BillsList = () => {
               </button>
             </div>
             <div className="space-y-2 mb-4">
-              <p>
-                <strong>Customer:</strong> {selectedBill.customer?.fullname || "-"}
-              </p>
-              <p>
-                <strong>Date:</strong> {new Date(selectedBill.date).toLocaleDateString()}
-              </p>
-              <p>
-                <strong>Total:</strong> ${parseFloat(selectedBill.totalAmount).toFixed(2)}
-              </p>
-              <p>
-                <strong>Paid:</strong> ${parseFloat(selectedBill.paidAmount).toFixed(2)}
-              </p>
-              <p>
-                <strong>Remaining:</strong> ${parseFloat(selectedBill.remainingAmount).toFixed(2)}
-              </p>
-              <p>
-                <strong>Status:</strong>{" "}
+              <p><strong>Customer:</strong> {selectedBill.customer?.fullname || "-"}</p>
+              <p><strong>Date:</strong> {new Date(selectedBill.date).toLocaleDateString()}</p>
+              <p><strong>Total:</strong> ${parseFloat(selectedBill.totalAmount).toFixed(2)}</p>
+              <p><strong>Paid:</strong> ${parseFloat(selectedBill.paidAmount).toFixed(2)}</p>
+              <p><strong>Remaining:</strong> ${parseFloat(selectedBill.remainingAmount).toFixed(2)}</p>
+              <p><strong>Status:</strong>{" "}
                 <span
-                  className={`px-2 py-1 rounded text-xs font-medium ${
-                    selectedBill.status === "paid"
+                  className={`px-2 py-1 rounded text-xs font-medium ${selectedBill.status === "paid"
                       ? "bg-green-100 text-green-800"
                       : selectedBill.status === "partial"
-                      ? "bg-yellow-100 text-yellow-800"
-                      : "bg-red-100 text-red-800"
-                  }`}
+                        ? "bg-yellow-100 text-yellow-800"
+                        : "bg-red-100 text-red-800"
+                    }`}
                 >
                   {selectedBill.status}
                 </span>
               </p>
-              {selectedBill.notes && (
-                <p>
-                  <strong>Notes:</strong> {selectedBill.notes}
-                </p>
-              )}
+              {selectedBill.notes && <p><strong>Notes:</strong> {selectedBill.notes}</p>}
             </div>
             <h3 className="font-semibold mb-2">Line Items</h3>
             {detailLoading ? (
@@ -214,12 +197,8 @@ const BillsList = () => {
                     <tr key={item.id} className="border-t">
                       <td className="px-3 py-1">{item.product?.name || "-"}</td>
                       <td className="px-3 py-1 text-right">{item.amount}</td>
-                      <td className="px-3 py-1 text-right">
-                        ${parseFloat(item.unit_price).toFixed(2)}
-                      </td>
-                      <td className="px-3 py-1 text-right">
-                        ${parseFloat(item.total).toFixed(2)}
-                      </td>
+                      <td className="px-3 py-1 text-right">${parseFloat(item.unit_price).toFixed(2)}</td>
+                      <td className="px-3 py-1 text-right">${parseFloat(item.total).toFixed(2)}</td>
                     </tr>
                   ))}
                 </tbody>
