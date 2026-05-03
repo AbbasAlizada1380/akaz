@@ -4,7 +4,7 @@ import {
   getBillById,
   getBillsByDateRange,
   getBillsByCustomer,
-} from "../Controllers/Stock/BillController.js"; // adjust path
+} from "../../Controllers/Finance/BillController.js"; // adjust path
 
 const BillRouter = express.Router();
 

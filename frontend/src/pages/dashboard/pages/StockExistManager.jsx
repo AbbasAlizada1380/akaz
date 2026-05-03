@@ -1,46 +1,66 @@
-// components/StockExistManager.jsx
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { Package, Plus, Trash2, Pencil, Search, X } from 'lucide-react';
-import Pagination from '../pagination/Pagination.jsx'; // adjust import path to your Pagination component
+// components/StockExistManager.jsx (updated)
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { Package, Plus, Trash2, Pencil, Search, X } from "lucide-react";
+import Pagination from "../pagination/Pagination.jsx"; // adjust path
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 if (!BASE_URL) {
-  console.error('VITE_BASE_URL is not defined in .env file');
+  console.error("VITE_BASE_URL is not defined in .env file");
 }
-const API_BASE = BASE_URL || 'http://localhost:5000/api';
+const API_BASE = BASE_URL || "http://localhost:5000/api";
 
 const StockExistManager = () => {
   const [stocks, setStocks] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editingStock, setEditingStock] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalItems, setTotalItems] = useState(0);
+  const limit = 20; // items per page
 
   const [formData, setFormData] = useState({
-    name: '',
-    departmentId: '',
-    amount: '',
-    sell_price: '',
-    unit_price: '',
+    name: "",
+    departmentId: "",
+    amount: "",
+    sell_price: "",
+    unit_price: "",
   });
 
-  // Fetch data on mount
+  // Fetch departments once
   useEffect(() => {
-    fetchStocks();
     fetchDepartments();
   }, []);
+
+  // Fetch stocks when page or search changes
+  useEffect(() => {
+    fetchStocks();
+  }, [currentPage, searchTerm]);
 
   const fetchStocks = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/stockExist`);
-      setStocks(Array.isArray(res.data.data) ? res.data.data : []);
+      const params = {
+        page: currentPage,
+        limit: limit,
+      };
+      // If search term exists, add to query (assuming backend supports search)
+      if (searchTerm) {
+        params.search = searchTerm; // adjust if backend uses a different param
+      }
+      const res = await axios.get(`${API_BASE}/stockExist`, { params });
+      if (res.data.success) {
+        setStocks(res.data.data);
+        setTotalItems(res.data.pagination.totalItems);
+        setTotalPages(res.data.pagination.totalPages);
+      } else {
+        setStocks([]);
+      }
     } catch (err) {
-      console.error('Fetch stocks error:', err);
-      alert('Failed to load stocks. Check if backend is running.');
+      console.error("Fetch stocks error:", err);
+      alert("Failed to load stocks.");
       setStocks([]);
     } finally {
       setLoading(false);
@@ -53,7 +73,7 @@ const StockExistManager = () => {
       const depts = res.data?.data || res.data || [];
       setDepartments(Array.isArray(depts) ? depts : []);
     } catch (err) {
-      console.error('Fetch departments error:', err);
+      console.error("Fetch departments error:", err);
       setDepartments([]);
     }
   };
@@ -64,20 +84,8 @@ const StockExistManager = () => {
       const found = departments.find(d => d.id === Number(stock.departmentId));
       if (found) return found.name;
     }
-    return stock.departmentId || '-';
+    return stock.departmentId || "-";
   };
-
-  // Filter stocks based on search term
-  const filteredStocks = stocks.filter(stock =>
-    stock.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // Pagination
-  const totalPages = Math.ceil(filteredStocks.length / itemsPerPage);
-  const paginatedStocks = filteredStocks.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
 
   const handlePageChange = (page) => {
     setCurrentPage(page);
@@ -91,24 +99,23 @@ const StockExistManager = () => {
   const resetForm = () => {
     setEditingStock(null);
     setFormData({
-      name: '',
-      departmentId: '',
-      amount: '',
-      sell_price: '',
-      unit_price: '',
+      name: "",
+      departmentId: "",
+      amount: "",
+      sell_price: "",
+      unit_price: "",
     });
-    setSearchTerm('');
-    setCurrentPage(1);
+    // Do not reset search or page here, only when explicitly needed
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (parseFloat(formData.amount) < 0) {
-      alert('Amount cannot be negative');
+      alert("Amount cannot be negative");
       return;
     }
     if (parseFloat(formData.sell_price) < 0 || parseFloat(formData.unit_price) < 0) {
-      alert('Prices cannot be negative');
+      alert("Prices cannot be negative");
       return;
     }
 
@@ -119,38 +126,48 @@ const StockExistManager = () => {
         await axios.post(`${API_BASE}/stockExist`, formData);
       }
       resetForm();
-      fetchStocks();
+      // After successful operation, go back to page 1 and refetch
+      if (currentPage !== 1) {
+        setCurrentPage(1);
+      } else {
+        fetchStocks(); // refetch same page
+      }
     } catch (err) {
-      console.error('Save error:', err);
-      alert(editingStock ? 'Update failed' : 'Create failed');
+      console.error("Save error:", err);
+      alert(editingStock ? "Update failed" : "Create failed");
     }
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this stock?')) return;
+    if (!window.confirm("Are you sure you want to delete this stock?")) return;
     try {
       await axios.delete(`${API_BASE}/stockExist/${id}`);
-      fetchStocks();
+      // If current page becomes empty and not first page, go to previous page
+      if (stocks.length === 1 && currentPage > 1) {
+        setCurrentPage(currentPage - 1);
+      } else {
+        fetchStocks();
+      }
     } catch (err) {
-      console.error('Delete error:', err);
-      alert('Delete failed');
+      console.error("Delete error:", err);
+      alert("Delete failed");
     }
   };
 
   const startEdit = (stock) => {
     setEditingStock(stock);
     setFormData({
-      name: stock.name || '',
-      departmentId: stock.departmentId || '',
-      amount: stock.amount || '',
-      sell_price: stock.sell_price || '',
-      unit_price: stock.unit_price || '',
+      name: stock.name || "",
+      departmentId: stock.departmentId || "",
+      amount: stock.amount || "",
+      sell_price: stock.sell_price || "",
+      unit_price: stock.unit_price || "",
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const clearSearch = () => {
-    setSearchTerm('');
+    setSearchTerm("");
     setCurrentPage(1);
   };
 
@@ -171,7 +188,7 @@ const StockExistManager = () => {
                 <Package size={24} className="text-primary" />
               </div>
               <h2 className="text-xl font-bold">
-                {editingStock ? 'Edit Stock Item' : 'Add New Stock Item'}
+                {editingStock ? "Edit Stock Item" : "Add New Stock Item"}
               </h2>
             </div>
 
@@ -258,7 +275,7 @@ const StockExistManager = () => {
                   className="bg-primary px-6 py-3 text-secondary rounded-xl font-semibold text-lg hover:bg-primary/90 transform hover:scale-105 transition-all duration-200 shadow-lg flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Plus size={20} />
-                  {editingStock ? 'Update Stock' : 'Add Stock'}
+                  {editingStock ? "Update Stock" : "Add Stock"}
                 </button>
                 {editingStock && (
                   <button
@@ -327,8 +344,8 @@ const StockExistManager = () => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {paginatedStocks.length > 0 ? (
-                        paginatedStocks.map((stock) => (
+                      {stocks.length > 0 ? (
+                        stocks.map((stock) => (
                           <tr key={stock.id} className="hover:bg-gray-50 bg-white transition-colors duration-150">
                             <td className="px-6 py-4 text-sm text-secondary">#{stock.id}</td>
                             <td className="px-6 py-4 text-sm font-medium text-secondary">{stock.name}</td>
@@ -364,8 +381,8 @@ const StockExistManager = () => {
                             <div className="text-secondary text-sm">
                               <Package size={32} className="mx-auto text-gray-300 mb-2" />
                               {searchTerm
-                                ? 'No stock items match your search'
-                                : 'No stock items found'}
+                                ? "No stock items match your search"
+                                : "No stock items found"}
                             </div>
                           </td>
                         </tr>
@@ -374,12 +391,11 @@ const StockExistManager = () => {
                   </table>
                 </div>
 
-                {/* Pagination Component */}
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  onPageChange={handlePageChange}
-                />
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={handlePageChange}
+                  />
               </>
             )}
           </div>

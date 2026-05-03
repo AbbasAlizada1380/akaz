@@ -1,4 +1,4 @@
-import { Receive, Sells } from '../../Models/index.js';
+import { Bill, Department, Receive, Sells, Benefit } from '../../Models/index.js';
 import { Customer } from '../../Models/index.js';
 import Sell from '../../Models/Stock/Sells.js';
 import CustomerAccount from '../../Models/Customer/CustomerAccount.js';
@@ -66,7 +66,53 @@ export const getReceiveById = async (req, res) => {
     }
 };
 
+/**
+ * When a sell becomes fully paid, move its associated Benefit ID
+ * from Department.benifit (pending) to Department.realizedBenefit (realized).
+ * 
+ * @param {number[]} sellIds - Array of Sells.id that just became fully paid
+ * @param {Transaction} transaction - Sequelize transaction
+ */
+const updateDepartmentBenefitsOnFullPayment = async (sellIds, transaction) => {
+  const benefits = await Benefit.findAll({
+    where: { sellId: sellIds },
+    attributes: ['id', 'departmentId'],
+    transaction,
+  });
 
+  if (benefits.length === 0) return;
+
+  const deptToBenefitIds = {};
+  for (const benefit of benefits) {
+    const deptId = benefit.departmentId;
+    if (!deptToBenefitIds[deptId]) deptToBenefitIds[deptId] = [];
+    deptToBenefitIds[deptId].push(benefit.id);
+  }
+
+  for (const [deptId, benefitIds] of Object.entries(deptToBenefitIds)) {
+    const department = await Department.findByPk(deptId, { transaction });
+    if (!department) continue;
+
+    let pending = department.benifit;
+    if (typeof pending === 'string') pending = JSON.parse(pending);
+    if (!Array.isArray(pending)) pending = [];
+
+    let realized = department.realizedBenefit;
+    if (typeof realized === 'string') realized = JSON.parse(realized);
+    if (!Array.isArray(realized)) realized = [];
+
+    const newPending = pending.filter(id => !benefitIds.includes(id));
+    const newRealized = [...realized, ...benefitIds];
+
+    await department.update(
+      {
+        benifit: newPending,
+        realizedBenefit: newRealized,
+      },
+      { transaction }
+    );
+  }
+};
 
 export const createReceive = async (req, res) => {
   const { customer, date, description, ...deptAmounts } = req.body;
@@ -76,12 +122,10 @@ export const createReceive = async (req, res) => {
     return res.status(400).json({ message: 'مشتری الزامی است' });
   }
 
-  // Check if department-specific amounts are provided
   const deptKeys = Object.keys(deptAmounts).filter(k => k.startsWith('department'));
   let totalPayment = 0;
 
   if (deptKeys.length > 0) {
-    // Validate each department amount
     for (const key of deptKeys) {
       const val = parseFloat(deptAmounts[key]);
       if (isNaN(val) || val < 0) {
@@ -90,7 +134,6 @@ export const createReceive = async (req, res) => {
       totalPayment += val;
     }
   } else {
-    // Fallback: single amount (old behaviour)
     const { amount } = req.body;
     if (!amount) {
       return res.status(400).json({ message: 'مبلغ الزامی است' });
@@ -104,14 +147,12 @@ export const createReceive = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    // 1. Verify customer exists
     const customerExists = await Customer.findByPk(customer, { transaction });
     if (!customerExists) {
       await transaction.rollback();
       return res.status(400).json({ message: 'مشتری مشخص‌شده وجود ندارد' });
     }
 
-    // 2. Create the receive record (store total payment amount)
     const newReceive = await Receive.create(
       {
         customer,
@@ -122,7 +163,6 @@ export const createReceive = async (req, res) => {
       { transaction }
     );
 
-    // 3. Find CustomerAccount (must exist to have unpaid sells)
     let customerAccount = await CustomerAccount.findOne({
       where: { customerId: customer },
       transaction,
@@ -130,7 +170,6 @@ export const createReceive = async (req, res) => {
     });
 
     if (!customerAccount) {
-      // No account – no sells, just commit
       await transaction.commit();
       const createdReceive = await Receive.findByPk(newReceive.id, {
         include: [{ model: Customer, as: 'customerInfo', attributes: ['id', 'fullname', 'phoneNumber'] }],
@@ -138,12 +177,10 @@ export const createReceive = async (req, res) => {
       return res.status(201).json(createdReceive);
     }
 
-    // 4. Get current unpaid structure (department -> array of sell IDs)
     let unpaidByDept = customerAccount.unpaid;
     if (typeof unpaidByDept === 'string') unpaidByDept = JSON.parse(unpaidByDept);
     if (!unpaidByDept || typeof unpaidByDept !== 'object') unpaidByDept = {};
 
-    // 5. If no unpaid sells, just commit
     if (Object.keys(unpaidByDept).length === 0) {
       await transaction.commit();
       const createdReceive = await Receive.findByPk(newReceive.id, {
@@ -152,7 +189,6 @@ export const createReceive = async (req, res) => {
       return res.status(201).json(createdReceive);
     }
 
-    // Helper to fetch sells with their current remaind (ordered by id)
     const fetchSells = async (ids) => {
       return await Sells.findAll({
         where: { id: ids },
@@ -162,13 +198,11 @@ export const createReceive = async (req, res) => {
       });
     };
 
-    // Structures to track updates
-    const fullyPaidByDept = {};   // { deptId: [sellId, ...] }
-    const remainingUnpaidByDept = JSON.parse(JSON.stringify(unpaidByDept)); // copy
+    const fullyPaidByDept = {};
+    const remainingUnpaidByDept = JSON.parse(JSON.stringify(unpaidByDept));
+    const affectedSellIds = [];
 
-    // 6. Handle payment allocation
     if (deptKeys.length > 0) {
-      // --- Department-specific payment ---
       for (const deptKey of deptKeys) {
         const deptId = parseInt(deptKey.replace('department', ''));
         const paymentForDept = parseFloat(deptAmounts[deptKey]);
@@ -180,7 +214,6 @@ export const createReceive = async (req, res) => {
           return res.status(400).json({ message: `بدهی برای دپارتمان ${deptId} وجود ندارد` });
         }
 
-        // Fetch sells in this department
         const sells = await fetchSells(unpaidIdsInDept);
         const totalOwedInDept = sells.reduce((sum, s) => sum + parseFloat(s.remaind), 0);
         if (paymentForDept > totalOwedInDept) {
@@ -190,7 +223,6 @@ export const createReceive = async (req, res) => {
           });
         }
 
-        // Allocate payment within this department
         let remaining = paymentForDept;
         const paidInThisDept = [];
 
@@ -198,30 +230,26 @@ export const createReceive = async (req, res) => {
           if (remaining <= 0) break;
           const remaind = parseFloat(sell.remaind);
           if (remaining >= remaind) {
-            // Fully pay
             sell.receipt = parseFloat(sell.total);
             sell.remaind = 0;
             remaining -= remaind;
             paidInThisDept.push(sell.id);
           } else {
-            // Partial
             sell.receipt = parseFloat(sell.receipt) + remaining;
             sell.remaind = remaind - remaining;
             remaining = 0;
           }
           await sell.save({ transaction });
+          affectedSellIds.push(sell.id);
         }
 
         if (paidInThisDept.length) {
           fullyPaidByDept[deptId] = paidInThisDept;
-          // Remove from remainingUnpaidByDept
           remainingUnpaidByDept[deptId] = remainingUnpaidByDept[deptId]?.filter(id => !paidInThisDept.includes(id)) || [];
           if (remainingUnpaidByDept[deptId]?.length === 0) delete remainingUnpaidByDept[deptId];
         }
       }
     } else {
-      // --- Fallback: single amount across all departments (oldest sells first, ignoring department) ---
-      // Flatten all unpaid sell IDs
       const allUnpaidIds = Object.values(unpaidByDept).flat();
       const allSells = await fetchSells(allUnpaidIds);
       const totalOwed = allSells.reduce((sum, s) => sum + parseFloat(s.remaind), 0);
@@ -249,9 +277,9 @@ export const createReceive = async (req, res) => {
           remaining = 0;
         }
         await sell.save({ transaction });
+        affectedSellIds.push(sell.id);
       }
 
-      // Group fully paid IDs by department (need to fetch departmentId for each)
       if (fullyPaidIds.length) {
         const paidSells = await Sells.findAll({
           where: { id: fullyPaidIds },
@@ -262,7 +290,6 @@ export const createReceive = async (req, res) => {
           const dept = s.departmentId;
           if (!fullyPaidByDept[dept]) fullyPaidByDept[dept] = [];
           fullyPaidByDept[dept].push(s.id);
-          // Remove from remainingUnpaidByDept
           if (remainingUnpaidByDept[dept]) {
             remainingUnpaidByDept[dept] = remainingUnpaidByDept[dept].filter(id => id !== s.id);
             if (remainingUnpaidByDept[dept].length === 0) delete remainingUnpaidByDept[dept];
@@ -271,26 +298,22 @@ export const createReceive = async (req, res) => {
       }
     }
 
-    // 7. Update CustomerAccount's paid and unpaid structures
+    // 6. Update CustomerAccount paid/unpaid structures
     let currentPaidByDept = customerAccount.paid;
     if (typeof currentPaidByDept === 'string') currentPaidByDept = JSON.parse(currentPaidByDept);
     if (!currentPaidByDept || typeof currentPaidByDept !== 'object') currentPaidByDept = {};
 
-    // Merge fully paid IDs into paidByDept
     for (const [deptId, paidIds] of Object.entries(fullyPaidByDept)) {
       if (!currentPaidByDept[deptId]) currentPaidByDept[deptId] = [];
-      // Avoid duplicates (though unlikely)
       const newIds = paidIds.filter(id => !currentPaidByDept[deptId].includes(id));
       currentPaidByDept[deptId] = [...currentPaidByDept[deptId], ...newIds];
     }
 
-    // Update receive array: append new receive ID
     let receiveArray = customerAccount.receive;
     if (typeof receiveArray === 'string') receiveArray = JSON.parse(receiveArray);
     if (!Array.isArray(receiveArray)) receiveArray = [];
     receiveArray.push(newReceive.id);
 
-    // Save updates
     await customerAccount.update(
       {
         paid: currentPaidByDept,
@@ -300,10 +323,54 @@ export const createReceive = async (req, res) => {
       { transaction }
     );
 
-    // 8. Commit transaction
+    // 7. Update Bills
+    if (affectedSellIds.length > 0) {
+      const affectedSells = await Sells.findAll({
+        where: { id: affectedSellIds },
+        attributes: ['id', 'billId', 'receipt'],
+        transaction,
+      });
+
+      const billReceiptSum = new Map();
+      for (const sell of affectedSells) {
+        const billId = sell.billId;
+        const receipt = parseFloat(sell.receipt) || 0;
+        billReceiptSum.set(billId, (billReceiptSum.get(billId) || 0) + receipt);
+      }
+
+      for (const [billId] of billReceiptSum.entries()) {
+        const bill = await Bill.findByPk(billId, { transaction });
+        if (bill) {
+          const allSellsOfBill = await Sells.findAll({
+            where: { billId },
+            attributes: ['receipt'],
+            transaction,
+          });
+          const newPaidAmount = allSellsOfBill.reduce((sum, s) => sum + parseFloat(s.receipt), 0);
+          const newRemaining = bill.totalAmount - newPaidAmount;
+          const newStatus = newRemaining === 0 ? "paid" : (newPaidAmount > 0 ? "partial" : "unpaid");
+
+          await bill.update(
+            {
+              paidAmount: newPaidAmount,
+              remainingAmount: newRemaining,
+              status: newStatus,
+            },
+            { transaction }
+          );
+        }
+      }
+    }
+
+    // ========== ADDED: Realize benefits for fully paid sells ==========
+    const allFullyPaidSellIds = Object.values(fullyPaidByDept).flat();
+    if (allFullyPaidSellIds.length > 0) {
+      await updateDepartmentBenefitsOnFullPayment(allFullyPaidSellIds, transaction);
+    }
+    // =================================================================
+
     await transaction.commit();
 
-    // 9. Return created receive
     const createdReceive = await Receive.findByPk(newReceive.id, {
       include: [{ model: Customer, as: 'customerInfo', attributes: ['id', 'fullname', 'phoneNumber'] }],
     });

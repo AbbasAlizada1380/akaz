@@ -1,5 +1,5 @@
 import sequelize from "../../dbconnection.js";
-import Bill from "../../Models/Bill.js";
+import {Bill} from "../../Models/index.js";
 import Customer from "../../Models/Customer/Customers.js";
 import Sells from "../../Models/Stock/Sells.js";
 import StockExist from "../../Models/Stock/StockExist.js";

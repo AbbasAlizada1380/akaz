@@ -1,6 +1,6 @@
 // controllers/stockIncomeController.js
 import Pay from "../../Models/Finance/Pay.js"
-import { Department, Seller, SellerAccount, StockIncome, StockExist } from '../../Models/index.js';
+import { Department, Seller, SellerAccount, StockIncome, StockExist, Factor } from '../../Models/index.js';
 import sequelize from "../../dbconnection.js";
 import { Op, Transaction } from "sequelize";
 
@@ -152,10 +152,21 @@ export const getStockIncomeById = async (req, res) => {
   }
 };
 
+
+const generateFactorNumber = async () => {
+  const lastFactor = await Factor.findOne({ order: [["createdAt", "DESC"]] });
+  let lastNumber = 0;
+  if (lastFactor && lastFactor.factorNumber) {
+    const match = lastFactor.factorNumber.match(/\d+$/);
+    if (match) lastNumber = parseInt(match[0], 10);
+  }
+  const newNumber = (lastNumber + 1).toString().padStart(6, "0");
+  return `FAC-${newNumber}`;
+};
 export const createBatchStockIncome = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    const { seller, items } = req.body;
+    const { seller, items, paidAmount: userPaidAmount, notes } = req.body;
 
     if (!seller || !items || !Array.isArray(items) || items.length === 0) {
       await transaction.rollback();
@@ -181,7 +192,8 @@ export const createBatchStockIncome = async (req, res) => {
 
     // ---------- 2. Process each item ----------
     const createdIncomes = [];
-    const createdIncomeIds = []; // <-- NEW: store IDs for SellerAccount update
+    const createdIncomeIds = [];
+    let totalAmount = 0;
 
     for (const item of items) {
       const { exist, type, amount, sell_price, net_unite_price, expense = 0 } = item;
@@ -258,6 +270,7 @@ export const createBatchStockIncome = async (req, res) => {
         return res.status(400).json({ error: 'Invalid exist reference in item' });
       }
 
+      // Create income WITHOUT factorId (allowed if model allowNull: true)
       const income = await StockIncome.create({
         sellerId: sellerId,
         existId: existId,
@@ -270,16 +283,58 @@ export const createBatchStockIncome = async (req, res) => {
         sell_price: parsedSellPrice,
         total: totalPrice,
         remaind: totalPrice
+        // FactorId will be set later
       }, { transaction });
-  await updateStockExistFromIncome(existId, parsedAmount, computedUnitPrice, transaction);
 
-  createdIncomes.push({ ...income.toJSON(), total_price: totalPrice });
-  createdIncomeIds.push(income.id);
+      await updateStockExistFromIncome(existId, parsedAmount, computedUnitPrice, transaction);
+
+      createdIncomes.push({ ...income.toJSON(), total_price: totalPrice });
+      createdIncomeIds.push(income.id);
+      totalAmount += totalPrice;
     }
 
-    // ---------- 3. Update SellerAccount.paid ---------- // <-- NEW
+    // ---------- 3. Update SellerAccount.paid ----------
     if (createdIncomeIds.length > 0) {
       await updateSellerAccountPaid(sellerId, createdIncomeIds, transaction);
+    }
+
+    // ---------- 4. Determine paid amount for the factor ----------
+    const finalPaidAmount = (userPaidAmount !== undefined && !isNaN(parseFloat(userPaidAmount)))
+      ? parseFloat(userPaidAmount)
+      : totalAmount;
+
+    const remainingAmount = totalAmount - finalPaidAmount;
+    const status = remainingAmount === 0 ? "paid" : (finalPaidAmount > 0 ? "partial" : "unpaid");
+
+    // ---------- 5. Create Factor record ----------
+    const factorNumber = await generateFactorNumber();
+    const factor = await Factor.create({
+      factorNumber,
+      sellerId: sellerId,
+      totalAmount: totalAmount,
+      paidAmount: finalPaidAmount,
+      remainingAmount: remainingAmount,
+      status: status,
+      notes: notes || null,
+      incomes: createdIncomeIds,
+    }, { transaction });
+
+    // ---------- 5b. Assign factorId to all related StockIncome records ----------
+    if (createdIncomeIds.length > 0) {
+      await StockIncome.update(
+        { FactorId: factor.id },
+        { where: { id: createdIncomeIds }, transaction }
+      );
+    }
+
+    // ---------- 6. Create Pay record for the seller ----------
+    if (finalPaidAmount > 0) {
+      const payRecord = await Pay.create({
+        seller: sellerId,
+        amount: finalPaidAmount,
+        description: `Payment for factor ${factorNumber} (batch of ${createdIncomeIds.length} items)`,
+      }, { transaction });
+      // Optionally link payRecord.id to SellerAccount.pay if needed
     }
 
     await transaction.commit();
@@ -287,6 +342,12 @@ export const createBatchStockIncome = async (req, res) => {
     res.status(201).json({
       message: 'Batch stock incomes created successfully',
       sellerId: sellerId,
+      factorId: factor.id,
+      factorNumber: factor.factorNumber,
+      totalAmount: totalAmount,
+      paidAmount: finalPaidAmount,
+      remainingAmount: remainingAmount,
+      status: status,
       incomesCount: createdIncomes.length,
       incomes: createdIncomes
     });

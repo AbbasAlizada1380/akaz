@@ -12,7 +12,7 @@ const BillsList = () => {
     currentPage: 1,
     totalPages: 1,
     totalItems: 0,
-    itemsPerPage: 1,
+    itemsPerPage: 20,
   });
   const [selectedBill, setSelectedBill] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);

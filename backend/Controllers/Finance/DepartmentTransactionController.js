@@ -1,41 +1,81 @@
-import { DepartmentTransaction, Department } from "../../Models/index.js";
+import { DepartmentTransaction, Department, sequelize } from "../../Models/index.js";
+
 
 // ========== CREATE ==========
 export const createTransaction = async (req, res) => {
+  const dbTransaction = await sequelize.transaction();
+
   try {
     const { depId, amount, is_deposit } = req.body;
 
     // Validation
     if (!depId || amount === undefined || amount === null) {
+      await dbTransaction.rollback();
       return res.status(400).json({ message: "depId and amount are required" });
     }
     if (isNaN(parseFloat(amount)) || parseFloat(amount) <= 0) {
+      await dbTransaction.rollback();
       return res.status(400).json({ message: "Amount must be a positive number" });
     }
 
     // Check if department exists
-    const department = await Department.findByPk(depId);
+    const department = await Department.findByPk(depId, { transaction: dbTransaction });
     if (!department) {
+      await dbTransaction.rollback();
       return res.status(404).json({ message: "Department not found" });
     }
 
-    const transaction = await DepartmentTransaction.create({
-      depId: parseInt(depId),
-      amount: parseFloat(amount),
-      is_deposit: is_deposit !== undefined ? is_deposit : true,
-    });
+    // Create the DepartmentTransaction record
+    const transactionRecord = await DepartmentTransaction.create(
+      {
+        depId: parseInt(depId),
+        amount: parseFloat(amount),
+        is_deposit: is_deposit !== undefined ? is_deposit : true,
+      },
+      { transaction: dbTransaction }
+    );
 
-    // Return transaction with department info
-    const created = await DepartmentTransaction.findByPk(transaction.id, {
+    // Determine which array to update (deposit or withdraw)
+    const field = transactionRecord.is_deposit ? "deposit" : "withdraw";
+
+    // Get current array (ensure it's an array)
+    let currentArray = department[field];
+    if (!currentArray) {
+      currentArray = [];
+    } else if (typeof currentArray === "string") {
+      try {
+        currentArray = JSON.parse(currentArray);
+      } catch (e) {
+        currentArray = [];
+      }
+    }
+    if (!Array.isArray(currentArray)) {
+      currentArray = [];
+    }
+
+    // Append the new transaction ID
+    currentArray.push(transactionRecord.id);
+
+    // Update the department
+    await department.update(
+      { [field]: currentArray },
+      { transaction: dbTransaction }
+    );
+
+    await dbTransaction.commit();
+
+    // Return the created transaction with department info
+    const created = await DepartmentTransaction.findByPk(transactionRecord.id, {
       include: [{ model: Department, as: "department" }],
     });
 
     res.status(201).json({
       success: true,
       data: created,
-      message: "Transaction created successfully",
+      message: "Transaction created and linked to department successfully",
     });
   } catch (error) {
+    await dbTransaction.rollback();
     console.error(error);
     res.status(500).json({ error: error.message });
   }

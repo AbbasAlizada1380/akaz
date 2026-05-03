@@ -16,8 +16,15 @@ const Department = sequelize.define(
     exist: {
       type: DataTypes.JSON,
     },
-    sell: {
+    benifit: {
       type: DataTypes.JSON,
+      comment: "Array of Benefit IDs from unpaid or partially paid sells",
+      defaultValue: [],
+    },
+    realizedBenefit: {
+      type: DataTypes.JSON,
+      comment: "Array of Benefit IDs from fully paid sells (cash realized)",
+      defaultValue: [],
     },
     deposit: {
       type: DataTypes.JSON,

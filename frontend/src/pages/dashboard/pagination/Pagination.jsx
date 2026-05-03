@@ -25,7 +25,7 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
           className={`px-4 py-2 rounded-md font-medium transition cursor-pointer ${
             isFirst
               ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-              : "bg-cyan-800 text-white hover:bg-cyan-900"
+              : "bg-primary text-white hover:bg-primary/90"
           }`}
         >
           قبلی
@@ -33,8 +33,8 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
 
         <span className="px-3 text-gray-700">
           صفحه{" "}
-          <span className="font-semibold text-cyan-800">{currentPage}</span> از{" "}
-          <span className="font-semibold text-cyan-800">{totalPages}</span>
+          <span className="font-semibold text-primary">{currentPage}</span> از{" "}
+          <span className="font-semibold text-primary">{totalPages}</span>
         </span>
 
         <button
@@ -43,7 +43,7 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
           className={`px-4 py-2 rounded-md font-medium transition cursor-pointer ${
             isLast
               ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-              : "bg-cyan-800 text-white hover:bg-cyan-900"
+              : "bg-primary text-white hover:bg-primary/90"
           }`}
         >
           بعدی
@@ -51,19 +51,19 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
       </div>
 
       {/* Jump to Page */}
-      <form onSubmit={handlePageSubmit} className="flex items-center  gap-x-2">
+      <form onSubmit={handlePageSubmit} className="flex items-center gap-x-2">
         <input
           type="number"
           min="1"
           max={totalPages}
           value={pageInput}
           onChange={(e) => setPageInput(e.target.value)}
-          className="w-16 text-center border border-cyan-800 rounded-md px-1 py-2 focus:ring-1 focus:ring-cyan-800 focus:outline-none"
+          className="w-16 text-center border border-primary rounded-md px-1 py-2 focus:ring-1 focus:ring-primary focus:outline-none"
           placeholder="نمبر"
         />
         <button
           type="submit"
-          className="px-3 py-2 bg-cyan-800 text-white rounded-md transition"
+          className="px-3 py-2 bg-primary text-white rounded-md transition hover:bg-primary/90"
         >
           رفتن
         </button>

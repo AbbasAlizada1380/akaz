@@ -82,22 +82,6 @@ const Stock = () => {
               {activeTab === "existed" && <div className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-t-lg"></div>}
             </button>
 
-            <button
-              className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${activeTab === "returnManager"
-                ? "text-white bg-primary text-black shadow-lg shadow-primary/20"
-                : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
-                }`}
-              onClick={() => setActiveTab("returnManager")}
-            >
-              <div className={`p-2 rounded-lg ${activeTab === "returnManager" ? "bg-white/20" : "bg-primary/10"}`}>
-                {/* Return / Undo Arrow SVG */}
-                <svg className={`w-5 h-5 ${activeTab === "returnManager" ? "text-black" : "text-primary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
-                </svg>
-              </div>
-              <span className="text-sm md:text-base">Return Manager</span>
-              {activeTab === "returnManager" && <div className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-t-lg"></div>}
-            </button>
           </div>
 
           {/* Tab Indicator Line */}

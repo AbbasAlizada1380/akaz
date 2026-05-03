@@ -1,14 +1,14 @@
 import { Op } from "sequelize";
 import sequelize from "../../dbconnection.js";
 import Sells from "../../Models/Stock/Sells.js";
-import Bill from "../../Models/Bill.js";
+import { Bill } from "../../Models/index.js";
 import StockExist from "../../Models/Stock/StockExist.js";
 import Customer from "../../Models/Customer/Customers.js";
 import CustomerAccount from "../../Models/Customer/CustomerAccount.js";
 import Receive from "../../Models/Finance/Receive.js";
 import Return_Pay from "../../Models/Finance/Return_Pay.js";
-
-
+import { Benefit } from "../../Models/index.js";
+import { Department } from "../../Models/index.js";
 // Helper to generate a unique bill number
 const generateBillNumber = async () => {
   const lastBill = await Bill.findOne({ order: [["createdAt", "DESC"]] });
@@ -126,7 +126,7 @@ export const createSell = async (req, res) => {
       { transaction }
     );
 
-    // --- Create Sells, update stock, and collect data for CustomerAccount ---
+    // --- Create Sells, update stock, create Benefit records, and link to department ---
     const createdSells = [];
     const allSellsByDept = {};
     const paidSellsByDept = {};
@@ -153,9 +153,38 @@ export const createSell = async (req, res) => {
         { amount: sellInfo.stockRecord.amount - sellInfo.amount },
         { transaction }
       );
+      console.log("mmmmmmmmmmm", sellInfo);
+
+      // --- Calculate and create Benefit record ---
+      const costPrice = sellInfo.stockRecord.unit_price;    // average cost from StockExist
+      const sellPrice = sellInfo.unit_price;
+      const benefitAmount = sellInfo.total - (costPrice * sellInfo.amount);
+      const benefit = await Benefit.create(
+        {
+          amount: benefitAmount,
+          sellId: sell.id,
+          departmentId: sellInfo.departmentId,
+        },
+        { transaction }
+      );
+
+
+      const department = await Department.findByPk(sellInfo.departmentId, { transaction });
+      if (department) {
+        let benefitArray = department.benifit;
+        if (!benefitArray) benefitArray = [];
+        if (typeof benefitArray === "string") benefitArray = JSON.parse(benefitArray);
+        if (!Array.isArray(benefitArray)) benefitArray = [];
+
+        // Convert all existing IDs to numbers (in case they are strings)
+        benefitArray = benefitArray.map(id => typeof id === 'number' ? id : Number(id));
+        // Push the new benefit ID as a number
+        benefitArray.push(typeof benefit.id === 'number' ? benefit.id : Number(benefit.id));
+
+        await department.update({ benifit: benefitArray }, { transaction });
+      }
 
       const deptId = sellInfo.departmentId;
-
       if (!allSellsByDept[deptId]) allSellsByDept[deptId] = [];
       allSellsByDept[deptId].push(sell.id);
 
@@ -191,7 +220,7 @@ export const createSell = async (req, res) => {
       allSellsByDept,
       paidSellsByDept,
       unpaidSellsByDept,
-      receiveIds: receiveId ? [receiveId] : [],   // <-- NEW: pass array of receive IDs
+      receiveIds: receiveId ? [receiveId] : [],
       transaction,
     });
 
@@ -231,6 +260,7 @@ async function updateCustomerAccountAdvanced({
   receiveIds = [],
   transaction,
 }) {
+  // (same as your existing implementation – unchanged)
   let account = await CustomerAccount.findOne({
     where: { customerId },
     transaction,
@@ -250,17 +280,12 @@ async function updateCustomerAccountAdvanced({
     );
   }
 
-  // Safely merge arrays: ensure existing values are arrays, additions are arrays
   const mergeArrays = (existingObj, additions) => {
     const newObj = { ...existingObj };
     for (const [deptId, ids] of Object.entries(additions)) {
-      if (!Array.isArray(ids)) continue; // skip invalid additions
-
-      // Get existing value; if not an array, treat as empty
+      if (!Array.isArray(ids)) continue;
       let existing = newObj[deptId];
-      if (!Array.isArray(existing)) {
-        existing = [];
-      }
+      if (!Array.isArray(existing)) existing = [];
       newObj[deptId] = [...existing, ...ids];
     }
     return newObj;

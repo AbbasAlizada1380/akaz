@@ -34,6 +34,10 @@ const StockIncome = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: false,
     },
+    FactorId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     type: {
       type: DataTypes.STRING,
     },

@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
-import Pagination from "../pagination/Pagination.jsx"; // adjust path
+import Pagination from "../pagination/Pagination.jsx";
+import FactorManager from "./factorList.jsx";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 export default function StockIncomePage() {
+    const [activeTab, setActiveTab] = useState("stockIncome"); // "stockIncome" or "factors"
+
     const [sellers, setSellers] = useState([]);
     const [exists, setExists] = useState([]);
     const [incomes, setIncomes] = useState([]);
@@ -12,18 +15,41 @@ export default function StockIncomePage() {
     const [sellerMode, setSellerMode] = useState("existing");
     const [sellerId, setSellerId] = useState("");
     const [newSeller, setNewSeller] = useState("");
+    const [factorRefreshKey, setFactorRefreshKey] = useState(0);
 
     const [rows, setRows] = useState([
         { existId: "", newExist: "", department: "", type: "quantity", amount: "", net_unite_price: "", sell_price: "", expense: "" }
     ]);
 
-    // Pagination state
+    // Payment state
+    const [paidAmount, setPaidAmount] = useState("");
+
+    // Pagination state (for stock incomes)
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [totalRecords, setTotalRecords] = useState(0);
-    const limit = 5;
+    const limit = 20;
 
-    // ================= FETCH MASTER DATA (once) =================
+    // ================= COMPUTE TOTAL COST =================
+    const computeTotalCost = () => {
+        let total = 0;
+        for (const row of rows) {
+            const amount = parseFloat(row.amount) || 0;
+            const netUnit = parseFloat(row.net_unite_price) || 0;
+            const expense = parseFloat(row.expense) || 0;
+            total += amount * netUnit + expense;
+        }
+        return total;
+    };
+
+    const totalCost = computeTotalCost();
+    useEffect(() => {
+        if (!paidAmount || paidAmount === "") {
+            setPaidAmount(totalCost.toString());
+        }
+    }, [totalCost]);
+
+    // ================= FETCH MASTER DATA =================
     const fetchMasterData = async () => {
         try {
             const [sRes, eRes, dRes] = await Promise.all([
@@ -45,8 +71,6 @@ export default function StockIncomePage() {
             const res = await axios.get(`${BASE_URL}/stockincome`, {
                 params: { page, limit }
             });
-            // Actual response structure:
-            // { stockIncomes: [], pagination: { totalItems, totalPages, currentPage, ... } }
             setIncomes(res.data.stockIncomes || []);
             setTotalPages(res.data.pagination?.totalPages || 1);
             setTotalRecords(res.data.pagination?.totalItems || 0);
@@ -63,8 +87,10 @@ export default function StockIncomePage() {
     }, []);
 
     useEffect(() => {
-        fetchIncomes(currentPage);
-    }, [currentPage]);
+        if (activeTab === "stockIncome") {
+            fetchIncomes(currentPage);
+        }
+    }, [currentPage, activeTab]);
 
     // ================= ROW HANDLERS =================
     const addRow = () => {
@@ -72,6 +98,10 @@ export default function StockIncomePage() {
     };
 
     const removeRow = (index) => {
+        if (rows.length === 1) {
+            alert("At least one item is required");
+            return;
+        }
         const newRows = [...rows];
         newRows.splice(index, 1);
         setRows(newRows);
@@ -86,7 +116,6 @@ export default function StockIncomePage() {
     const handleSubmit = async (e) => {
         e.preventDefault();
 
-        // Seller validation
         if (sellerMode === "existing" && !sellerId) {
             alert("Please select a seller");
             return;
@@ -96,7 +125,6 @@ export default function StockIncomePage() {
             return;
         }
 
-        // Row validation
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
             if (!row.existId && !row.newExist.trim()) {
@@ -111,6 +139,12 @@ export default function StockIncomePage() {
                 alert(`Row ${i + 1}: Amount, Net Unit Price and Sell Price are required.`);
                 return;
             }
+        }
+
+        const paid = parseFloat(paidAmount);
+        if (isNaN(paid) || paid < 0) {
+            alert("Please enter a valid paid amount (0 or positive)");
+            return;
         }
 
         const payload = {
@@ -140,21 +174,22 @@ export default function StockIncomePage() {
                         expense: row.expense ? parseFloat(row.expense) : 0
                     };
                 }
-            })
+            }),
+            paidAmount: paid
         };
 
         try {
             await axios.post(`${BASE_URL}/stockIncome`, payload);
             alert("All data saved successfully (batch)");
-            // Reset form
             setRows([{ existId: "", newExist: "", department: "", type: "quantity", amount: "", net_unite_price: "", sell_price: "", expense: "" }]);
             setSellerMode("existing");
             setSellerId("");
             setNewSeller("");
-            // Refresh incomes by going back to first page (triggers useEffect)
+            setPaidAmount("");
             setCurrentPage(1);
-            // Also refresh master data to get new exists
             fetchMasterData();
+            setFactorRefreshKey(prev => prev + 1);
+            if (activeTab === "stockIncome") fetchIncomes(1);
         } catch (err) {
             console.error(err);
             alert("Error saving batch data. Check console.");
@@ -175,8 +210,11 @@ export default function StockIncomePage() {
                     Stock Income
                 </h1>
 
+
+
+                {/* Form and Stock Income Table (existing content) */}
                 <form onSubmit={handleSubmit} className="space-y-6">
-                    {/* Seller Card */}
+                    {/* Seller Card (unchanged) */}
                     <div className="bg-white rounded-lg shadow-sm p-5 border border-gray-100">
                         <h2 className="text-lg font-semibold text-gray-700 mb-4">Seller Information</h2>
                         <div className="flex flex-wrap gap-4 items-end">
@@ -219,7 +257,7 @@ export default function StockIncomePage() {
                         </div>
                     </div>
 
-                    {/* Items Rows */}
+                    {/* Items Rows (unchanged) */}
                     <div className="space-y-4">
                         <div className="flex justify-between items-center">
                             <h2 className="text-lg font-semibold text-gray-700">Stock Items</h2>
@@ -235,7 +273,7 @@ export default function StockIncomePage() {
                         {rows.map((row, idx) => (
                             <div key={idx} className="bg-white rounded-lg shadow-sm border border-gray-100 p-4">
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 xl:grid-cols-10 gap-3 items-end">
-                                    {/* Existing product */}
+                                    {/* ... rows fields (same as original) ... */}
                                     <div className="col-span-1">
                                         <label className="block text-xs font-medium text-gray-500 mb-1">Exist</label>
                                         <select
@@ -258,7 +296,6 @@ export default function StockIncomePage() {
                                         </select>
                                     </div>
 
-                                    {/* New exist name */}
                                     <div className="col-span-1">
                                         <label className="block text-xs font-medium text-gray-500 mb-1">New Exist</label>
                                         <input
@@ -271,7 +308,6 @@ export default function StockIncomePage() {
                                         />
                                     </div>
 
-                                    {/* Department */}
                                     <div className="col-span-1">
                                         <label className="block text-xs font-medium text-gray-500 mb-1">Department</label>
                                         <select
@@ -287,7 +323,6 @@ export default function StockIncomePage() {
                                         </select>
                                     </div>
 
-                                    {/* Type */}
                                     <div className="col-span-1">
                                         <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
                                         <select
@@ -301,7 +336,6 @@ export default function StockIncomePage() {
                                         </select>
                                     </div>
 
-                                    {/* Amount */}
                                     <div className="col-span-1">
                                         <label className="block text-xs font-medium text-gray-500 mb-1">Amount</label>
                                         <input
@@ -313,7 +347,6 @@ export default function StockIncomePage() {
                                         />
                                     </div>
 
-                                    {/* Net Unit Price */}
                                     <div className="col-span-1">
                                         <label className="block text-xs font-medium text-gray-500 mb-1">Net Unit Price</label>
                                         <input
@@ -325,7 +358,6 @@ export default function StockIncomePage() {
                                         />
                                     </div>
 
-                                    {/* Sell Price */}
                                     <div className="col-span-1">
                                         <label className="block text-xs font-medium text-gray-500 mb-1">Sell Price</label>
                                         <input
@@ -337,7 +369,6 @@ export default function StockIncomePage() {
                                         />
                                     </div>
 
-                                    {/* Expense */}
                                     <div className="col-span-1">
                                         <label className="block text-xs font-medium text-gray-500 mb-1">Expense</label>
                                         <input
@@ -349,7 +380,6 @@ export default function StockIncomePage() {
                                         />
                                     </div>
 
-                                    {/* Remove button */}
                                     <div className="col-span-1 flex justify-end">
                                         <button
                                             type="button"
@@ -364,6 +394,30 @@ export default function StockIncomePage() {
                         ))}
                     </div>
 
+                    {/* Payment Section */}
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-5">
+                        <h2 className="text-lg font-semibold text-gray-700 mb-4">Payment to Seller</h2>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Total Cost (calculated)</label>
+                                <div className="text-2xl font-bold text-primary">{totalCost.toFixed(2)} ₮</div>
+                                <p className="text-xs text-gray-500 mt-1">Amount * Net Unit Price + Expense</p>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Paid Amount (to Seller) *</label>
+                                <input
+                                    type="number"
+                                    step="any"
+                                    value={paidAmount}
+                                    onChange={(e) => setPaidAmount(e.target.value)}
+                                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
+                                    required
+                                />
+                                <p className="text-xs text-gray-500 mt-1">Amount actually paid to the seller (can be partial)</p>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="flex justify-end pt-4">
                         <button
                             type="submit"
@@ -373,57 +427,82 @@ export default function StockIncomePage() {
                         </button>
                     </div>
                 </form>
-
-                {/* Stock Incomes Table with Pagination */}
-                <div className="mt-10 bg-white rounded-lg shadow-sm overflow-hidden border border-gray-100">
-                    <div className="flex justify-between items-center p-5 pb-2">
-                        <h2 className="text-lg font-semibold text-gray-700">Recent Stock Incomes</h2>
-                        <span className="text-sm text-gray-500">Total: {totalRecords} records</span>
-                    </div>
-                    <div className="overflow-x-auto">
-                        <table className="min-w-full divide-y divide-gray-200">
-                            <thead className="bg-gray-50">
-                                <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Seller</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Exist</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Net Unit Price</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sell Price</th>
-                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expense</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {incomes.map(inc => (
-                                    <tr key={inc.id} className="hover:bg-gray-50 transition">
-                                        <td className="px-4 py-2 text-sm text-gray-800">{inc.seller?.fullname || inc.seller?.name}</td>
-                                        <td className="px-4 py-2 text-sm text-gray-800">
-                                            {/* If your backend includes stock info, use inc.stock?.name, otherwise fallback to existId */}
-                                            {inc.stock?.name || `Product ID: ${inc.existId}`}
-                                        </td>
-                                        <td className="px-4 py-2 text-sm text-gray-600">{inc.type}</td>
-                                        <td className="px-4 py-2 text-sm text-gray-600">{inc.amount}</td>
-                                        <td className="px-4 py-2 text-sm text-gray-600">{inc.net_unite_price}</td>
-                                        <td className="px-4 py-2 text-sm text-gray-600">{inc.sell_price}</td>
-                                        <td className="px-4 py-2 text-sm text-gray-600">{inc.expense}</td>
-                                    </tr>
-                                ))}
-                                {incomes.length === 0 && (
-                                    <tr>
-                                        <td colSpan="7" className="px-4 py-8 text-center text-gray-400">No income records yet</td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    {totalPages > 1 && (
-                        <Pagination
-                            currentPage={currentPage}
-                            totalPages={totalPages}
-                            onPageChange={handlePageChange}
-                        />
-                    )}
+                {/* Tab Bar */}
+                <div className="mb-6 flex space-x-2 border-b border-gray-200">
+                    <button
+                        onClick={() => setActiveTab("stockIncome")}
+                        className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${activeTab === "stockIncome"
+                            ? "bg-primary text-white shadow-lg"
+                            : "text-gray-600 hover:text-primary hover:bg-gray-100"
+                            }`}
+                    >
+                        Stock Incomes
+                    </button>
+                    <button
+                        onClick={() => setActiveTab("factors")}
+                        className={`px-6 py-3 text-sm font-medium transition-all rounded-t-lg ${activeTab === "factors"
+                            ? "bg-primary text-white shadow-lg"
+                            : "text-gray-600 hover:text-primary hover:bg-gray-100"
+                            }`}
+                    >
+                        Seller Factors
+                    </button>
                 </div>
+                {activeTab === "stockIncome" ? (
+                    <>
+                        {/* Stock Incomes Table */}
+                        <div className="mt-10 bg-white rounded-lg shadow-sm overflow-hidden border border-gray-100">
+                            <div className="flex justify-between items-center p-5 pb-2">
+                                <h2 className="text-lg font-semibold text-gray-700">Recent Stock Incomes</h2>
+                                <span className="text-sm text-gray-500">Total: {totalRecords} records</span>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Seller</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Exist</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Net Unit Price</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sell Price</th>
+                                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expense</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {incomes.map(inc => (
+                                            <tr key={inc.id} className="hover:bg-gray-50 transition">
+                                                <td className="px-4 py-2 text-sm text-gray-800">{inc.seller?.fullname || inc.seller?.name}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-800">
+                                                    {inc.stock?.name || `Product ID: ${inc.existId}`}
+                                                </td>
+                                                <td className="px-4 py-2 text-sm text-gray-600">{inc.type}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-600">{inc.amount}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-600">{inc.net_unite_price}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-600">{inc.sell_price}</td>
+                                                <td className="px-4 py-2 text-sm text-gray-600">{inc.expense}</td>
+                                            </tr>
+                                        ))}
+                                        {incomes.length === 0 && (
+                                            <tr>
+                                                <td colSpan="7" className="px-4 py-8 text-center text-gray-400">No income records yet</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {totalPages > 1 && (
+                                <Pagination
+                                    currentPage={currentPage}
+                                    totalPages={totalPages}
+                                    onPageChange={handlePageChange}
+                                />
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <FactorManager refreshKey={factorRefreshKey} />
+                )}
             </div>
         </div>
     );
