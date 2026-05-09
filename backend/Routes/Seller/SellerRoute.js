@@ -6,6 +6,7 @@ import {
   updateSeller,
   deleteSeller,
   getSellersWithUnpaidStockIncome,
+  getActiveSellers,
 } from "../../Controllers/Seller/SellerController.js";
 import { toggleSellerStatus } from "../../Controllers/Stock/StockIncomeController.js";
 
@@ -14,6 +15,7 @@ const SellerRoute = express.Router();
 SellerRoute.post("/", createSeller);
 SellerRoute.get("/dept", getSellersWithUnpaidStockIncome);
 SellerRoute.get("/", getAllSellers);
+SellerRoute.get("/active", getActiveSellers); 
 SellerRoute.get("/:id", getSellerById);
 SellerRoute.put("/:id", updateSeller);
 SellerRoute.delete("/:id", deleteSeller);

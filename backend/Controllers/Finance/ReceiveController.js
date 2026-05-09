@@ -89,29 +89,37 @@ const updateDepartmentBenefitsOnFullPayment = async (sellIds, transaction) => {
     deptToBenefitIds[deptId].push(benefit.id);
   }
 
-  for (const [deptId, benefitIds] of Object.entries(deptToBenefitIds)) {
-    const department = await Department.findByPk(deptId, { transaction });
-    if (!department) continue;
+for (const [deptId, benefitIds] of Object.entries(deptToBenefitIds)) {
+  const department = await Department.findByPk(deptId, { transaction });
+  if (!department) continue;
 
-    let pending = department.benifit;
-    if (typeof pending === 'string') pending = JSON.parse(pending);
-    if (!Array.isArray(pending)) pending = [];
+  let pending = department.benifit;
+  if (typeof pending === 'string') pending = JSON.parse(pending);
+  if (!Array.isArray(pending)) pending = [];
+  // Convert existing pending IDs to numbers
+  pending = pending.map(id => typeof id === 'number' ? id : Number(id));
 
-    let realized = department.realizedBenefit;
-    if (typeof realized === 'string') realized = JSON.parse(realized);
-    if (!Array.isArray(realized)) realized = [];
+  let realized = department.realizedBenefit;
+  if (typeof realized === 'string') realized = JSON.parse(realized);
+  if (!Array.isArray(realized)) realized = [];
+  // Convert existing realized IDs to numbers
+  realized = realized.map(id => typeof id === 'number' ? id : Number(id));
 
-    const newPending = pending.filter(id => !benefitIds.includes(id));
-    const newRealized = [...realized, ...benefitIds];
+  // Ensure new benefitIds are numbers
+  const numericBenefitIds = benefitIds.map(id => typeof id === 'number' ? id : Number(id));
 
-    await department.update(
-      {
-        benifit: newPending,
-        realizedBenefit: newRealized,
-      },
-      { transaction }
-    );
-  }
+  // Filter out numeric IDs
+  const newPending = pending.filter(id => !numericBenefitIds.includes(id));
+  const newRealized = [...realized, ...numericBenefitIds];
+
+  await department.update(
+    {
+      benifit: newPending,
+      realizedBenefit: newRealized,
+    },
+    { transaction }
+  );
+}
 };
 
 export const createReceive = async (req, res) => {

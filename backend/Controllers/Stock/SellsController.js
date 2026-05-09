@@ -153,8 +153,6 @@ export const createSell = async (req, res) => {
         { amount: sellInfo.stockRecord.amount - sellInfo.amount },
         { transaction }
       );
-      console.log("mmmmmmmmmmm", sellInfo);
-
       // --- Calculate and create Benefit record ---
       const costPrice = sellInfo.stockRecord.unit_price;    // average cost from StockExist
       const sellPrice = sellInfo.unit_price;
@@ -171,17 +169,28 @@ export const createSell = async (req, res) => {
 
       const department = await Department.findByPk(sellInfo.departmentId, { transaction });
       if (department) {
-        let benefitArray = department.benifit;
-        if (!benefitArray) benefitArray = [];
-        if (typeof benefitArray === "string") benefitArray = JSON.parse(benefitArray);
-        if (!Array.isArray(benefitArray)) benefitArray = [];
+        const numericBenefitId = typeof benefit.id === 'number' ? benefit.id : Number(benefit.id);
 
-        // Convert all existing IDs to numbers (in case they are strings)
-        benefitArray = benefitArray.map(id => typeof id === 'number' ? id : Number(id));
-        // Push the new benefit ID as a number
-        benefitArray.push(typeof benefit.id === 'number' ? benefit.id : Number(benefit.id));
-
-        await department.update({ benifit: benefitArray }, { transaction });
+        if (sellInfo.remaind === 0) {
+          // Fully paid → add to realizedBenefit
+          let realizedArray = department.realizedBenefit;
+          if (!realizedArray) realizedArray = [];
+          if (typeof realizedArray === "string") realizedArray = JSON.parse(realizedArray);
+          if (!Array.isArray(realizedArray)) realizedArray = [];
+          // Convert existing IDs to numbers
+          realizedArray = realizedArray.map(id => typeof id === 'number' ? id : Number(id));
+          realizedArray.push(numericBenefitId);
+          await department.update({ realizedBenefit: realizedArray }, { transaction });
+        } else {
+          // Partially paid or unpaid → add to benifit (pending)
+          let benefitArray = department.benifit;
+          if (!benefitArray) benefitArray = [];
+          if (typeof benefitArray === "string") benefitArray = JSON.parse(benefitArray);
+          if (!Array.isArray(benefitArray)) benefitArray = [];
+          benefitArray = benefitArray.map(id => typeof id === 'number' ? id : Number(id));
+          benefitArray.push(numericBenefitId);
+          await department.update({ benifit: benefitArray }, { transaction });
+        }
       }
 
       const deptId = sellInfo.departmentId;

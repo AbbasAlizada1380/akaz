@@ -169,35 +169,6 @@ const DepartmentTransactionManager = () => {
                 </button>
             </div>
 
-            {/* Filters */}
-            <div className="bg-gray-50 p-4 rounded-lg mb-6 flex flex-wrap gap-4">
-                <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium mb-1">Filter by Department</label>
-                    <select
-                        value={filterDept}
-                        onChange={(e) => setFilterDept(e.target.value)}
-                        className="w-full border rounded-lg px-3 py-2 bg-white"
-                    >
-                        <option value="">All Departments</option>
-                        {departments.map(dept => (
-                            <option key={dept.id} value={dept.id}>{dept.name}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className="flex-1 min-w-[150px]">
-                    <label className="block text-sm font-medium mb-1">Transaction Type</label>
-                    <select
-                        value={filterType}
-                        onChange={(e) => setFilterType(e.target.value)}
-                        className="w-full border rounded-lg px-3 py-2 bg-white"
-                    >
-                        <option value="all">All</option>
-                        <option value="deposit">Deposits</option>
-                        <option value="withdraw">Withdrawals</option>
-                    </select>
-                </div>
-            </div>
-
             {/* Transactions Table */}
             <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">

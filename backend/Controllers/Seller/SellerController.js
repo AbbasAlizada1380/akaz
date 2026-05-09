@@ -277,3 +277,26 @@ export const deleteSeller = async (req, res) => {
     });
   }
 };
+/* =========================
+   GET ACTIVE SELLERS
+========================= */
+export const getActiveSellers = async (req, res) => {
+  try {
+    const activeSellers = await Seller.findAll({
+      where: { isActive: true },
+      order: [["fullname", "ASC"]],
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: activeSellers.length,
+      data: activeSellers,
+    });
+  } catch (error) {
+    console.error("Get Active Sellers Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error while fetching active sellers",
+    });
+  }
+};

@@ -32,7 +32,7 @@ const SellManager = () => {
       try {
         setLoading(true);
         const [customersRes, productsRes] = await Promise.all([
-          axios.get(`${BASE_URL}/customer`),
+          axios.get(`${BASE_URL}/customer/active`),
           axios.get(`${BASE_URL}/stockExist`),
         ]);
         setCustomers(customersRes.data.customers || customersRes.data.data || []);
@@ -414,11 +414,10 @@ const SellManager = () => {
             <div className="px-6 py-6 sm:px-8 bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-4">
               {submitMessage.text && (
                 <div
-                  className={`flex-1 p-3 rounded-md text-sm ${
-                    submitMessage.type === "error"
+                  className={`flex-1 p-3 rounded-md text-sm ${submitMessage.type === "error"
                       ? "bg-red-50 text-red-700 border border-red-200"
                       : "bg-green-50 text-green-700 border border-green-200"
-                  }`}
+                    }`}
                 >
                   {submitMessage.text}
                 </div>
