@@ -1,6 +1,6 @@
 import StockExist from "../../Models/Stock/StockExist.js";
 import Department from "../../Models/Department.js";
-
+import { Op } from "sequelize";
 /* =========================
    Create StockExist
 ========================= */
@@ -129,6 +129,40 @@ export const deleteStockExist = async (req, res) => {
     await stock.destroy();
 
     res.json({ message: "StockExist deleted successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+/* =========================
+   Get StockExist by Department ID
+========================= */
+export const getStockExistByDepartmentId = async (req, res) => {
+  try {
+    const { departmentId } = req.params; // or req.query, adjust based on your route
+
+    if (!departmentId) {
+      return res.status(400).json({ message: "departmentId is required" });
+    }
+
+    const stockExists = await StockExist.findAll({
+      where: { departmentId },
+      include: [
+        {
+          model: Department,
+          as: "department",
+          attributes: ["id", "name"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.status(200).json({
+      success: true,
+      count: stockExists.length,
+      data: stockExists,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: error.message });

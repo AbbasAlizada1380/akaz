@@ -4,7 +4,8 @@ import {
   getAllStockExist,
   getStockExistById,
   updateStockExist,
-  deleteStockExist
+  deleteStockExist,
+  getStockExistByDepartmentId  // <-- import new controller
 } from "../../Controllers/Stock/StockExistController.js";
 
 const StockExistRoute = express.Router();
@@ -20,7 +21,12 @@ StockExistRoute.post("/", createStockExist);
 StockExistRoute.get("/", getAllStockExist);
 
 /* =========================
-   Get One
+   Get by Department ID (must come before /:id to avoid conflict)
+========================= */
+StockExistRoute.get("/department/:departmentId", getStockExistByDepartmentId);
+
+/* =========================
+   Get One by ID
 ========================= */
 StockExistRoute.get("/:id", getStockExistById);
 
