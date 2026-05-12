@@ -24,6 +24,16 @@ const Sells = sequelize.define(
       allowNull: false,
       defaultValue: 0,
     },
+    discount_percent: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    discounted_amount: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
     total: {
       type: DataTypes.DECIMAL(12, 2),
       defaultValue: 0,

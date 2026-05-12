@@ -43,6 +43,16 @@ const Bill = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: true,
     },
+    discount_percent: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
+    discounted_amount: {
+      type: DataTypes.DECIMAL(12, 2),
+      allowNull: true,
+      defaultValue: 0,
+    },
     sells: {
       type: DataTypes.JSON,      // stores array of sell IDs e.g. [1, 2, 3]
       allowNull: false,

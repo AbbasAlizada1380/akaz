@@ -17,11 +17,12 @@ const generateBillNumber = async () => {
   return `INV-${newNumber}`;
 };
 
+
 export const createSell = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { customerId, newCustomerName, items, receipt, notes } = req.body;
+    const { customerId, newCustomerName, items, receipt, notes, billDiscountPercent, billDiscountAmount } = req.body;
 
     // --- Validation ---
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -53,15 +54,28 @@ export const createSell = async (req, res) => {
       return res.status(400).json({ message: "Either customerId or newCustomerName is required" });
     }
 
-    // --- Prepare items & validate stock ---
+    // --- Prepare items & validate stock using discounted totals ---
     const preparedItems = [];
-    let totalAmount = 0;
+    let totalDiscountedAmount = 0;
     for (const item of items) {
-      const { existId, amount, unit_price } = item;
+      const {
+        existId,
+        amount,
+        unit_price,
+        discount_percent = 0,
+        discount_amount = 0,
+        discounted_total
+      } = item;
+
       if (!existId || !amount || amount <= 0 || !unit_price || unit_price <= 0) {
         await transaction.rollback();
         return res.status(400).json({ message: "Each item must have existId, positive amount and unit_price" });
       }
+      if (discount_percent < 0 || discount_percent > 100) {
+        await transaction.rollback();
+        return res.status(400).json({ message: "Discount percent must be between 0 and 100" });
+      }
+
       const stock = await StockExist.findByPk(existId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!stock) {
         await transaction.rollback();
@@ -71,27 +85,32 @@ export const createSell = async (req, res) => {
         await transaction.rollback();
         return res.status(400).json({ message: `Insufficient stock for ${stock.name}. Available: ${stock.amount}` });
       }
-      const lineTotal = amount * unit_price;
-      totalAmount += lineTotal;
+
+      const finalLineTotal = discounted_total !== undefined ? discounted_total : (amount * unit_price - discount_amount);
+      totalDiscountedAmount += finalLineTotal;
+
       preparedItems.push({
         existId,
         amount,
         unit_price,
-        total: lineTotal,
+        discount_percent,
+        discount_amount,
+        discounted_total: finalLineTotal,
         departmentId: stock.departmentId,
         stockRecord: stock,
       });
     }
 
     const receiptAmount = receipt ? parseFloat(receipt) : 0;
-    const effectiveReceipt = Math.min(receiptAmount, totalAmount);
-    const remainingAmount = totalAmount - effectiveReceipt;
+    // Ensure receipt does not exceed total after discount
+    const effectiveReceipt = Math.min(receiptAmount, totalDiscountedAmount);
+    const remainingAmount = totalDiscountedAmount - effectiveReceipt;
 
-    // --- Allocate receipt to each sell (starting from first item) ---
+    // --- Allocate receipt to each sell (optional, kept from original) ---
     let remainingReceipt = effectiveReceipt;
     const sellsData = [];
     for (const item of preparedItems) {
-      const lineTotal = item.total;
+      const lineTotal = item.discounted_total;
       let allocatedReceipt = 0;
       if (remainingReceipt > 0) {
         allocatedReceipt = Math.min(remainingReceipt, lineTotal);
@@ -102,7 +121,9 @@ export const createSell = async (req, res) => {
         existId: item.existId,
         amount: item.amount,
         unit_price: item.unit_price,
-        total: lineTotal,
+        discount_percent: item.discount_percent,
+        discount_amount: item.discount_amount,
+        discounted_total: lineTotal,
         receipt: allocatedReceipt,
         remaind: remaind,
         departmentId: item.departmentId,
@@ -110,18 +131,21 @@ export const createSell = async (req, res) => {
       });
     }
 
-    // --- Create Bill ---
+    // --- Create Bill, storing the bill‑level discount fields ---
     const billNumber = await generateBillNumber();
     const bill = await Bill.create(
       {
         billNumber,
         customerId: finalCustomerId,
         date: new Date(),
-        totalAmount,
+        totalAmount: totalDiscountedAmount,          // final sum after all discounts
         paidAmount: effectiveReceipt,
         remainingAmount,
         status: remainingAmount === 0 ? "paid" : effectiveReceipt > 0 ? "partial" : "unpaid",
         notes: notes || null,
+        discount_percent: billDiscountPercent !== undefined ? billDiscountPercent : null,
+        discounted_amount: billDiscountAmount !== undefined ? billDiscountAmount : null,
+        sells: [], // placeholder, will update after sells creation
       },
       { transaction }
     );
@@ -139,7 +163,9 @@ export const createSell = async (req, res) => {
           amount: sellInfo.amount,
           billId: bill.id,
           unit_price: sellInfo.unit_price,
-          total: sellInfo.total,
+          discount_percent: sellInfo.discount_percent,
+          discounted_amount: sellInfo.discount_amount,
+          total: sellInfo.discounted_total,
           receipt: sellInfo.receipt,
           remaind: sellInfo.remaind,
           departmentId: sellInfo.departmentId,
@@ -153,10 +179,13 @@ export const createSell = async (req, res) => {
         { amount: sellInfo.stockRecord.amount - sellInfo.amount },
         { transaction }
       );
-      // --- Calculate and create Benefit record ---
-      const costPrice = sellInfo.stockRecord.unit_price;    // average cost from StockExist
-      const sellPrice = sellInfo.unit_price;
-      const benefitAmount = sellInfo.total - (costPrice * sellInfo.amount);
+
+      // Benefit calculation using discounted revenue
+      const costPrice = sellInfo.stockRecord.unit_price;
+      const revenue = sellInfo.discounted_total;
+      const cost = costPrice * sellInfo.amount;
+      const benefitAmount = revenue - cost;
+
       const benefit = await Benefit.create(
         {
           amount: benefitAmount,
@@ -166,23 +195,19 @@ export const createSell = async (req, res) => {
         { transaction }
       );
 
-
+      // Department arrays (realized vs pending benefit)
       const department = await Department.findByPk(sellInfo.departmentId, { transaction });
       if (department) {
         const numericBenefitId = typeof benefit.id === 'number' ? benefit.id : Number(benefit.id);
-
         if (sellInfo.remaind === 0) {
-          // Fully paid → add to realizedBenefit
           let realizedArray = department.realizedBenefit;
           if (!realizedArray) realizedArray = [];
           if (typeof realizedArray === "string") realizedArray = JSON.parse(realizedArray);
           if (!Array.isArray(realizedArray)) realizedArray = [];
-          // Convert existing IDs to numbers
           realizedArray = realizedArray.map(id => typeof id === 'number' ? id : Number(id));
           realizedArray.push(numericBenefitId);
           await department.update({ realizedBenefit: realizedArray }, { transaction });
         } else {
-          // Partially paid or unpaid → add to benifit (pending)
           let benefitArray = department.benifit;
           if (!benefitArray) benefitArray = [];
           if (typeof benefitArray === "string") benefitArray = JSON.parse(benefitArray);
@@ -193,6 +218,7 @@ export const createSell = async (req, res) => {
         }
       }
 
+      // Group sells by department for customer account
       const deptId = sellInfo.departmentId;
       if (!allSellsByDept[deptId]) allSellsByDept[deptId] = [];
       allSellsByDept[deptId].push(sell.id);
@@ -223,7 +249,7 @@ export const createSell = async (req, res) => {
       receiveId = receive.id;
     }
 
-    // --- Update CustomerAccount (including the receive ID) ---
+    // --- Update CustomerAccount (advanced helper) ---
     await updateCustomerAccountAdvanced({
       customerId: finalCustomerId,
       allSellsByDept,
@@ -240,10 +266,12 @@ export const createSell = async (req, res) => {
       bill: {
         id: bill.id,
         billNumber: bill.billNumber,
-        totalAmount,
+        totalAmount: totalDiscountedAmount,
         paidAmount: effectiveReceipt,
         remainingAmount,
         status: bill.status,
+        discount_percent: bill.discount_percent,
+        discounted_amount: bill.discounted_amount,
       },
       sells: createdSells.map(s => ({
         id: s.id,
@@ -251,6 +279,8 @@ export const createSell = async (req, res) => {
         receipt: s.receipt,
         remaind: s.remaind,
         departmentId: s.departmentId,
+        discount_percent: s.discount_percent,
+        discounted_amount: s.discounted_amount,
       })),
       receive: receiveId ? { id: receiveId, amount: effectiveReceipt } : null,
     });

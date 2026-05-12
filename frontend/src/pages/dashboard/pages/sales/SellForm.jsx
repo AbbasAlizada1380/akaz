@@ -1,5 +1,5 @@
 // SellForm.jsx
-import React from "react";
+import React, { useState } from "react";
 
 const SellForm = ({
   // Customer section
@@ -16,8 +16,9 @@ const SellForm = ({
   updateItem,
   removeItem,
   addItem,
-  allProducts,        // full product list (unfiltered)
-  departments,        // list of all departments
+  allProducts,
+  departments,
+  applyGlobalDiscount,   // new prop: function(percent) updates all items
 
   // Payment & notes
   receipt,
@@ -34,7 +35,8 @@ const SellForm = ({
   submitMessage,
   onSubmit,
 }) => {
-  // Helper to get products filtered by the item's department
+  const [globalDiscountPercent, setGlobalDiscountPercent] = useState("");
+
   const getFilteredProducts = (departmentId) => {
     if (!departmentId) return allProducts;
     return allProducts.filter(p => p.departmentId === departmentId);
@@ -108,7 +110,37 @@ const SellForm = ({
         </div>
       </div>
 
-      {/* Items table section with department column */}
+      {/* Global discount section */}
+      <div className="px-6 py-4 sm:px-8 bg-gray-50 border-b border-gray-200">
+        <div className="flex flex-wrap items-center gap-4">
+          <label className="text-sm font-medium text-gray-700">
+            Global Discount % (apply to all items):
+          </label>
+          <input
+            type="number"
+            step="any"
+            min="0"
+            max="100"
+            value={globalDiscountPercent}
+            onChange={(e) => setGlobalDiscountPercent(e.target.value)}
+            className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              const percent = parseFloat(globalDiscountPercent);
+              if (!isNaN(percent) && percent >= 0 && percent <= 100) {
+                applyGlobalDiscount(percent);
+              }
+            }}
+            className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          >
+            Apply to All Items
+          </button>
+        </div>
+      </div>
+
+      {/* Items table with discount (unchanged except display) */}
       <div className="px-6 py-6 sm:px-8">
         <h2 className="text-lg font-medium text-gray-900 mb-4">Products & Quantities</h2>
         <div className="overflow-x-auto border border-gray-200 rounded-lg">
@@ -128,7 +160,10 @@ const SellForm = ({
                   Unit Price *
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
+                  Discount %
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Subtotal
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
@@ -138,6 +173,10 @@ const SellForm = ({
             <tbody className="bg-white divide-y divide-gray-200">
               {items.map((item) => {
                 const filteredProducts = getFilteredProducts(item.departmentId);
+                const rawTotal = (parseFloat(item.amount) || 0) * (parseFloat(item.unitPrice) || 0);
+                const discountPercent = parseFloat(item.discountPercent) || 0;
+                const discountAmount = rawTotal * (discountPercent / 100);
+                const discountedTotal = rawTotal - discountAmount;
                 return (
                   <tr key={item.id}>
                     {/* Department selector */}
@@ -147,7 +186,6 @@ const SellForm = ({
                         onChange={(e) => {
                           const newDeptId = e.target.value ? parseInt(e.target.value) : null;
                           updateItem(item.id, "departmentId", newDeptId);
-                          // Reset product when department changes
                           updateItem(item.id, "productId", "");
                           updateItem(item.id, "productName", "");
                         }}
@@ -162,7 +200,7 @@ const SellForm = ({
                         ))}
                       </select>
                     </td>
-                    {/* Product selector (filtered by department) */}
+                    {/* Product selector */}
                     <td className="px-4 py-2">
                       <select
                         value={item.productId}
@@ -212,8 +250,20 @@ const SellForm = ({
                         className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                       />
                     </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        max="100"
+                        value={item.discountPercent || 0}
+                        onChange={(e) => updateItem(item.id, "discountPercent", e.target.value)}
+                        placeholder="0"
+                        className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                      />
+                    </td>
                     <td className="px-4 py-2 font-medium text-gray-900">
-                      {item.total.toFixed(2)}
+                      {discountedTotal.toFixed(2)}
                     </td>
                     <td className="px-4 py-2 text-center">
                       <button
@@ -230,8 +280,8 @@ const SellForm = ({
             </tbody>
             <tfoot className="bg-gray-50">
               <tr>
-                <td colSpan="4" className="px-4 py-3 text-right font-bold text-gray-900">
-                  Total Invoice:
+                <td colSpan="5" className="px-4 py-3 text-right font-bold text-gray-900">
+                  Total Invoice (after discount):
                 </td>
                 <td className="px-4 py-3 font-bold text-gray-900">{overallTotal.toFixed(2)}</td>
                 <td></td>
@@ -288,7 +338,7 @@ const SellForm = ({
         </div>
       </div>
 
-      {/* Submit section (unchanged) */}
+      {/* Submit section */}
       <div className="px-6 py-6 sm:px-8 bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-4">
         {submitMessage.text && (
           <div

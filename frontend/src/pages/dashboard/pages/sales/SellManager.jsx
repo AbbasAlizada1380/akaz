@@ -7,15 +7,14 @@ import SellForm from "./SellForm";
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const SellManager = () => {
+  // --- State ---
   const [customers, setCustomers] = useState([]);
   const [departments, setDepartments] = useState([]);
-  const [allProducts, setAllProducts] = useState([]);   // store all products once
+  const [allProducts, setAllProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [billsKey, setBillsKey] = useState(0);
 
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState(null); // null = All
-  // Form state
   const [customerType, setCustomerType] = useState("existing");
   const [customerId, setCustomerId] = useState("");
   const [newCustomerName, setNewCustomerName] = useState("");
@@ -27,19 +26,21 @@ const SellManager = () => {
       productName: "",
       amount: "",
       unitPrice: "",
+      discountPercent: 0,
+      discountedTotal: 0,
       total: 0,
     },
   ]);
   const [receipt, setReceipt] = useState("");
   const [notes, setNotes] = useState("");
-
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState({ type: "", text: "" });
 
-  const overallTotal = items.reduce((sum, item) => sum + (item.total || 0), 0);
+  // Derived values
+  const overallTotal = items.reduce((sum, item) => sum + (item.discountedTotal || 0), 0);
   const remaind = receipt ? overallTotal - parseFloat(receipt) : overallTotal;
 
-  // Fetch departments and all products on mount
+  // --- Data fetching ---
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
@@ -47,11 +48,10 @@ const SellManager = () => {
         const [customersRes, departmentsRes, productsRes] = await Promise.all([
           axios.get(`${BASE_URL}/customer/active`),
           axios.get(`${BASE_URL}/department`),
-          axios.get(`${BASE_URL}/stockExist?limit=1000`), // fetch all products once
+          axios.get(`${BASE_URL}/stockExist?limit=1000`),
         ]);
 
         setCustomers(customersRes.data.customers || customersRes.data.data || []);
-
         const depts = departmentsRes.data.data || departmentsRes.data.departments || departmentsRes.data;
         setDepartments(Array.isArray(depts) ? depts : []);
 
@@ -71,10 +71,10 @@ const SellManager = () => {
     fetchInitialData();
   }, []);
 
-  // Items management
+  // --- Helpers for items ---
   const addItem = () => {
-    setItems([
-      ...items,
+    setItems(prev => [
+      ...prev,
       {
         id: Date.now(),
         departmentId: "",
@@ -82,6 +82,8 @@ const SellManager = () => {
         productName: "",
         amount: "",
         unitPrice: "",
+        discountPercent: 0,
+        discountedTotal: 0,
         total: 0,
       },
     ]);
@@ -92,81 +94,135 @@ const SellManager = () => {
       setSubmitMessage({ type: "error", text: "At least one product is required" });
       return;
     }
-    setItems(items.filter((item) => item.id !== id));
+    setItems(prev => prev.filter(item => item.id !== id));
   };
 
   const updateItem = (id, field, value) => {
-    setItems((prevItems) =>
-      prevItems.map((item) => {
+    setItems(prev =>
+      prev.map(item => {
         if (item.id !== id) return item;
         const updated = { ...item, [field]: value };
-        // Recalculate total if amount or unitPrice changed
-        if (field === "amount" || field === "unitPrice") {
-          const amount = parseFloat(updated.amount) || 0;
-          const unitPrice = parseFloat(updated.unitPrice) || 0;
-          updated.total = amount * unitPrice;
-        }
-        // If department changes, also clear product fields
+
+        const amount = parseFloat(updated.amount) || 0;
+        const unitPrice = parseFloat(updated.unitPrice) || 0;
+        const discountPercent = parseFloat(updated.discountPercent) || 0;
+
+        const rawTotal = amount * unitPrice;
+        const discountAmount = rawTotal * (discountPercent / 100);
+        const discountedTotal = rawTotal - discountAmount;
+
+        updated.total = rawTotal;
+        updated.discountedTotal = discountedTotal;
+
         if (field === "departmentId") {
           updated.productId = "";
           updated.productName = "";
-          updated.total = 0; // reset total as product is cleared
+          updated.amount = "";
+          updated.unitPrice = "";
+          updated.discountPercent = 0;
+          updated.total = 0;
+          updated.discountedTotal = 0;
         }
+
         return updated;
       })
     );
   };
 
-  // Submit handler (unchanged logic, uses items with departmentId)
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setSubmitMessage({ type: "", text: "" });
+  const applyGlobalDiscount = (percent) => {
+    items.forEach(item => {
+      updateItem(item.id, "discountPercent", percent);
+    });
+  };
 
+  // --- Validation helpers ---
+  const validateCustomer = () => {
     if (customerType === "existing" && !customerId) {
       setSubmitMessage({ type: "error", text: "Please select an existing customer" });
-      return;
+      return false;
     }
     if (customerType === "new" && (!newCustomerName || newCustomerName.trim() === "")) {
       setSubmitMessage({ type: "error", text: "Please enter the new customer's name" });
-      return;
+      return false;
     }
+    return true;
+  };
 
-    // Validation: each item must have department, product, amount>0, unitPrice>0
+  const validateItems = () => {
     for (const item of items) {
       if (!item.departmentId) {
         setSubmitMessage({ type: "error", text: "Each item must have a department selected" });
-        return;
+        return false;
       }
       if (!item.productId) {
         setSubmitMessage({ type: "error", text: "Each item must have a product selected" });
-        return;
+        return false;
       }
       if (!item.amount || parseFloat(item.amount) <= 0) {
         setSubmitMessage({ type: "error", text: "Each item must have a positive quantity" });
-        return;
+        return false;
       }
       if (!item.unitPrice || parseFloat(item.unitPrice) <= 0) {
         setSubmitMessage({ type: "error", text: "Each item must have a valid unit price" });
-        return;
+        return false;
+      }
+      const discount = parseFloat(item.discountPercent) || 0;
+      if (discount < 0 || discount > 100) {
+        setSubmitMessage({ type: "error", text: "Discount % must be between 0 and 100" });
+        return false;
       }
     }
+    return true;
+  };
 
+  const validateReceipt = () => {
     const receiptAmount = parseFloat(receipt) || 0;
     if (receiptAmount < 0) {
       setSubmitMessage({ type: "error", text: "Receipt cannot be negative" });
-      return;
+      return false;
+    }
+    return true;
+  };
+
+  // --- Payload builder ---
+  const buildPayload = () => {
+    const receiptAmount = parseFloat(receipt) || 0;
+    const itemsPayload = [];
+    let totalRaw = 0;
+    let totalDiscountAmount = 0;
+
+    for (const item of items) {
+      const amount = parseFloat(item.amount) || 0;
+      const unitPrice = parseFloat(item.unitPrice) || 0;
+      const discountPercent = parseFloat(item.discountPercent) || 0;
+      const rawTotal = amount * unitPrice;
+      const discountAmount = rawTotal * (discountPercent / 100);
+      const discountedTotal = rawTotal - discountAmount;
+
+      totalRaw += rawTotal;
+      totalDiscountAmount += discountAmount;
+
+      itemsPayload.push({
+        existId: parseInt(item.productId),
+        amount,
+        unit_price: unitPrice,
+        departmentId: parseInt(item.departmentId),
+        discount_percent: discountPercent,
+        discount_amount: discountAmount,
+        discounted_total: discountedTotal,
+      });
     }
 
+    // Bill-level discount: total discount amount and effective percent
+    const billDiscountAmount = totalDiscountAmount;
+    const billDiscountPercent = totalRaw > 0 ? (totalDiscountAmount / totalRaw) * 100 : 0;
+
     const payload = {
-      items: items.map((item) => ({
-        existId: parseInt(item.productId),
-        amount: parseFloat(item.amount),
-        unit_price: parseFloat(item.unitPrice),
-        departmentId: parseInt(item.departmentId),
-        total: item.total,
-      })),
+      items: itemsPayload,
       receipt: receiptAmount,
       notes: notes || null,
+      billDiscountPercent: parseFloat(billDiscountPercent.toFixed(2)),
+      billDiscountAmount: parseFloat(billDiscountAmount.toFixed(2)),
     };
 
     if (customerType === "existing") {
@@ -174,6 +230,55 @@ const SellManager = () => {
     } else {
       payload.newCustomerName = newCustomerName.trim();
     }
+
+    return payload;
+  };
+
+  // --- Form reset after successful submission ---
+  const resetForm = () => {
+    setCustomerId("");
+    setNewCustomerName("");
+    setCustomerType("existing");
+    setItems([
+      {
+        id: Date.now(),
+        departmentId: "",
+        productId: "",
+        productName: "",
+        amount: "",
+        unitPrice: "",
+        discountPercent: 0,
+        discountedTotal: 0,
+        total: 0,
+      },
+    ]);
+    setReceipt("");
+    setNotes("");
+  };
+
+  const refreshData = async () => {
+    const refreshRes = await axios.get(`${BASE_URL}/stockExist`);
+    if (refreshRes.data.success) {
+      setAllProducts(refreshRes.data.data);
+    }
+    if (customerType === "new") {
+      const customersRes = await axios.get(`${BASE_URL}/customer`);
+      setCustomers(customersRes.data.customers || customersRes.data.data || []);
+    }
+    setBillsKey(prev => prev + 1);
+  };
+
+  // --- Main submit handler ---
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSubmitMessage({ type: "", text: "" });
+
+    // Run validations
+    if (!validateCustomer()) return;
+    if (!validateItems()) return;
+    if (!validateReceipt()) return;
+
+    const payload = buildPayload();
 
     setSubmitting(true);
     try {
@@ -183,34 +288,8 @@ const SellManager = () => {
         type: "success",
         text: `Sale recorded! Bill #${data.bill.billNumber || data.bill.id} - Remaining: ${data.bill.remainingAmount}`,
       });
-      // Reset form
-      setCustomerId("");
-      setNewCustomerName("");
-      setCustomerType("existing");
-      setItems([
-        {
-          id: Date.now(),
-          departmentId: "",
-          productId: "",
-          productName: "",
-          amount: "",
-          unitPrice: "",
-          total: 0,
-        },
-      ]);
-      setReceipt("");
-      setNotes("");
-      // Refresh products (stock amounts may have changed)
-      const refreshRes = await axios.get(`${BASE_URL}/stockExist`);
-      if (refreshRes.data.success) {
-        setAllProducts(refreshRes.data.data);
-      }
-      // Refresh customers if a new one was added
-      if (customerType === "new") {
-        const customersRes = await axios.get(`${BASE_URL}/customer`);
-        setCustomers(customersRes.data.customers || customersRes.data.data || []);
-      }
-      setBillsKey((prev) => prev + 1);
+      resetForm();
+      await refreshData();
     } catch (err) {
       setSubmitMessage({
         type: "error",
@@ -221,9 +300,11 @@ const SellManager = () => {
     }
   };
 
+  // --- Loading and error states ---
   if (loading) return <div className="p-6 text-center text-gray-500">Loading sale data...</div>;
   if (error) return <div className="p-6 text-center text-red-500">Error: {error}</div>;
 
+  // --- Render ---
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -234,7 +315,6 @@ const SellManager = () => {
 
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
           <SellForm
-            // Customer
             customerType={customerType}
             setCustomerType={setCustomerType}
             customerId={customerId}
@@ -242,25 +322,22 @@ const SellManager = () => {
             newCustomerName={newCustomerName}
             setNewCustomerName={setNewCustomerName}
             customers={customers}
-            // Items
             items={items}
             updateItem={updateItem}
             removeItem={removeItem}
             addItem={addItem}
             allProducts={allProducts}
             departments={departments}
-            // Payment & notes
             receipt={receipt}
             setReceipt={setReceipt}
             notes={notes}
             setNotes={setNotes}
-            // Computed
             overallTotal={overallTotal}
             remaind={remaind}
-            // Submit
             submitting={submitting}
             submitMessage={submitMessage}
             onSubmit={handleSubmit}
+            applyGlobalDiscount={applyGlobalDiscount}
           />
         </div>
 
