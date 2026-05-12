@@ -36,6 +36,10 @@ const SellManager = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState({ type: "", text: "" });
 
+  // Helper: round to nearest integer
+  const toInt = (val) => Math.round(parseFloat(val) || 0);
+
+
   // Derived values
   const overallTotal = items.reduce((sum, item) => sum + (item.discountedTotal || 0), 0);
   const remaind = receipt ? overallTotal - parseFloat(receipt) : overallTotal;
@@ -71,7 +75,8 @@ const SellManager = () => {
     fetchInitialData();
   }, []);
 
-  // --- Helpers for items ---
+
+  // Items management (with integer rounding)
   const addItem = () => {
     setItems(prev => [
       ...prev,
@@ -96,20 +101,19 @@ const SellManager = () => {
     }
     setItems(prev => prev.filter(item => item.id !== id));
   };
-
   const updateItem = (id, field, value) => {
     setItems(prev =>
       prev.map(item => {
         if (item.id !== id) return item;
         const updated = { ...item, [field]: value };
-
+        value = Math.round(parseFloat(value) || 0);
         const amount = parseFloat(updated.amount) || 0;
         const unitPrice = parseFloat(updated.unitPrice) || 0;
         const discountPercent = parseFloat(updated.discountPercent) || 0;
 
-        const rawTotal = amount * unitPrice;
-        const discountAmount = rawTotal * (discountPercent / 100);
-        const discountedTotal = rawTotal - discountAmount;
+        const rawTotal = amount * unitPrice;    // both integers → integer
+        const discountAmount = Math.round(rawTotal * (discountPercent / 100));
+        const discountedTotal = rawTotal - discountAmount; // integer
 
         updated.total = rawTotal;
         updated.discountedTotal = discountedTotal;
@@ -130,11 +134,48 @@ const SellManager = () => {
   };
 
   const applyGlobalDiscount = (percent) => {
-    items.forEach(item => {
-      updateItem(item.id, "discountPercent", percent);
-    });
+    setItems(prev =>
+      prev.map(item => {
+        const amount = parseFloat(item.amount) || 0;
+        const unitPrice = toInt(item.unitPrice);
+        const rawTotal = amount * unitPrice;
+        const discountAmount = Math.round(rawTotal * (percent / 100));
+        const discountedTotal = rawTotal - discountAmount;
+        return {
+          ...item,
+          discountPercent: percent,
+          total: rawTotal,
+          discountedTotal: discountedTotal,
+        };
+      })
+    );
   };
 
+  const applyGlobalDiscountAmount = (totalDiscountAmount) => {
+    // Calculate current raw total
+    const totalRaw = items.reduce((sum, item) => sum + (parseFloat(item.amount) * toInt(item.unitPrice) || 0), 0);
+    if (totalRaw <= 0) return;
+    // Target total after discount
+    const targetTotal = Math.max(0, totalRaw - totalDiscountAmount);
+    // Effective discount percentage (may have many decimals)
+    const effectivePercent = ((totalRaw - targetTotal) / totalRaw) * 100;
+    // Apply that percentage with integer rounding per item
+    setItems(prev =>
+      prev.map(item => {
+        const amount = parseFloat(item.amount) || 0;
+        const unitPrice = toInt(item.unitPrice);
+        const rawTotal = amount * unitPrice;
+        const discountAmount = Math.round(rawTotal * (effectivePercent / 100));
+        const discountedTotal = rawTotal - discountAmount;
+        return {
+          ...item,
+          discountPercent: effectivePercent,
+          total: rawTotal,
+          discountedTotal: discountedTotal,
+        };
+      })
+    );
+  };
   // --- Validation helpers ---
   const validateCustomer = () => {
     if (customerType === "existing" && !customerId) {
@@ -184,19 +225,18 @@ const SellManager = () => {
     return true;
   };
 
-  // --- Payload builder ---
   const buildPayload = () => {
-    const receiptAmount = parseFloat(receipt) || 0;
+    const receiptAmount = toInt(receipt);
     const itemsPayload = [];
     let totalRaw = 0;
     let totalDiscountAmount = 0;
 
     for (const item of items) {
       const amount = parseFloat(item.amount) || 0;
-      const unitPrice = parseFloat(item.unitPrice) || 0;
+      const unitPrice = toInt(item.unitPrice);
       const discountPercent = parseFloat(item.discountPercent) || 0;
       const rawTotal = amount * unitPrice;
-      const discountAmount = rawTotal * (discountPercent / 100);
+      const discountAmount = Math.round(rawTotal * (discountPercent / 100));
       const discountedTotal = rawTotal - discountAmount;
 
       totalRaw += rawTotal;
@@ -213,7 +253,6 @@ const SellManager = () => {
       });
     }
 
-    // Bill-level discount: total discount amount and effective percent
     const billDiscountAmount = totalDiscountAmount;
     const billDiscountPercent = totalRaw > 0 ? (totalDiscountAmount / totalRaw) * 100 : 0;
 
@@ -222,7 +261,7 @@ const SellManager = () => {
       receipt: receiptAmount,
       notes: notes || null,
       billDiscountPercent: parseFloat(billDiscountPercent.toFixed(2)),
-      billDiscountAmount: parseFloat(billDiscountAmount.toFixed(2)),
+      billDiscountAmount: billDiscountAmount,
     };
 
     if (customerType === "existing") {
@@ -234,7 +273,6 @@ const SellManager = () => {
     return payload;
   };
 
-  // --- Form reset after successful submission ---
   const resetForm = () => {
     setCustomerId("");
     setNewCustomerName("");
@@ -273,7 +311,6 @@ const SellManager = () => {
     e.preventDefault();
     setSubmitMessage({ type: "", text: "" });
 
-    // Run validations
     if (!validateCustomer()) return;
     if (!validateItems()) return;
     if (!validateReceipt()) return;
@@ -338,6 +375,7 @@ const SellManager = () => {
             submitMessage={submitMessage}
             onSubmit={handleSubmit}
             applyGlobalDiscount={applyGlobalDiscount}
+            applyGlobalDiscountAmount={applyGlobalDiscountAmount}
           />
         </div>
 
