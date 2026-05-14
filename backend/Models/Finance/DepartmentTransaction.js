@@ -8,7 +8,10 @@ const DepartmentTransaction = sequelize.define(
       type: DataTypes.INTEGER, // 👈 Foreign Key به Department
       allowNull: false,
     },
-
+    userId: {
+      type: DataTypes.INTEGER, // 👈 Foreign Key به User
+      allowNull: false,
+    },
     amount: {
       type: DataTypes.FLOAT,
       allowNull: false,

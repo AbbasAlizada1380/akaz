@@ -8,7 +8,10 @@ const DepartmentTransactionManager = () => {
     // State
     const [transactions, setTransactions] = useState([]);
     const [departments, setDepartments] = useState([]);
+    const [users, setUsers] = useState([]);
+    const [allDepartments, setAllDepartments] = useState([]); // for name resolution in table
     const [loading, setLoading] = useState(false);
+    const [loadingDepts, setLoadingDepts] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [deleteModalOpen, setDeleteModalOpen] = useState(false);
     const [editingId, setEditingId] = useState(null);
@@ -16,8 +19,9 @@ const DepartmentTransactionManager = () => {
     const [submitting, setSubmitting] = useState(false);
 
     // Filters
+    const [filterUser, setFilterUser] = useState('');
     const [filterDept, setFilterDept] = useState('');
-    const [filterType, setFilterType] = useState('all'); // all, deposit, withdraw
+    const [filterType, setFilterType] = useState('all');
 
     // Pagination
     const [pagination, setPagination] = useState({
@@ -29,28 +33,53 @@ const DepartmentTransactionManager = () => {
 
     // Form data
     const [formData, setFormData] = useState({
+        userId: '',
         depId: '',
         amount: '',
         is_deposit: true,
     });
 
-    // Fetch departments on mount
+    // Fetch users and all departments on mount
     useEffect(() => {
-        fetchDepartments();
+        fetchUsers();
+        fetchAllDepartments();
     }, []);
 
-    // Fetch transactions when page, filters change
+    // Fetch transactions when filters or pagination change
     useEffect(() => {
         fetchTransactions();
-    }, [pagination.currentPage, filterDept, filterType]);
+    }, [filterUser, filterDept, filterType, pagination.currentPage]);
 
-    const fetchDepartments = async () => {
+    const fetchAllDepartments = async () => {
         try {
             const res = await axios.get(`${BASE_URL}/department`);
+            setAllDepartments(res.data.data || []);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
+    const fetchUsers = async () => {
+        try {
+            const res = await axios.get(`${BASE_URL}/users`);
+            setUsers(res.data.data || res.data || []);
+        } catch (err) {
+            console.error(err);
+            alert('Failed to load users');
+        }
+    };
+
+    const fetchDepartmentsByUser = async (userId) => {
+        setLoadingDepts(true);
+        try {
+            const res = await axios.get(`${BASE_URL}/department/user/${userId}`);
             setDepartments(res.data.data || []);
         } catch (err) {
             console.error(err);
-            alert('Failed to load departments');
+            alert('Failed to load departments for this user');
+            setDepartments([]);
+        } finally {
+            setLoadingDepts(false);
         }
     };
 
@@ -61,6 +90,7 @@ const DepartmentTransactionManager = () => {
                 page: pagination.currentPage,
                 limit: pagination.itemsPerPage,
             };
+            if (filterUser) params.userId = filterUser;
             if (filterDept) params.depId = filterDept;
             if (filterType !== 'all') params.type = filterType;
             const res = await axios.get(`${BASE_URL}/departmentTransaction`, { params });
@@ -87,14 +117,28 @@ const DepartmentTransactionManager = () => {
     };
 
     const resetForm = () => {
-        setFormData({ depId: '', amount: '', is_deposit: true });
+        setFormData({ userId: '', depId: '', amount: '', is_deposit: true });
         setEditingId(null);
         setModalOpen(false);
+        setDepartments([]);
+    };
+
+    const handleUserSelect = async (userId) => {
+        setFormData(prev => ({ ...prev, userId, depId: '' }));
+        if (userId) {
+            await fetchDepartmentsByUser(userId);
+        } else {
+            setDepartments([]);
+        }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         if (submitting) return;
+        if (!formData.userId) {
+            alert('Please select a user.');
+            return;
+        }
         if (!formData.depId || !formData.amount || parseFloat(formData.amount) <= 0) {
             alert('Please select a department and enter a valid amount.');
             return;
@@ -105,6 +149,7 @@ const DepartmentTransactionManager = () => {
                 depId: parseInt(formData.depId),
                 amount: parseFloat(formData.amount),
                 is_deposit: formData.is_deposit,
+                userId: parseInt(formData.userId),
             };
             if (editingId) {
                 await axios.put(`${BASE_URL}/departmentTransaction/${editingId}`, payload);
@@ -126,10 +171,12 @@ const DepartmentTransactionManager = () => {
     const handleEdit = (transaction) => {
         setEditingId(transaction.id);
         setFormData({
+            userId: transaction.userId,
             depId: transaction.depId,
             amount: transaction.amount,
             is_deposit: transaction.is_deposit,
         });
+        fetchDepartmentsByUser(transaction.userId);
         setModalOpen(true);
     };
 
@@ -145,9 +192,15 @@ const DepartmentTransactionManager = () => {
         }
     };
 
+    // Helper to get department name from allDepartments
     const getDepartmentName = (depId) => {
-        const dept = departments.find(d => d.id === depId);
-        return dept ? dept.name : 'Loading...';
+        const dept = allDepartments.find(d => d.id === depId);
+        return dept ? dept.name : 'Unknown';
+    };
+
+    const getUserName = (userId) => {
+        const user = users.find(u => u.id === userId);
+        return user ? user.username || user.name || user.email || `User ${userId}` : `User ${userId}`;
     };
 
     const handlePageChange = (newPage) => {
@@ -155,6 +208,18 @@ const DepartmentTransactionManager = () => {
             setPagination(prev => ({ ...prev, currentPage: newPage }));
         }
     };
+
+    // Department options for modal (based on selected user)
+    const departmentOptions = departments.map(dept => (
+        <option key={dept.id} value={dept.id}>{dept.name}</option>
+    ));
+
+    // User options for filter and modal
+    const userOptions = users.map(user => (
+        <option key={user.id} value={user.id}>
+            {user.username || user.name || user.email || `User ${user.id}`}
+        </option>
+    ));
 
     return (
         <div className="p-6 max-w-7xl mx-auto">
@@ -169,12 +234,44 @@ const DepartmentTransactionManager = () => {
                 </button>
             </div>
 
+            {/* Filters */}
+            <div className="mb-4 flex flex-wrap gap-4">
+                <select
+                    value={filterUser}
+                    onChange={(e) => setFilterUser(e.target.value)}
+                    className="border rounded-lg px-3 py-2"
+                >
+                    <option value="">All Users</option>
+                    {userOptions}
+                </select>
+                <select
+                    value={filterDept}
+                    onChange={(e) => setFilterDept(e.target.value)}
+                    className="border rounded-lg px-3 py-2"
+                >
+                    <option value="">All Departments</option>
+                    {allDepartments.map(dept => (
+                        <option key={dept.id} value={dept.id}>{dept.name}</option>
+                    ))}
+                </select>
+                <select
+                    value={filterType}
+                    onChange={(e) => setFilterType(e.target.value)}
+                    className="border rounded-lg px-3 py-2"
+                >
+                    <option value="all">All Types</option>
+                    <option value="deposit">Deposit</option>
+                    <option value="withdraw">Withdraw</option>
+                </select>
+            </div>
+
             {/* Transactions Table */}
             <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-100">
                             <tr>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">User</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
@@ -184,12 +281,13 @@ const DepartmentTransactionManager = () => {
                         </thead>
                         <tbody className="divide-y divide-gray-200 bg-white">
                             {loading ? (
-                                <tr><td colSpan="5" className="px-6 py-12 text-center text-gray-500">Loading...</td></tr>
+                                <td><td colSpan="6" className="px-6 py-12 text-center text-gray-500">Loading...</td></td>
                             ) : transactions.length === 0 ? (
-                                <tr><td colSpan="5" className="px-6 py-12 text-center text-gray-500">No transactions found</td></tr>
+                                <tr><td colSpan="6" className="px-6 py-12 text-center text-gray-500">No transactions found</td></tr>
                             ) : (
                                 transactions.map(tr => (
                                     <tr key={tr.id} className="hover:bg-gray-50 transition">
+                                        <td className="px-6 py-4 text-sm text-gray-700">{getUserName(tr.userId)}</td>
                                         <td className="px-6 py-4 text-sm text-gray-700">{getDepartmentName(tr.depId)}</td>
                                         <td className="px-6 py-4 text-sm font-medium">${parseFloat(tr.amount).toFixed(2)}</td>
                                         <td className="px-6 py-4">
@@ -252,19 +350,35 @@ const DepartmentTransactionManager = () => {
                         <h2 className="text-xl font-bold mb-4">{editingId ? 'Edit Transaction' : 'Add Transaction'}</h2>
                         <form onSubmit={handleSubmit}>
                             <div className="mb-4">
-                                <label className="block text-sm font-medium mb-1">Department*</label>
+                                <label className="block text-sm font-medium mb-1">User *</label>
+                                <select
+                                    name="userId"
+                                    value={formData.userId}
+                                    onChange={(e) => handleUserSelect(e.target.value)}
+                                    className="w-full border rounded-lg px-3 py-2"
+                                    required
+                                >
+                                    <option value="">Select a user</option>
+                                    {userOptions}
+                                </select>
+                            </div>
+                            <div className="mb-4">
+                                <label className="block text-sm font-medium mb-1">Department *</label>
                                 <select
                                     name="depId"
                                     value={formData.depId}
                                     onChange={handleFormChange}
                                     className="w-full border rounded-lg px-3 py-2"
                                     required
+                                    disabled={!formData.userId || loadingDepts}
                                 >
                                     <option value="">Select a department</option>
-                                    {departments.map(dept => (
-                                        <option key={dept.id} value={dept.id}>{dept.name}</option>
-                                    ))}
+                                    {departmentOptions}
                                 </select>
+                                {loadingDepts && <p className="text-gray-500 text-xs mt-1">Loading departments...</p>}
+                                {formData.userId && !loadingDepts && departments.length === 0 && (
+                                    <p className="text-yellow-600 text-xs mt-1">No departments found for this user (no holdings).</p>
+                                )}
                             </div>
                             <div className="mb-4">
                                 <label className="block text-sm font-medium mb-1">Amount ($)*</label>

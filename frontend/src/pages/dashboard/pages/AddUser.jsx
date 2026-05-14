@@ -12,7 +12,7 @@ const AddUser = () => {
     role: "",
   });
 
-  const [roles] = useState([{ id: 1, name: "reception" }]);
+  const [roles] = useState([{ id: 1, name: "reception" },{ id: 2, name: "stakeholder" },]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");

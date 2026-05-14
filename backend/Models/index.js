@@ -12,7 +12,8 @@ import CustomerAccount from './Customer/CustomerAccount.js';
 import DepartmentTransaction from './Finance/DepartmentTransaction.js';
 import Bill from './Finance/Bill.js';
 import Factor from './Finance/Factor.js';
-import Benefit from './Benefit.js';          // ✅ added
+import Benefit from './Benefit.js';
+import User from './User.js';                // 👈 Import User model (adjust path if needed)
 
 const models = {
   Department,
@@ -28,7 +29,8 @@ const models = {
   DepartmentTransaction,
   Bill,
   Factor,
-  Benefit,                                          // ✅ added
+  Benefit,
+  User,                                      // 👈 add User to models
 };
 
 /* ===============================
@@ -47,7 +49,7 @@ Department.associate = (models) => {
   Department.hasMany(models.StockIncome, { foreignKey: "departmentId", as: "stockIncomes" });
   Department.hasMany(models.StockExist, { foreignKey: "departmentId", as: "stockExists" });
   Department.hasMany(models.DepartmentTransaction, { foreignKey: "depId", as: "transactions" });
-  Department.hasMany(models.Benefit, { foreignKey: "departmentId", as: "benefits" });   // ✅ added
+  Department.hasMany(models.Benefit, { foreignKey: "departmentId", as: "benefits" });
 };
 
 // ---------- Seller ----------
@@ -90,7 +92,7 @@ Bill.associate = (models) => {
 Sells.associate = (models) => {
   Sells.belongsTo(models.StockExist, { foreignKey: "exist", as: "product" });
   Sells.belongsTo(models.Bill, { foreignKey: "billId", as: "bill" });
-  Sells.hasMany(models.Benefit, { foreignKey: "sellId", as: "benefits" });   // ✅ added
+  Sells.hasMany(models.Benefit, { foreignKey: "sellId", as: "benefits" });
 };
 
 // ---------- StockExist ----------
@@ -108,6 +110,7 @@ Pay.associate = (models) => {
 // ---------- DepartmentTransaction ----------
 DepartmentTransaction.associate = (models) => {
   DepartmentTransaction.belongsTo(models.Department, { foreignKey: "depId", as: "department" });
+  DepartmentTransaction.belongsTo(models.User, { foreignKey: "userId", as: "user" });   // 👈 association to User
 };
 
 // ---------- Factor ----------
@@ -117,8 +120,13 @@ Factor.associate = (models) => {
 
 // ---------- Benefit ----------
 Benefit.associate = (models) => {
-  Benefit.belongsTo(models.Sells, { foreignKey: "sellId", as: "sell" });              // ✅ added
-  Benefit.belongsTo(models.Department, { foreignKey: "departmentId", as: "department" }); // ✅ added
+  Benefit.belongsTo(models.Sells, { foreignKey: "sellId", as: "sell" });
+  Benefit.belongsTo(models.Department, { foreignKey: "departmentId", as: "department" });
+};
+
+// ---------- User ----------
+User.associate = (models) => {
+  User.hasMany(models.DepartmentTransaction, { foreignKey: "userId", as: "departmentTransactions" });   // 👈 one-to-many
 };
 
 /* ===============================
@@ -145,5 +153,6 @@ export {
   DepartmentTransaction,
   Bill,
   Factor,
-  Benefit,      // ✅ exported
+  Benefit,
+  User,          // 👈 exported
 };

@@ -229,8 +229,8 @@ const SellForm = ({
                                             <input
                                                 type="number"
                                                 step="1"
-                                                value={item.unitPrice}
-                                                onChange={(e) => updateItem(item.id, "unitPrice", toInt(e.target.value))}
+                                                value={item.sell_price}
+                                                onChange={(e) => updateItem(item.id, "sell_price", toInt(e.target.value))}
                                                 placeholder="Price (int)"
                                                 required
                                                 className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"

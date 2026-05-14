@@ -5,6 +5,7 @@ import {
   getDepartmentById,
   updateDepartment,
   deleteDepartment,
+  getDepartmentsByUserHolding,  // import new controller
 } from "../Controllers/DepartmentController.js";
 
 const DepartmentRoute = express.Router();
@@ -15,7 +16,10 @@ DepartmentRoute.post("/", createDepartment);
 // Get all (with optional ?active=true)
 DepartmentRoute.get("/", getAllDepartments);
 
-// Get one
+// Get departments by user holding (specific route, placed before /:id)
+DepartmentRoute.get("/user/:userId", getDepartmentsByUserHolding);
+
+// Get one by ID
 DepartmentRoute.get("/:id", getDepartmentById);
 
 // Update

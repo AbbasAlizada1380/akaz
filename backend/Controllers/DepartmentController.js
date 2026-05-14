@@ -1,21 +1,33 @@
 import Department from "../Models/Department.js";
 
-// ✅ Create Department
+// ✅ Helper: safely get holding object
+const getHoldingObject = (holding) => {
+  if (!holding) return {};
+  if (typeof holding === "string") {
+    try {
+      return JSON.parse(holding);
+    } catch (e) {
+      return {};
+    }
+  }
+  return holding;
+};
+
+// ✅ Create Department (unchanged)
 export const createDepartment = async (req, res) => {
   try {
     const { name, isActive, holding } = req.body;
 
-    // Validate holding (should be an object)
     if (holding && typeof holding !== "object") {
       return res.status(400).json({
-        message: "Holding must be an object, e.g., { user1: 20, user2: 80 }",
+        message: "Holding must be an object, e.g., { '1': 20, '2': 80 }",
       });
     }
 
     const department = await Department.create({
       name,
       isActive,
-      holding: holding || {}, // default empty object
+      holding: holding || {},
     });
 
     res.status(201).json({
@@ -30,7 +42,7 @@ export const createDepartment = async (req, res) => {
   }
 };
 
-// ✅ Get All Departments (Paginated)
+// ✅ Get All Departments (Paginated) – unchanged
 export const getAllDepartments = async (req, res) => {
   try {
     const { active, page = 1, limit = 10 } = req.query;
@@ -40,7 +52,6 @@ export const getAllDepartments = async (req, res) => {
     const offset = (currentPage - 1) * pageSize;
 
     const whereClause = {};
-
     if (active !== undefined) {
       whereClause.isActive = active === "true";
     }
@@ -60,7 +71,6 @@ export const getAllDepartments = async (req, res) => {
       pageSize,
       data: rows,
     });
-
   } catch (error) {
     res.status(500).json({
       message: "Error fetching departments",
@@ -69,17 +79,14 @@ export const getAllDepartments = async (req, res) => {
   }
 };
 
-// ✅ Get Single Department
+// ✅ Get Single Department – unchanged
 export const getDepartmentById = async (req, res) => {
   try {
     const { id } = req.params;
-
     const department = await Department.findByPk(id);
 
     if (!department) {
-      return res.status(404).json({
-        message: "Department not found",
-      });
+      return res.status(404).json({ message: "Department not found" });
     }
 
     res.json({
@@ -94,24 +101,58 @@ export const getDepartmentById = async (req, res) => {
   }
 };
 
-// ✅ Update Department
+// ✅ NEW: Get Departments by User Holding
+export const getDepartmentsByUserHolding = async (req, res) => {
+  try {
+    const { userId } = req.params;  // or req.query
+
+    if (!userId) {
+      return res.status(400).json({
+        message: "userId is required",
+      });
+    }
+
+    // Convert userId to string because JSON keys are strings
+    const userIdStr = String(userId);
+
+    // Fetch all departments (or you could filter with a raw SQL query, but this is simpler)
+    const allDepartments = await Department.findAll();
+
+    // Filter departments where holding[userIdStr] exists and is > 0 (or just exists)
+    const userDepartments = allDepartments.filter(dept => {
+      const holding = getHoldingObject(dept.holding);
+      const userShare = holding[userIdStr];
+      // We consider a holding if the value is a positive number (or any truthy value)
+      return userShare !== undefined && userShare !== null && userShare !== 0;
+    });
+
+    res.status(200).json({
+      message: "Departments fetched successfully",
+      count: userDepartments.length,
+      data: userDepartments,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "Error fetching departments by user holding",
+      error: error.message,
+    });
+  }
+};
+
+// ✅ Update Department – unchanged (with improved holding validation)
 export const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, isActive, holding } = req.body;
 
     const department = await Department.findByPk(id);
-
     if (!department) {
-      return res.status(404).json({
-        message: "Department not found",
-      });
+      return res.status(404).json({ message: "Department not found" });
     }
 
-    // Validate holding
     if (holding && typeof holding !== "object") {
       return res.status(400).json({
-        message: "Holding must be an object, e.g., { user1: 20, user2: 80 }",
+        message: "Holding must be an object, e.g., { '1': 20, '2': 80 }",
       });
     }
 
@@ -133,17 +174,14 @@ export const updateDepartment = async (req, res) => {
   }
 };
 
-// ✅ Delete Department
+// ✅ Delete Department – unchanged
 export const deleteDepartment = async (req, res) => {
   try {
     const { id } = req.params;
-
     const department = await Department.findByPk(id);
 
     if (!department) {
-      return res.status(404).json({
-        message: "Department not found",
-      });
+      return res.status(404).json({ message: "Department not found" });
     }
 
     await department.destroy();
