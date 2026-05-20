@@ -75,8 +75,8 @@ const Sidebar = ({ setActiveComponent }) => {
     } else if (userRole === "reception") {
       const receptionAllowedValues = [
         "home",
-        "Orders",
-        "OrdersList",
+        "Stock",
+        "Finance",
         "signout",
       ];
       accessibleComponents = AllComponents.filter((component) =>

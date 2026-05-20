@@ -67,6 +67,254 @@ async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, tran
 }
 
 
+export const createBatchStockIncome = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  try {
+    const { seller, items, paidAmount: userPaidAmount, notes, departmentId } = req.body;
+
+    if (!seller || !items || !Array.isArray(items) || items.length === 0) {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Invalid payload. Need seller and items array.' });
+    }
+
+    // ---------- 1. Handle Seller ----------
+    let sellerId;
+    if (seller.id) {
+      const existingSeller = await Seller.findByPk(parseInt(seller.id), { transaction });
+      if (!existingSeller) {
+        await transaction.rollback();
+        return res.status(404).json({ error: `Seller with id ${seller.id} not found` });
+      }
+      sellerId = existingSeller.id;
+    } else if (seller.name) {
+      const newSeller = await Seller.create({ fullname: seller.name }, { transaction });
+      sellerId = newSeller.id;
+    } else {
+      await transaction.rollback();
+      return res.status(400).json({ error: 'Seller must provide either id or name' });
+    }
+
+    // ---------- 2. Process each item ----------
+    const createdIncomes = [];
+    const createdIncomeIds = [];
+    const existIds = [];          // <-- collect all StockExist IDs (existing + new)
+    let totalAmount = 0;
+
+    for (const item of items) {
+      const { exist, type, amount, sell_price, net_unite_price, expense = 0 } = item;
+
+      if (!exist || (!exist.id && !exist.name)) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Each item must have exist.id or exist.name' });
+      }
+      if (!type || !amount || amount <= 0) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Each item must have type and a positive amount' });
+      }
+      if (net_unite_price === undefined || net_unite_price === null) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Each item must have net_unite_price' });
+      }
+
+      const parsedAmount = parseFloat(amount);
+      const parsedNetUnitPrice = parseFloat(net_unite_price);
+      const parsedExpense = parseFloat(expense) || 0;
+      const parsedSellPrice = parseFloat(sell_price);
+
+      const computedUnitPrice = (parsedExpense / parsedAmount) + parsedNetUnitPrice;
+      const totalPrice = parsedAmount * computedUnitPrice;
+
+      let existId;
+      let itemDepartmentId;
+
+      if (exist.id) {
+        const existingExist = await StockExist.findByPk(parseInt(exist.id), { transaction });
+        if (!existingExist) {
+          await transaction.rollback();
+          return res.status(404).json({ error: `StockExist with id ${exist.id} not found` });
+        }
+        existId = existingExist.id;
+        itemDepartmentId = existingExist.departmentId;
+      } else if (exist.name) {
+        let found = await StockExist.findOne({ where: { name: exist.name }, transaction });
+        if (found) {
+          existId = found.id;
+          itemDepartmentId = found.departmentId;
+        } else {
+          let deptId = null;
+          if (exist.department) {
+            if (typeof exist.department === 'object' && exist.department.id) {
+              deptId = exist.department.id;
+            } else if (typeof exist.department === 'number' || !isNaN(parseInt(exist.department))) {
+              deptId = parseInt(exist.department);
+            }
+          } else if (exist.departmentId) {
+            deptId = parseInt(exist.departmentId);
+          }
+
+          if (!deptId) {
+            await transaction.rollback();
+            return res.status(400).json({ error: `Department ID is required for new product: ${exist.name}` });
+          }
+
+          const dept = await Department.findByPk(deptId, { transaction });
+          if (!dept) {
+            await transaction.rollback();
+            return res.status(404).json({ error: `Department with id ${deptId} not found` });
+          }
+
+          const newExist = await StockExist.create({
+            name: exist.name,
+            departmentId: deptId
+          }, { transaction });
+          existId = newExist.id;
+          itemDepartmentId = deptId;
+        }
+      } else {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Invalid exist reference in item' });
+      }
+
+      // Collect unique exist IDs
+      if (!existIds.includes(existId)) existIds.push(existId);
+
+      const income = await StockIncome.create({
+        sellerId: sellerId,
+        existId: existId,
+        departmentId: itemDepartmentId,
+        type: type,
+        amount: parsedAmount,
+        unit_price: computedUnitPrice,
+        net_unite_price: parsedNetUnitPrice,
+        expense: parsedExpense,
+        sell_price: parsedSellPrice,
+        total: totalPrice,
+        remaind: totalPrice
+      }, { transaction });
+
+      await updateStockExistFromIncome(existId, parsedAmount, computedUnitPrice, transaction);
+
+      createdIncomes.push({ ...income.toJSON(), total_price: totalPrice });
+      createdIncomeIds.push(income.id);
+      totalAmount += totalPrice;
+    }
+
+    // ---------- 3. Update SellerAccount ----------
+    if (createdIncomeIds.length > 0) {
+      await updateSellerAccountPaid(sellerId, createdIncomeIds, transaction);
+    }
+
+    // ---------- 4. Determine paid amount for the factor ----------
+    const finalPaidAmount = (userPaidAmount !== undefined && !isNaN(parseFloat(userPaidAmount)))
+      ? parseFloat(userPaidAmount)
+      : totalAmount;
+
+    const remainingAmount = totalAmount - finalPaidAmount;
+    const status = remainingAmount === 0 ? "paid" : (finalPaidAmount > 0 ? "partial" : "unpaid");
+
+const factor = await Factor.create({
+  factorNumber: null, // temporary
+  sellerId: sellerId,
+  totalAmount: totalAmount,
+  paidAmount: finalPaidAmount,
+  remainingAmount: remainingAmount,
+  status: status,
+  notes: notes || null,
+  incomes: createdIncomeIds,
+  dep_Number: departmentId || null,
+}, { transaction });
+
+// Set factorNumber equal to its id
+await factor.update({ 
+  factorNumber: `FAC-${factor.id.toString().padStart(6, '0')}` 
+}, { transaction });
+
+    // ---------- 6. Create Pay record (if payment exists) ----------
+    let payId = null;
+    if (finalPaidAmount > 0) {
+      const payRecord = await Pay.create({
+        seller: sellerId,
+        amount: finalPaidAmount,
+        description: `Payment for factor ${factor.id} (batch number of ${createdIncomeIds})`,
+      }, { transaction });
+      payId = payRecord.id;
+    }
+
+    // ---------- 7. Update department with factor ID, pay ID, and exist IDs ----------
+    if (departmentId) {
+      const targetDepartment = await Department.findByPk(parseInt(departmentId), { transaction });
+      if (targetDepartment) {
+        // Create new arrays (copy to trigger change detection)
+        let currentFactors = Array.isArray(targetDepartment.Factors) ? [...targetDepartment.Factors] : [];
+        let currentPays = Array.isArray(targetDepartment.pays) ? [...targetDepartment.pays] : [];
+        let currentExist = Array.isArray(targetDepartment.exist) ? [...targetDepartment.exist] : [];
+
+        let factorsChanged = false;
+        let paysChanged = false;
+        let existChanged = false;
+
+        // Add factor ID
+        if (!currentFactors.includes(factor.id)) {
+          currentFactors.push(factor.id);
+          factorsChanged = true;
+        }
+        // Add pay ID
+        if (payId && !currentPays.includes(payId)) {
+          currentPays.push(payId);
+          paysChanged = true;
+        }
+        // Add each exist ID from this batch
+        for (const eid of existIds) {
+          if (!currentExist.includes(eid)) {
+            currentExist.push(eid);
+            existChanged = true;
+          }
+        }
+
+        if (factorsChanged || paysChanged || existChanged) {
+          await targetDepartment.update({
+            Factors: currentFactors,
+            pays: currentPays,
+            exist: currentExist
+          }, { transaction });
+          console.log('Department updated successfully');
+        } else {
+          console.log('No changes to department arrays, skipping update');
+        }
+      } else {
+        console.warn(`Department with id ${departmentId} not found – cannot update department.`);
+      }
+    }
+
+    // ---------- 8. Assign factorId to all StockIncome records ----------
+    if (createdIncomeIds.length > 0) {
+      await StockIncome.update(
+        { FactorId: factor.id },
+        { where: { id: createdIncomeIds }, transaction }
+      );
+    }
+
+    await transaction.commit();
+
+    res.status(201).json({
+      message: 'Batch stock incomes created successfully',
+      sellerId: sellerId,
+      factorId: factor.id,
+      factorNumber: factor.factorNumber,
+      payId: payId,
+      totalAmount: totalAmount,
+      paidAmount: finalPaidAmount,
+      remainingAmount: remainingAmount,
+      status: status,
+      incomesCount: createdIncomes.length,
+      incomes: createdIncomes
+    });
+  } catch (error) {
+    if (transaction) await transaction.rollback();
+    console.error('Batch create error:', error);
+    res.status(500).json({ error: 'Internal server error', details: error.message });
+  }
+};
 export const getAllStockIncome = async (req, res) => {
   try {
     // Get pagination parameters from query string, with defaults
@@ -149,212 +397,6 @@ export const getStockIncomeById = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: error.message });
-  }
-};
-
-
-const generateFactorNumber = async () => {
-  const lastFactor = await Factor.findOne({ order: [["createdAt", "DESC"]] });
-  let lastNumber = 0;
-  if (lastFactor && lastFactor.factorNumber) {
-    const match = lastFactor.factorNumber.match(/\d+$/);
-    if (match) lastNumber = parseInt(match[0], 10);
-  }
-  const newNumber = (lastNumber + 1).toString().padStart(6, "0");
-  return `FAC-${newNumber}`;
-};
-export const createBatchStockIncome = async (req, res) => {
-  const transaction = await sequelize.transaction();
-  try {
-    const { seller, items, paidAmount: userPaidAmount, notes } = req.body;
-
-    if (!seller || !items || !Array.isArray(items) || items.length === 0) {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'Invalid payload. Need seller and items array.' });
-    }
-
-    // ---------- 1. Handle Seller ----------
-    let sellerId;
-    if (seller.id) {
-      const existingSeller = await Seller.findByPk(parseInt(seller.id), { transaction });
-      if (!existingSeller) {
-        await transaction.rollback();
-        return res.status(404).json({ error: `Seller with id ${seller.id} not found` });
-      }
-      sellerId = existingSeller.id;
-    } else if (seller.name) {
-      const newSeller = await Seller.create({ fullname: seller.name }, { transaction });
-      sellerId = newSeller.id;
-    } else {
-      await transaction.rollback();
-      return res.status(400).json({ error: 'Seller must provide either id or name' });
-    }
-
-    // ---------- 2. Process each item ----------
-    const createdIncomes = [];
-    const createdIncomeIds = [];
-    let totalAmount = 0;
-
-    for (const item of items) {
-      const { exist, type, amount, sell_price, net_unite_price, expense = 0 } = item;
-
-      if (!exist || (!exist.id && !exist.name)) {
-        await transaction.rollback();
-        return res.status(400).json({ error: 'Each item must have exist.id or exist.name' });
-      }
-      if (!type || !amount || amount <= 0) {
-        await transaction.rollback();
-        return res.status(400).json({ error: 'Each item must have type and a positive amount' });
-      }
-      if (net_unite_price === undefined || net_unite_price === null) {
-        await transaction.rollback();
-        return res.status(400).json({ error: 'Each item must have net_unite_price' });
-      }
-
-      const parsedAmount = parseFloat(amount);
-      const parsedNetUnitPrice = parseFloat(net_unite_price);
-      const parsedExpense = parseFloat(expense) || 0;
-      const parsedSellPrice = parseFloat(sell_price);
-
-      const computedUnitPrice = (parsedExpense / parsedAmount) + parsedNetUnitPrice;
-      const totalPrice = parsedAmount * computedUnitPrice;
-
-      let existId;
-      let departmentId;
-
-      if (exist.id) {
-        const existingExist = await StockExist.findByPk(parseInt(exist.id), { transaction });
-        if (!existingExist) {
-          await transaction.rollback();
-          return res.status(404).json({ error: `StockExist with id ${exist.id} not found` });
-        }
-        existId = existingExist.id;
-        departmentId = existingExist.departmentId;
-      } else if (exist.name) {
-        let found = await StockExist.findOne({ where: { name: exist.name }, transaction });
-        if (found) {
-          existId = found.id;
-          departmentId = found.departmentId;
-        } else {
-          let deptId = null;
-          if (exist.department) {
-            if (typeof exist.department === 'object' && exist.department.id) {
-              deptId = exist.department.id;
-            } else if (typeof exist.department === 'number' || !isNaN(parseInt(exist.department))) {
-              deptId = parseInt(exist.department);
-            }
-          } else if (exist.departmentId) {
-            deptId = parseInt(exist.departmentId);
-          }
-
-          if (!deptId) {
-            await transaction.rollback();
-            return res.status(400).json({ error: `Department ID is required for new product: ${exist.name}` });
-          }
-
-          const dept = await Department.findByPk(deptId, { transaction });
-          if (!dept) {
-            await transaction.rollback();
-            return res.status(404).json({ error: `Department with id ${deptId} not found` });
-          }
-
-          const newExist = await StockExist.create({
-            name: exist.name,
-            departmentId: deptId
-          }, { transaction });
-          existId = newExist.id;
-          departmentId = deptId;
-        }
-      } else {
-        await transaction.rollback();
-        return res.status(400).json({ error: 'Invalid exist reference in item' });
-      }
-
-      // Create income WITHOUT factorId (allowed if model allowNull: true)
-      const income = await StockIncome.create({
-        sellerId: sellerId,
-        existId: existId,
-        departmentId: departmentId,
-        type: type,
-        amount: parsedAmount,
-        unit_price: computedUnitPrice,
-        net_unite_price: parsedNetUnitPrice,
-        expense: parsedExpense,
-        sell_price: parsedSellPrice,
-        total: totalPrice,
-        remaind: totalPrice
-        // FactorId will be set later
-      }, { transaction });
-
-      await updateStockExistFromIncome(existId, parsedAmount, computedUnitPrice, transaction);
-
-      createdIncomes.push({ ...income.toJSON(), total_price: totalPrice });
-      createdIncomeIds.push(income.id);
-      totalAmount += totalPrice;
-    }
-
-    // ---------- 3. Update SellerAccount.paid ----------
-    if (createdIncomeIds.length > 0) {
-      await updateSellerAccountPaid(sellerId, createdIncomeIds, transaction);
-    }
-
-    // ---------- 4. Determine paid amount for the factor ----------
-    const finalPaidAmount = (userPaidAmount !== undefined && !isNaN(parseFloat(userPaidAmount)))
-      ? parseFloat(userPaidAmount)
-      : totalAmount;
-
-    const remainingAmount = totalAmount - finalPaidAmount;
-    const status = remainingAmount === 0 ? "paid" : (finalPaidAmount > 0 ? "partial" : "unpaid");
-
-    // ---------- 5. Create Factor record ----------
-    const factorNumber = await generateFactorNumber();
-    const factor = await Factor.create({
-      factorNumber,
-      sellerId: sellerId,
-      totalAmount: totalAmount,
-      paidAmount: finalPaidAmount,
-      remainingAmount: remainingAmount,
-      status: status,
-      notes: notes || null,
-      incomes: createdIncomeIds,
-    }, { transaction });
-
-    // ---------- 5b. Assign factorId to all related StockIncome records ----------
-    if (createdIncomeIds.length > 0) {
-      await StockIncome.update(
-        { FactorId: factor.id },
-        { where: { id: createdIncomeIds }, transaction }
-      );
-    }
-
-    // ---------- 6. Create Pay record for the seller ----------
-    if (finalPaidAmount > 0) {
-      const payRecord = await Pay.create({
-        seller: sellerId,
-        amount: finalPaidAmount,
-        description: `Payment for factor ${factorNumber} (batch of ${createdIncomeIds.length} items)`,
-      }, { transaction });
-      // Optionally link payRecord.id to SellerAccount.pay if needed
-    }
-
-    await transaction.commit();
-
-    res.status(201).json({
-      message: 'Batch stock incomes created successfully',
-      sellerId: sellerId,
-      factorId: factor.id,
-      factorNumber: factor.factorNumber,
-      totalAmount: totalAmount,
-      paidAmount: finalPaidAmount,
-      remainingAmount: remainingAmount,
-      status: status,
-      incomesCount: createdIncomes.length,
-      incomes: createdIncomes
-    });
-  } catch (error) {
-    if (transaction) await transaction.rollback();
-    console.error('Batch create error:', error);
-    res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 };
 

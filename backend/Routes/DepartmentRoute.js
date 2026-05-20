@@ -5,7 +5,8 @@ import {
   getDepartmentById,
   updateDepartment,
   deleteDepartment,
-  getDepartmentsByUserHolding,  // import new controller
+  getDepartmentsByUserHolding,
+  getBenefitsByDepartmentId
 } from "../Controllers/DepartmentController.js";
 
 const DepartmentRoute = express.Router();
@@ -18,6 +19,9 @@ DepartmentRoute.get("/", getAllDepartments);
 
 // Get departments by user holding (specific route, placed before /:id)
 DepartmentRoute.get("/user/:userId", getDepartmentsByUserHolding);
+
+// Get benefits for a specific department (by department ID)
+DepartmentRoute.get("/:departmentId/benefits", getBenefitsByDepartmentId);
 
 // Get one by ID
 DepartmentRoute.get("/:id", getDepartmentById);

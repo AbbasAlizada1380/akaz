@@ -10,10 +10,13 @@ const Department = sequelize.define(
     holding: {
       type: DataTypes.JSON,
     },
-    stockIncome: {
+    Factors: {
       type: DataTypes.JSON,
     },
     exist: {
+      type: DataTypes.JSON,
+    },
+    pays: {
       type: DataTypes.JSON,
     },
     benifit: {

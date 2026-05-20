@@ -1,5 +1,6 @@
-import Department from "../Models/Department.js";
-
+import {Department} from "../Models/index.js";
+import {Benefit} from "../Models/index.js"
+import { Op } from "sequelize";
 // ✅ Helper: safely get holding object
 const getHoldingObject = (holding) => {
   if (!holding) return {};
@@ -194,5 +195,41 @@ export const deleteDepartment = async (req, res) => {
       message: "Error deleting department",
       error: error.message,
     });
+  }
+};
+
+
+
+export const getBenefitsByDepartmentId = async (req, res) => {
+  try {
+    const { departmentId } = req.params;
+
+    // 1. Find the department by primary key
+    const department = await Department.findByPk(departmentId);
+    if (!department) {
+      return res.status(404).json({ error: "Department not found" });
+    }
+
+    // 2. Get the array of Benefit IDs from department.benifit
+    const benefitIds = department.realizedBenefit;
+    console.log(department.benifit);
+    
+    if (!benefitIds || !Array.isArray(benefitIds) || benefitIds.length === 0) {
+      return res.status(200).json({ benefits: [] });
+    }
+
+    // 3. Fetch all Benefit records whose id is in that array
+    const benefits = await Benefit.findAll({
+      where: {
+        id: {
+          [Op.in]: benefitIds,
+        },
+      },
+    });
+
+    return res.status(200).json({ benefits });
+  } catch (error) {
+    console.error("Error fetching benefits by department:", error);
+    return res.status(500).json({ error: "Internal server error" });
   }
 };

@@ -9,11 +9,15 @@ const Factor = sequelize.define(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    dep_Number: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
     sellerId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: {
-        model: "Sellers",     // ✅ changed from "Customers" to "Sellers"
+        model: "Sellers",
         key: "id",
       },
     },

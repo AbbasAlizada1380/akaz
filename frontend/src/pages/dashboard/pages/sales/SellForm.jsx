@@ -57,7 +57,7 @@ const SellForm = ({
 
     return (
         <form onSubmit={onSubmit} className="divide-y divide-gray-200">
-            {/* Customer section (unchanged) */}
+            {/* Customer section */}
             <div className="px-6 py-6 sm:px-8">
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Customer Information</h2>
                 <div className="space-y-6">
@@ -196,7 +196,7 @@ const SellForm = ({
                                                         updateItem(item.id, "productId", selectedProduct.id);
                                                         updateItem(item.id, "productName", selectedProduct.name);
                                                         const defaultPrice = selectedProduct.sell_price || selectedProduct.unit_price || 0;
-                                                        updateItem(item.id, "unitPrice", toInt(defaultPrice)); // stored as integer
+                                                        updateItem(item.id, "unitPrice", toInt(defaultPrice));
                                                     } else {
                                                         updateItem(item.id, "productId", "");
                                                         updateItem(item.id, "productName", "");
@@ -214,6 +214,7 @@ const SellForm = ({
                                                 ))}
                                             </select>
                                         </td>
+                                        {/* Quantity */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
@@ -225,17 +226,19 @@ const SellForm = ({
                                                 className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                             />
                                         </td>
+                                        {/* ✅ FIXED: Unit Price - now uses item.unitPrice */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
                                                 step="1"
-                                                value={item.sell_price}
-                                                onChange={(e) => updateItem(item.id, "sell_price", toInt(e.target.value))}
+                                                value={item.unitPrice ?? 0}
+                                                onChange={(e) => updateItem(item.id, "unitPrice", toInt(e.target.value))}
                                                 placeholder="Price (int)"
                                                 required
                                                 className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                             />
                                         </td>
+                                        {/* Discount % */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
@@ -248,9 +251,11 @@ const SellForm = ({
                                                 className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                             />
                                         </td>
+                                        {/* Subtotal */}
                                         <td className="px-4 py-2 font-medium text-gray-900">
                                             {discountedTotalInt}
                                         </td>
+                                        {/* Remove button */}
                                         <td className="px-4 py-2 text-center">
                                             <button
                                                 type="button"

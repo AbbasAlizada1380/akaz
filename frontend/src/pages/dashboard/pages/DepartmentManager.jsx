@@ -3,6 +3,7 @@ import axios from "axios";
 import { LuUsers, LuPlus, LuTrash2 } from "react-icons/lu";
 import Pagination from "../pagination/Pagination.jsx";
 import DepartmentTransactionManager from "./finance/DepartmentTransactionManager.jsx";
+import BenefitReport from "./report/BenefitReport.jsx";
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const DepartmentManager = () => {
@@ -532,6 +533,7 @@ const DepartmentManager = () => {
         </div>
       </div>
       <DepartmentTransactionManager />
+      <BenefitReport/>
     </div>
   );
 };
