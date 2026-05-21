@@ -6,7 +6,8 @@ import {
   updateDepartment,
   deleteDepartment,
   getDepartmentsByUserHolding,
-  getBenefitsByDepartmentId
+  getBenefitsByDepartmentAndDate,
+  getBenefitsWithFilters
 } from "../Controllers/DepartmentController.js";
 
 const DepartmentRoute = express.Router();
@@ -21,8 +22,8 @@ DepartmentRoute.get("/", getAllDepartments);
 DepartmentRoute.get("/user/:userId", getDepartmentsByUserHolding);
 
 // Get benefits for a specific department (by department ID)
-DepartmentRoute.get("/:departmentId/benefits", getBenefitsByDepartmentId);
-
+DepartmentRoute.get("/:departmentId/benefits", getBenefitsByDepartmentAndDate);
+DepartmentRoute.get("/report", getBenefitsWithFilters);  // supports all query params
 // Get one by ID
 DepartmentRoute.get("/:id", getDepartmentById);
 

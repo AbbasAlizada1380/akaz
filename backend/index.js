@@ -21,6 +21,7 @@ import AttendenceRoute from "./Routes/Staff/AttendenceRoute.js";
 import DepartmentTransactionRouter from "./Routes/Finance/DepartmentTransactionRouter.js";
 import BillRouter from "./Routes/Finance/BillRouter.js";
 import FactorRouter from "./Routes/Finance/FactorRouter.js";
+import BenifitRoute from "./Routes/Finance/BenifitRotute.js";
 const FRONT_URL = process.env.FRONT_URL
 const port = 8038;
 const app = express();
@@ -81,6 +82,7 @@ app.use("/attendence", AttendenceRoute);
 app.use("/departmentTransaction", DepartmentTransactionRouter);
 app.use("/Bill", BillRouter);
 app.use("/Factor", FactorRouter);
+app.use("/benifit", BenifitRoute);
 
 // Sync database and start server
 sequelize

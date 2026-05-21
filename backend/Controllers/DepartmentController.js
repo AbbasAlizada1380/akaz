@@ -1,6 +1,7 @@
 import {Department} from "../Models/index.js";
 import {Benefit} from "../Models/index.js"
 import { Op } from "sequelize";
+
 // ✅ Helper: safely get holding object
 const getHoldingObject = (holding) => {
   if (!holding) return {};
@@ -200,36 +201,101 @@ export const deleteDepartment = async (req, res) => {
 
 
 
-export const getBenefitsByDepartmentId = async (req, res) => {
+export const getBenefitsByDepartmentAndDate = async (req, res) => {
   try {
     const { departmentId } = req.params;
+    const { startDate, endDate, page = 1, limit = 10 } = req.query;
 
-    // 1. Find the department by primary key
+    // Validate department
     const department = await Department.findByPk(departmentId);
     if (!department) {
-      return res.status(404).json({ error: "Department not found" });
+      return res.status(404).json({ message: "Department not found" });
     }
 
-    // 2. Get the array of Benefit IDs from department.benifit
-    const benefitIds = department.realizedBenefit;
-    console.log(department.benifit);
-    
-    if (!benefitIds || !Array.isArray(benefitIds) || benefitIds.length === 0) {
-      return res.status(200).json({ benefits: [] });
+    // Build where clause
+    const whereClause = { departmentId };
+    if (startDate || endDate) {
+      whereClause.createdAt = {};
+      if (startDate) {
+        whereClause.createdAt[Op.gte] = new Date(startDate);
+      }
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        whereClause.createdAt[Op.lte] = endDateTime;
+      }
     }
 
-    // 3. Fetch all Benefit records whose id is in that array
-    const benefits = await Benefit.findAll({
-      where: {
-        id: {
-          [Op.in]: benefitIds,
+    // Pagination
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const parsedLimit = parseInt(limit);
+
+    const { count, rows: benefits } = await Benefit.findAndCountAll({
+      where: whereClause,
+      include: [
+        {
+          model: Department,
+          as: "department",
+          attributes: ["name"],
         },
-      },
+      ],
+      offset,
+      limit: parsedLimit,
+      order: [["createdAt", "DESC"]],
     });
 
-    return res.status(200).json({ benefits });
+    res.status(200).json({
+      data: benefits,
+      meta: {
+        totalItems: count,
+        totalPages: Math.ceil(count / parsedLimit),
+        currentPage: parseInt(page),
+        itemsPerPage: parsedLimit,
+      },
+    });
   } catch (error) {
-    console.error("Error fetching benefits by department:", error);
-    return res.status(500).json({ error: "Internal server error" });
+    console.error("Error in getBenefitsByDepartmentAndDate:", error);
+    res.status(500).json({ message: "Failed to fetch benefits", error: error.message });
+  }
+};
+
+
+export const getBenefitsWithFilters = async (req, res) => {
+  try {
+    const { departmentId, startDate, endDate, page = 1, limit = 10 } = req.query;
+
+    const whereClause = {};
+    if (departmentId) whereClause.departmentId = departmentId;
+    if (startDate || endDate) {
+      whereClause.createdAt = {};
+      if (startDate) whereClause.createdAt[Op.gte] = new Date(startDate);
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        whereClause.createdAt[Op.lte] = endDateTime;
+      }
+    }
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const { count, rows } = await Benefit.findAndCountAll({
+      where: whereClause,
+      include: [{ model: Department, as: "department", attributes: ["name"] }],
+      offset,
+      limit: parseInt(limit),
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.status(200).json({
+      data: rows,
+      meta: {
+        totalItems: count,
+        totalPages: Math.ceil(count / parseInt(limit)),
+        currentPage: parseInt(page),
+        itemsPerPage: parseInt(limit),
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Failed to fetch benefits", error: error.message });
   }
 };
