@@ -91,7 +91,17 @@ export const getBillById = async (req, res) => {
       return res.status(404).json({ success: false, message: "Bill not found" });
     }
 
-    res.json({ success: true, bill });
+    // Extract sells (items) into a separate array for clarity
+    const sells = bill.items || [];
+
+    res.json({
+      success: true,
+      bill: {
+        ...bill.toJSON(),
+        items: undefined, // remove items from bill to avoid duplication (optional)
+      },
+      sells, // return sells separately
+    });
   } catch (error) {
     console.error("Error in getBillById:", error);
     res.status(500).json({ success: false, message: "Server error", error: error.message });
