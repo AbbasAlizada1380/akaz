@@ -54,6 +54,7 @@ const Sidebar = ({ setActiveComponent }) => {
   };
   const AllComponents = [
     { name: "Home Page", value: "home", icon: <MdOutlineDashboardCustomize /> },
+    { name: "Home page", value: "stakeholder home", icon: <MdOutlineDashboardCustomize /> },
     { name: "Stock", value: "stock", icon: <FaBoxes /> },
     { name: "Finance", value: "finance", icon: <FaMoneyBillWave /> },
     { name: "Expense", value: "expense", icon: <FaReceipt /> },
@@ -62,7 +63,7 @@ const Sidebar = ({ setActiveComponent }) => {
     { name: "Staff Management", value: "staff", icon: <FaUserTie /> },
     { name: "Salary", value: "salary", icon: <FaMoneyCheckAlt /> },
     { name: "User Management", value: "AddUser", icon: <LucideUserRoundPlus /> },
-    { name: "sign out", value: "signout", icon: <FaSignOutAlt /> },
+    { name: "Sign out", value: "signout", icon: <FaSignOutAlt /> },
   ];
 
   let accessibleComponents = [];
@@ -75,8 +76,17 @@ const Sidebar = ({ setActiveComponent }) => {
     } else if (userRole === "reception") {
       const receptionAllowedValues = [
         "home",
-        "Stock",
-        "Finance",
+        "stock",
+        "finance",
+        "signout",
+      ];
+      accessibleComponents = AllComponents.filter((component) =>
+        receptionAllowedValues.includes(component.value)
+      );
+    }
+    else if (userRole === "stakeholder") {
+      const receptionAllowedValues = [
+        "stakeholder home",
         "signout",
       ];
       accessibleComponents = AllComponents.filter((component) =>

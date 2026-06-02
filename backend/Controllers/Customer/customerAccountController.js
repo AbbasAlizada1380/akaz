@@ -7,6 +7,7 @@ import {
     Customer,
     CustomerAccount,
     StockExist,
+    Department
 } from '../../Models/index.js';
 import { Op } from 'sequelize';
 
@@ -242,7 +243,7 @@ export const getCustomersWithUnpaid = async (req, res) => {
                 },
                 {
                     model: StockExist,
-                    as: 'product', // ✅ matches the association in your model
+                    as: 'product',
                     attributes: ['departmentId'],
                     required: true,
                 },
@@ -283,7 +284,23 @@ export const getCustomersWithUnpaid = async (req, res) => {
             raw: true,
         });
 
-        // 6. Build response
+        // 6. Get all unique department IDs from all customers' department maps
+        const allDeptIds = new Set();
+        for (const custData of customerMap.values()) {
+            for (const deptId of custData.departments.keys()) {
+                allDeptIds.add(deptId);
+            }
+        }
+        // Fetch department details (id and name)
+        const departments = await Department.findAll({
+            where: { id: Array.from(allDeptIds) },
+            attributes: ['id', 'name'],
+            raw: true,
+        });
+        const deptNameMap = new Map();
+        departments.forEach(dept => deptNameMap.set(dept.id, dept.name));
+
+        // 7. Build response: replace dynamic keys with departments array
         const responseData = [];
         let grandTotal = 0;
 
@@ -291,14 +308,21 @@ export const getCustomersWithUnpaid = async (req, res) => {
             const custData = customerMap.get(cust.id);
             if (!custData) continue;
 
-            const item = {
+            const departmentsArray = [];
+            for (const [deptId, amount] of custData.departments.entries()) {
+                const deptName = deptNameMap.get(Number(deptId)) || `Department ${deptId}`;
+                departmentsArray.push({
+                    id: deptId,
+                    name: deptName,
+                    amount: amount,
+                });
+            }
+
+            responseData.push({
                 customer: { id: cust.id, fullname: cust.fullname },
                 total_due: custData.total,
-            };
-            for (const [deptId, amount] of custData.departments.entries()) {
-                item[`department${deptId}`] = amount;
-            }
-            responseData.push(item);
+                departments: departmentsArray,   // new array with id, name, amount
+            });
             grandTotal += custData.total;
         }
 

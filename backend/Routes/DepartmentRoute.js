@@ -7,7 +7,9 @@ import {
   deleteDepartment,
   getDepartmentsByUserHolding,
   getBenefitsByDepartmentAndDate,
-  getBenefitsWithFilters
+  getBenefitsWithFilters,
+  getDepartmentCounts,
+  getDepartmentDetails            // <-- import the new controller
 } from "../Controllers/DepartmentController.js";
 
 const DepartmentRoute = express.Router();
@@ -24,7 +26,14 @@ DepartmentRoute.get("/user/:userId", getDepartmentsByUserHolding);
 // Get benefits for a specific department (by department ID)
 DepartmentRoute.get("/:departmentId/benefits", getBenefitsByDepartmentAndDate);
 DepartmentRoute.get("/report", getBenefitsWithFilters);  // supports all query params
-// Get one by ID
+
+// Get counts for withdraw, deposit, realizedBenefit, etc.
+DepartmentRoute.get("/:departmentId/counts", getDepartmentCounts);
+
+// NEW: Get detailed records (withdraws, deposits, realizedBenefits, existingStocks, pays)
+DepartmentRoute.get("/:departmentId/details", getDepartmentDetails);
+
+// Get one by ID (must be last, after all specific :departmentId routes)
 DepartmentRoute.get("/:id", getDepartmentById);
 
 // Update

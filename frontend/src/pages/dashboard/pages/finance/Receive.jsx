@@ -14,11 +14,11 @@ const initialForm = {
 const Receive = () => {
   const [activeTab, setActiveTab] = useState('receives');
   const [receives, setReceives] = useState([]);
-  const [customers, setCustomers] = useState([]);       // full customer debt data
+  const [customers, setCustomers] = useState([]);       // full customer debt data with departments array
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
-  const [departmentAmounts, setDepartmentAmounts] = useState({}); // { department1: 2000, department2: 0, ... }
+  const [departmentAmounts, setDepartmentAmounts] = useState({}); // key: departmentId, value: amount
   const [selectedCustomerData, setSelectedCustomerData] = useState(null);
 
   // Pagination state
@@ -83,12 +83,13 @@ const Receive = () => {
       const selected = customers.find(c => c.customer?.id === parseInt(customerId));
       if (selected) {
         setSelectedCustomerData(selected);
-        // Extract department fields (keys starting with 'department')
-        const deptFields = Object.keys(selected).filter(k => k.startsWith('department'));
+        // Initialize department amounts from the departments array
         const initialDeptAmounts = {};
-        deptFields.forEach(field => {
-          initialDeptAmounts[field] = 0; // start with 0 for each department
-        });
+        if (selected.departments && Array.isArray(selected.departments)) {
+          selected.departments.forEach(dept => {
+            initialDeptAmounts[dept.id] = 0; // start with 0 for each department
+          });
+        }
         setDepartmentAmounts(initialDeptAmounts);
       }
     }
@@ -97,11 +98,11 @@ const Receive = () => {
   // ======================
   // Update amount for a specific department
   // ======================
-  const handleDeptAmountChange = (deptKey, value) => {
+  const handleDeptAmountChange = (deptId, value) => {
     const numValue = parseFloat(value) || 0;
     setDepartmentAmounts(prev => ({
       ...prev,
-      [deptKey]: numValue
+      [deptId]: numValue
     }));
   };
 
@@ -115,9 +116,10 @@ const Receive = () => {
   // ======================
   // Get max possible per department (from customer data)
   // ======================
-  const getMaxForDepartment = (deptKey) => {
-    if (!selectedCustomerData) return 0;
-    return selectedCustomerData[deptKey] || 0;
+  const getMaxForDepartment = (deptId) => {
+    if (!selectedCustomerData || !selectedCustomerData.departments) return 0;
+    const dept = selectedCustomerData.departments.find(d => d.id === deptId);
+    return dept ? dept.amount : 0;
   };
 
   // ======================
@@ -139,16 +141,24 @@ const Receive = () => {
         alert(`Total payment (${totalPayment}) cannot exceed total due (${totalDue})`);
         return false;
       }
-      // Per‑department maximums are enforced by the input's max attribute, but double‑check
-      for (const [deptKey, amount] of Object.entries(departmentAmounts)) {
-        const maxAllowed = getMaxForDepartment(deptKey);
+      // Per‑department maximums enforcement
+      for (const [deptId, amount] of Object.entries(departmentAmounts)) {
+        const maxAllowed = getMaxForDepartment(parseInt(deptId));
         if (amount > maxAllowed) {
-          alert(`Amount for ${deptKey} (${amount}) exceeds the due amount for that department (${maxAllowed})`);
+          const deptName = getDepartmentName(parseInt(deptId));
+          alert(`Amount for ${deptName} (${amount}) exceeds the due amount for that department (${maxAllowed})`);
           return false;
         }
       }
     }
     return true;
+  };
+
+  // Helper to get department name
+  const getDepartmentName = (deptId) => {
+    if (!selectedCustomerData || !selectedCustomerData.departments) return `Department ${deptId}`;
+    const dept = selectedCustomerData.departments.find(d => d.id === deptId);
+    return dept ? dept.name : `Department ${deptId}`;
   };
 
   // ======================
@@ -158,27 +168,24 @@ const Receive = () => {
     e.preventDefault();
     if (!validatePayment()) return;
 
-    // Build payload: include department fields if any, otherwise fallback to single amount
+    // Build payload: include department fields as "department<id>"
     const payload = {
       customer: form.customer,
       description: form.description || null,
       date: new Date().toISOString()
     };
 
-    const totalPayment = getTotalPayment();
-    const hasDepartmentPayments = Object.keys(departmentAmounts).some(k => departmentAmounts[k] > 0);
-
-    if (hasDepartmentPayments) {
-      // Department‑specific payment
-      for (const [deptKey, amount] of Object.entries(departmentAmounts)) {
-        if (amount > 0) {
-          payload[deptKey] = amount;
-        }
+    let hasNonZero = false;
+    for (const [deptId, amount] of Object.entries(departmentAmounts)) {
+      if (amount > 0) {
+        payload[`department${deptId}`] = amount;
+        hasNonZero = true;
       }
-    } else {
-      // Fallback to single amount (should not happen because validation ensures at least one amount)
-      if (totalPayment === 0) return;
-      payload.amount = totalPayment;
+    }
+
+    if (!hasNonZero) {
+      alert('Please enter at least one department payment amount');
+      return;
     }
 
     setLoading(true);
@@ -210,12 +217,11 @@ const Receive = () => {
   };
 
   // ======================
-  // Handle Edit – pre‑fill form (⚠️ editing with department split is complex; you may disable or implement later)
+  // Handle Edit – for simplicity, we disable editing because department split would need to be fetched
   // ======================
   const handleEdit = (receive) => {
-    // For simplicity, editing falls back to single amount; you can extend to fetch original department allocation
     alert('Editing with department split is not fully supported yet. Please delete and recreate if needed.');
-    // Alternatively, you could fetch the original allocation from the backend.
+    // In a real implementation, you would fetch the original allocation and pre‑fill the department amounts.
   };
 
   // ======================
@@ -332,26 +338,26 @@ const Receive = () => {
                   </select>
                 </div>
 
-                {/* Department breakdown and input fields */}
-                {selectedCustomerData && (
+                {/* Department breakdown and input fields using the departments array */}
+                {selectedCustomerData && selectedCustomerData.departments && selectedCustomerData.departments.length > 0 && (
                   <div className="space-y-4 border-t border-gray-200 pt-4">
                     <div className="bg-gray-50 rounded-xl p-4">
                       <h3 className="font-semibold text-gray-800 mb-3">Department Payment Allocation</h3>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {Object.keys(departmentAmounts).map((deptKey) => {
-                          const maxAmount = getMaxForDepartment(deptKey);
+                        {selectedCustomerData.departments.map((dept) => {
+                          const maxAmount = dept.amount;
                           if (maxAmount === 0) return null;
                           return (
-                            <div key={deptKey} className="space-y-2">
-                              <label className="block text-sm font-medium text-gray-700 capitalize">
-                                {deptKey.replace('department', 'Department ')} (Due: ${maxAmount})
+                            <div key={dept.id} className="space-y-2">
+                              <label className="block text-sm font-medium text-gray-700">
+                                {dept.name} (Due: ${maxAmount})
                               </label>
                               <div className="relative">
                                 <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
                                 <input
                                   type="number"
-                                  value={departmentAmounts[deptKey] || 0}
-                                  onChange={(e) => handleDeptAmountChange(deptKey, e.target.value)}
+                                  value={departmentAmounts[dept.id] || 0}
+                                  onChange={(e) => handleDeptAmountChange(dept.id, e.target.value)}
                                   min="0"
                                   max={maxAmount}
                                   step="0.01"
@@ -462,7 +468,7 @@ const Receive = () => {
                         <tr key={receive.id} className="group hover:bg-gray-50">
                           <td className="px-6 py-4 text-sm font-medium text-gray-900">
                             {String(index + 1 + (page - 1) * limit).padStart(2, '0')}
-                          </td>
+                           </td>
                           <td className="px-6 py-4">
                             <div className="font-semibold text-gray-900">
                               {receive.customerInfo?.fullname || getCustomerName(receive.customer)}

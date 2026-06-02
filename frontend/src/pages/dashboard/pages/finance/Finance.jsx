@@ -1,11 +1,22 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSelector } from "react-redux"; // <-- import for role check
 import Receive from "./Receive";
 import Pay from "./Pay";
 import ExistingStock from "../StockExistManager";
-import BenefitsManager from "./BenefitsManager";  // <-- import the Benefit component
+import BenefitsManager from "./BenefitsManager";
 
 const Finance = () => {
+  const { currentUser } = useSelector((state) => state.user);
+  const isReception = currentUser?.role === "reception";
+
   const [activeTab, setActiveTab] = useState("receive");
+
+  // If user is reception, they can only see the Receive tab
+  useEffect(() => {
+    if (isReception && activeTab !== "receive") {
+      setActiveTab("receive");
+    }
+  }, [isReception, activeTab]);
 
   return (
     <div className="bg-gradient-to-br from-gray-50 to-blue-50 p-4 md:p-6">
@@ -33,7 +44,7 @@ const Finance = () => {
         {/* Navigation Tabs */}
         <div className="px-6 pt-6 pb-2">
           <div className="flex flex-col sm:flex-row gap-3">
-            {/* Receive Tab */}
+            {/* Receive Tab - always visible */}
             <button
               className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${
                 activeTab === "receive"
@@ -53,45 +64,49 @@ const Finance = () => {
               )}
             </button>
 
-            {/* Pay Tab */}
-            <button
-              className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${
-                activeTab === "pay"
-                  ? "text-white bg-primary shadow-lg shadow-primary/20"
-                  : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
-              }`}
-              onClick={() => setActiveTab("pay")}
-            >
-              <div className={`p-2 rounded-lg ${activeTab === "pay" ? "bg-white/20" : "bg-primary/10"}`}>
-                <svg className={`w-5 h-5 ${activeTab === "pay" ? "text-black" : "text-primary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                </svg>
-              </div>
-              <span className="text-sm md:text-base">Pay</span>
-              {activeTab === "pay" && (
-                <div className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-t-lg"></div>
-              )}
-            </button>
+            {/* Pay Tab - hidden for reception */}
+            {!isReception && (
+              <button
+                className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${
+                  activeTab === "pay"
+                    ? "text-white bg-primary shadow-lg shadow-primary/20"
+                    : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
+                }`}
+                onClick={() => setActiveTab("pay")}
+              >
+                <div className={`p-2 rounded-lg ${activeTab === "pay" ? "bg-white/20" : "bg-primary/10"}`}>
+                  <svg className={`w-5 h-5 ${activeTab === "pay" ? "text-black" : "text-primary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                  </svg>
+                </div>
+                <span className="text-sm md:text-base">Pay</span>
+                {activeTab === "pay" && (
+                  <div className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-t-lg"></div>
+                )}
+              </button>
+            )}
 
-            {/* Benefit Tab - NEW */}
-            <button
-              className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${
-                activeTab === "benefit"
-                  ? "text-white bg-primary shadow-lg shadow-primary/20"
-                  : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
-              }`}
-              onClick={() => setActiveTab("benefit")}
-            >
-              <div className={`p-2 rounded-lg ${activeTab === "benefit" ? "bg-white/20" : "bg-primary/10"}`}>
-                <svg className={`w-5 h-5 ${activeTab === "benefit" ? "text-black" : "text-primary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <span className="text-sm md:text-base">Benefit</span>
-              {activeTab === "benefit" && (
-                <div className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-t-lg"></div>
-              )}
-            </button>
+            {/* Benefit Tab - hidden for reception */}
+            {!isReception && (
+              <button
+                className={`group flex-1 sm:flex-none flex items-center justify-center gap-3 px-5 py-3.5 rounded-xl font-medium transition-all duration-300 relative ${
+                  activeTab === "benefit"
+                    ? "text-white bg-primary shadow-lg shadow-primary/20"
+                    : "text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200"
+                }`}
+                onClick={() => setActiveTab("benefit")}
+              >
+                <div className={`p-2 rounded-lg ${activeTab === "benefit" ? "bg-white/20" : "bg-primary/10"}`}>
+                  <svg className={`w-5 h-5 ${activeTab === "benefit" ? "text-black" : "text-primary"}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <span className="text-sm md:text-base">Benefit</span>
+                {activeTab === "benefit" && (
+                  <div className="absolute -bottom-1 left-0 right-0 h-1 bg-primary rounded-t-lg"></div>
+                )}
+              </button>
+            )}
           </div>
 
           <div className="mt-4 h-px bg-gradient-to-r from-transparent via-gray-200 to-transparent"></div>
@@ -104,12 +119,12 @@ const Finance = () => {
               <Receive />
             </div>
           )}
-          {activeTab === "pay" && (
+          {!isReception && activeTab === "pay" && (
             <div className="animate-fadeIn">
               <Pay />
             </div>
           )}
-          {activeTab === "benefit" && (
+          {!isReception && activeTab === "benefit" && (
             <div className="animate-fadeIn">
               <BenefitsManager />
             </div>

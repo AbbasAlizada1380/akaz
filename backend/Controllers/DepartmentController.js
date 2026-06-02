@@ -1,5 +1,4 @@
-import {Department} from "../Models/index.js";
-import {Benefit} from "../Models/index.js"
+import { Department, Benefit, DepartmentTransaction, sequelize, StockExist, Pay, User, Seller } from "../Models/index.js";
 import { Op } from "sequelize";
 
 // ✅ Helper: safely get holding object
@@ -297,5 +296,313 @@ export const getBenefitsWithFilters = async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Failed to fetch benefits", error: error.message });
+  }
+};
+// Helper to safely parse JSON arrays
+const parseJSONArray = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
+
+// Get amounts (and counts) for withdraw, deposit, realizedBenefit, exist, and pays for a department
+export const getDepartmentCounts = async (req, res) => {
+  try {
+    const { departmentId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    const department = await Department.findByPk(departmentId);
+    if (!department) {
+      return res.status(404).json({ message: "Department not found" });
+    }
+
+    // Parse stored ID arrays
+    const withdrawIds = parseJSONArray(department.withdraw);
+    const depositIds = parseJSONArray(department.deposit);
+    const realizedBenefitIds = parseJSONArray(department.realizedBenefit);
+    const existIds = parseJSONArray(department.exist);
+    const paysIds = parseJSONArray(department.pays);   // <-- new: Pay IDs
+
+    // Date filter for transactions & benefits
+    const dateFilter = {};
+    if (startDate || endDate) {
+      dateFilter.createdAt = {};
+      if (startDate) dateFilter.createdAt[Op.gte] = new Date(startDate);
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        dateFilter.createdAt[Op.lte] = endDateTime;
+      }
+    }
+
+    // Withdraw (is_deposit = false)
+    let withdrawTotal = 0, withdrawCount = 0;
+    if (withdrawIds.length > 0) {
+      const result = await DepartmentTransaction.findAll({
+        where: { id: { [Op.in]: withdrawIds }, is_deposit: false, ...dateFilter },
+        attributes: [[sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'], [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
+        raw: true,
+      });
+      withdrawTotal = parseFloat(result[0]?.totalAmount || 0);
+      withdrawCount = parseInt(result[0]?.count || 0);
+    }
+
+    // Deposit (is_deposit = true)
+    let depositTotal = 0, depositCount = 0;
+    if (depositIds.length > 0) {
+      const result = await DepartmentTransaction.findAll({
+        where: { id: { [Op.in]: depositIds }, is_deposit: true, ...dateFilter },
+        attributes: [[sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'], [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
+        raw: true,
+      });
+      depositTotal = parseFloat(result[0]?.totalAmount || 0);
+      depositCount = parseInt(result[0]?.count || 0);
+    }
+
+    // Realized Benefits (Benefit table)
+    let realizedBenefitTotal = 0, realizedBenefitCount = 0;
+    if (realizedBenefitIds.length > 0) {
+      const result = await Benefit.findAll({
+        where: { id: { [Op.in]: realizedBenefitIds }, ...dateFilter },
+        attributes: [[sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'], [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
+        raw: true,
+      });
+      realizedBenefitTotal = parseFloat(result[0]?.totalAmount || 0);
+      realizedBenefitCount = parseInt(result[0]?.count || 0);
+    }
+
+    // EXISTING STOCK VALUE: sum amount * unit_price for all StockExist records
+    let existTotal = 0, existCount = 0;
+    if (existIds.length > 0) {
+      const stocks = await StockExist.findAll({
+        where: { id: { [Op.in]: existIds } },
+        attributes: ['amount', 'unit_price'],
+        raw: true,
+      });
+      existCount = stocks.length;
+      existTotal = stocks.reduce((sum, stock) => {
+        const value = (stock.amount || 0) * (stock.unit_price || 0);
+        return sum + value;
+      }, 0);
+    }
+
+    // PAYS: sum amounts from Pay table
+    let paysTotal = 0, paysCount = 0;
+    if (paysIds.length > 0) {
+      const result = await Pay.findAll({
+        where: { id: { [Op.in]: paysIds }, ...dateFilter },
+        attributes: [[sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'], [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
+        raw: true,
+      });
+      paysTotal = parseFloat(result[0]?.totalAmount || 0);
+      paysCount = parseInt(result[0]?.count || 0);
+    }
+
+    // Grand total = deposit - withdraw + realizedBenefit + existTotal + paysTotal
+    const grandTotal = depositTotal - withdrawTotal + realizedBenefitTotal + existTotal - paysTotal;
+
+    res.status(200).json({
+      message: "Department amounts fetched successfully",
+      data: {
+        departmentId: department.id,
+        departmentName: department.name,
+        amounts: {
+          withdraw: withdrawTotal,
+          deposit: depositTotal,
+          realizedBenefit: realizedBenefitTotal,
+          exist: existTotal,
+          pays: paysTotal,
+          grandTotal: grandTotal,
+        },
+        counts: {
+          withdraw: withdrawCount,
+          deposit: depositCount,
+          realizedBenefit: realizedBenefitCount,
+          exist: existCount,
+          pays: paysCount,
+        },
+        dateRange: startDate || endDate
+          ? { startDate: startDate || null, endDate: endDate || null }
+          : "all",
+      },
+    });
+  } catch (error) {
+    console.error("Error in getDepartmentCounts:", error);
+    res.status(500).json({
+      message: "Failed to fetch department amounts",
+      error: error.message,
+    });
+  }
+};
+
+// Get detailed records for withdraw, deposit, realizedBenefit, exist, and pays
+export const getDepartmentDetails = async (req, res) => {
+  try {
+    const { departmentId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    const department = await Department.findByPk(departmentId);
+    if (!department) {
+      return res.status(404).json({ message: "Department not found" });
+    }
+
+    // Parse stored ID arrays
+    const withdrawIds = parseJSONArray(department.withdraw);
+    const depositIds = parseJSONArray(department.deposit);
+    const realizedBenefitIds = parseJSONArray(department.realizedBenefit);
+    const existIds = parseJSONArray(department.exist);
+    const paysIds = parseJSONArray(department.pays);
+
+    // Date filter
+    const dateFilter = {};
+    if (startDate || endDate) {
+      dateFilter.createdAt = {};
+      if (startDate) dateFilter.createdAt[Op.gte] = new Date(startDate);
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        dateFilter.createdAt[Op.lte] = endDateTime;
+      }
+    }
+
+    // Helper to apply date filter only if object has createdAt field
+    const applyDateFilter = (whereClause) => {
+      if (Object.keys(dateFilter).length && dateFilter.createdAt) {
+        whereClause.createdAt = dateFilter.createdAt;
+      }
+      return whereClause;
+    };
+
+    // 1. Withdraw transactions (is_deposit = false) with user name
+    let withdraws = [];
+    if (withdrawIds.length > 0) {
+      withdraws = await DepartmentTransaction.findAll({
+        where: applyDateFilter({ id: { [Op.in]: withdrawIds }, is_deposit: false }),
+        include: [
+          {
+            model: User,
+            as: 'user',        // adjust alias if different (e.g., 'userInfo')
+            attributes: ['fullname'], // try 'fullname' first, fallback to 'name'
+            required: false,
+          },
+        ],
+        attributes: ['id', 'amount', 'createdAt', 'userId', 'depId'],
+        order: [['createdAt', 'DESC']],
+        raw: true,
+        nest: true,
+      });
+      // Extract user name (choose fullname if exists, else name)
+      withdraws = withdraws.map(w => ({
+        ...w,
+        userName: w.user?.fullname || w.user?.name || 'Unknown',
+        user: undefined, // remove nested user object
+      }));
+    }
+
+    // 2. Deposit transactions (is_deposit = true) with user name
+    let deposits = [];
+    if (depositIds.length > 0) {
+      deposits = await DepartmentTransaction.findAll({
+        where: applyDateFilter({ id: { [Op.in]: depositIds }, is_deposit: true }),
+        include: [
+          {
+            model: User,
+            as: 'user',
+            attributes: ['fullname'],
+            required: false,
+          },
+        ],
+        attributes: ['id', 'amount', 'createdAt', 'userId', 'depId'],
+        order: [['createdAt', 'DESC']],
+        raw: true,
+        nest: true,
+      });
+      deposits = deposits.map(d => ({
+        ...d,
+        userName: d.user?.fullname || 'Unknown',
+        user: undefined,
+      }));
+    }
+
+    // 3. Realized Benefits (no user info needed)
+    let realizedBenefits = [];
+    if (realizedBenefitIds.length > 0) {
+      realizedBenefits = await Benefit.findAll({
+        where: applyDateFilter({ id: { [Op.in]: realizedBenefitIds } }),
+        attributes: ['id', 'amount', 'sellId', 'departmentId', 'createdAt'],
+        order: [['createdAt', 'DESC']],
+        raw: true,
+      });
+    }
+
+    // 4. Existing Stock Items (no user info)
+    let existingStocks = [];
+    if (existIds.length > 0) {
+      existingStocks = await StockExist.findAll({
+        where: { id: { [Op.in]: existIds } },
+        attributes: ['id', 'name', 'amount', 'unit_price', 'sell_price', 'departmentId', 'createdAt'],
+        order: [['name', 'ASC']],
+        raw: true,
+      });
+      existingStocks = existingStocks.map(item => ({
+        ...item,
+        total_value: (item.amount || 0) * (item.unit_price || 0)
+      }));
+    }
+
+ // 5. Pays with seller's full name (assuming seller is a foreign key to Seller model)
+let pays = [];
+if (paysIds.length > 0) {
+  pays = await Pay.findAll({
+    where: applyDateFilter({ id: { [Op.in]: paysIds } }),
+    include: [
+      {
+        model: Seller,
+        as: 'sellerInfo',   // correct alias from association
+        attributes: ['fullname'],
+        required: false,
+      },
+    ],
+    attributes: ['id', 'amount', 'seller', 'description', 'createdAt'],
+    order: [['createdAt', 'DESC']],
+    raw: true,
+    nest: true,
+  });
+  pays = pays.map(p => ({
+    ...p,
+    sellerName: p.sellerInfo?.fullname || p.seller || 'Unknown',
+    sellerInfo: undefined,
+  }));
+}
+
+    res.status(200).json({
+      message: "Department details fetched successfully",
+      data: {
+        departmentId: department.id,
+        departmentName: department.name,
+        dateRange: startDate || endDate
+          ? { startDate: startDate || null, endDate: endDate || null }
+          : "all",
+        withdraws,
+        deposits,
+        realizedBenefits,
+        existingStocks,
+        pays,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getDepartmentDetails:", error);
+    res.status(500).json({
+      message: "Failed to fetch department details",
+      error: error.message,
+    });
   }
 };
