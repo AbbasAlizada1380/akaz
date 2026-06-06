@@ -135,7 +135,7 @@ const BillsList = () => {
                       >
                         View Items
                       </button>
-                      <BillExport billId={bill.id} />
+{/* <BillExport billId={selectedBillData.bill.id} billData={selectedBillData} /> */}
                     </td>
                   </tr>
                 ))}
@@ -210,7 +210,7 @@ const BillsList = () => {
                   </tbody>
                 </table>
                 <div className="mt-6 flex justify-end border-t pt-4">
-                  <BillExport billId={selectedBillData.bill.id} />
+<BillExport billId={selectedBillData.bill.id} billData={selectedBillData} />
                 </div>
               </>
             )}

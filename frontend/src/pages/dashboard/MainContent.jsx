@@ -43,7 +43,7 @@ const renderContent = () => {
     case "stock":
       return <Stock />;
     case "stakeholder home":
-      return <Stock />;      // kept for consistency
+      return <Stakeholderpage />;      // kept for consistency
     case "setting":
       return <Setting />;
     case "ServiceManager":

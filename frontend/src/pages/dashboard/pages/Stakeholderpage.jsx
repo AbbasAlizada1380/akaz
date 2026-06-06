@@ -6,10 +6,12 @@ import moment from "moment";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
 import DepartmentDetailsDownload from "./report/DepartmentDetailsDownload";
+import { useSelector } from "react-redux";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL || "http://localhost:5000/api";
 
 const Stakeholderpage = () => {
+  const { currentUser } = useSelector((state) => state.user);
   const [departments, setDepartments] = useState([]);
   const [selectedDept, setSelectedDept] = useState("");
   const [stats, setStats] = useState(null);
@@ -19,18 +21,30 @@ const Stakeholderpage = () => {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
 
-  // Fetch all departments on mount
+  // Fetch departments based on user role
   useEffect(() => {
     const fetchDepartments = async () => {
+      if (!currentUser?.id) return;
+
       try {
-        const res = await axios.get(`${BASE_URL}/department`);
-        setDepartments(res.data.data || []);
+        let res;
+        if (currentUser.role === "admin") {
+          // Admin sees all departments
+          res = await axios.get(`${BASE_URL}/department`);
+          setDepartments(res.data.data || []);
+        } else {
+          // Regular user sees only departments where they have a holding share
+          res = await axios.get(`${BASE_URL}/department/user/${currentUser.id}/share`);
+          setDepartments(res.data.data || []);
+        }
       } catch (err) {
         console.error("Failed to load departments:", err);
+        setError("Could not load departments. Please try again later.");
       }
     };
+
     fetchDepartments();
-  }, []);
+  }, [currentUser?.id, currentUser?.role]);
 
   // Fetch stats when department or dates change
   useEffect(() => {
@@ -191,7 +205,7 @@ const Stakeholderpage = () => {
           <option value="">-- Choose a department --</option>
           {departments.map((dept) => (
             <option key={dept.id} value={dept.id}>
-              {dept.name}
+              {dept.name} {currentUser?.role !== "admin" && dept.userShare !== undefined && `(${dept.userShare}%)`}
             </option>
           ))}
         </select>

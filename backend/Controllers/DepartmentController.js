@@ -606,3 +606,56 @@ if (paysIds.length > 0) {
     });
   }
 };
+
+
+// NEW: Get departments for a specific user with their holding percentage
+export const getUserDepartmentsWithShare = async (req, res) => {
+  try {
+    const { userId } = req.params;   // e.g., /api/departments/user/:userId
+    // Alternative: if userId comes from query: const userId = req.query.userId;
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    const userIdStr = String(userId);
+
+    // Fetch all departments (you can add pagination if needed)
+    const allDepartments = await Department.findAll({
+      order: [["name", "ASC"]],
+    });
+
+    // Filter and enrich with user's share
+    const userDepartments = [];
+    for (const dept of allDepartments) {
+      const holding = getHoldingObject(dept.holding);
+      const userShare = holding[userIdStr];
+      if (userShare !== undefined && userShare !== null && userShare !== 0) {
+        userDepartments.push({
+          id: dept.id,
+          name: dept.name,
+          isActive: dept.isActive,
+          holding: dept.holding,          // full holding object
+          userShare: parseFloat(userShare), // user's percentage (e.g., 20)
+          createdAt: dept.createdAt,
+          updatedAt: dept.updatedAt,
+        });
+      }
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Departments fetched successfully for user",
+      userId: userIdStr,
+      count: userDepartments.length,
+      data: userDepartments,
+    });
+  } catch (error) {
+    console.error("Error in getUserDepartmentsWithShare:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch departments for user",
+      error: error.message,
+    });
+  }
+};
