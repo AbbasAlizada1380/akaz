@@ -125,7 +125,11 @@ const BillExport = ({ billId, billData: propBillData }) => {
     const items = sells || [];
 
     const workbook = XLSX.utils.book_new();
+
+    // --- Build rows for Invoice sheet ---
     const invoiceRows = [];
+
+    invoiceRows.push(["Zangera Omid"]);
     invoiceRows.push([`Invoice #${bill.billNumber}`]);
     invoiceRows.push([`Date: ${formatDate(bill.date)}`]);
     invoiceRows.push([`Customer: ${customer.fullname || "-"}`]);
@@ -152,15 +156,79 @@ const BillExport = ({ billId, billData: propBillData }) => {
     invoiceRows.push(["Remaining:", "", "", "", parseFloat(bill.remainingAmount).toFixed(2)]);
     invoiceRows.push(["Status:", bill.status === "paid" ? "Paid" : bill.status === "partial" ? "Partial" : "Unpaid"]);
     invoiceRows.push([]);
-    invoiceRows.push([`Generated: `, `${moment().format("YYYY/MM/DD HH:mm")}`]);
+    invoiceRows.push([`Generated: ${moment().format("YYYY/MM/DD HH:mm")}`]);
 
     const wsInvoice = XLSX.utils.aoa_to_sheet(invoiceRows);
-    wsInvoice["!cols"] = [{ wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 18 }];
+
+    // --- Column widths (fits A4 portrait) ---
+    wsInvoice["!cols"] = [
+      { wch: 28 },  // Product
+      { wch: 8 },   // Quantity
+      { wch: 10 },  // Unit Price
+      { wch: 8 },   // Discount %
+      { wch: 12 },  // Total
+    ];
+
+    // --- Merges & centering ---
+    if (!wsInvoice["!merges"]) wsInvoice["!merges"] = [];
+    wsInvoice["!merges"].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }); // Business name
+    wsInvoice["!merges"].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 4 } }); // Invoice #
+
+    // Center the two merged cells
+    const titleCell = wsInvoice[XLSX.utils.encode_cell({ r: 0, c: 0 })];
+    if (titleCell) {
+      titleCell.s = titleCell.s || {};
+      titleCell.s.alignment = { horizontal: "center", vertical: "center" };
+    }
+    const invoiceNumCell = wsInvoice[XLSX.utils.encode_cell({ r: 1, c: 0 })];
+    if (invoiceNumCell) {
+      invoiceNumCell.s = invoiceNumCell.s || {};
+      invoiceNumCell.s.alignment = { horizontal: "center", vertical: "center" };
+    }
+
+    // --- Text wrapping for Product column ---
+    const range = XLSX.utils.decode_range(wsInvoice["!ref"] || "A1:E100");
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: 0 });
+      if (wsInvoice[cellAddress]) {
+        wsInvoice[cellAddress].s = wsInvoice[cellAddress].s || {};
+        wsInvoice[cellAddress].s.alignment = wsInvoice[cellAddress].s.alignment || {};
+        wsInvoice[cellAddress].s.alignment.wrapText = true;
+      }
+    }
+
+    // --- Print settings for A4 (standard margins, fit width) ---
+    wsInvoice["!pageSetup"] = {
+      orientation: "portrait",          // A4 portrait
+      paperSize: 9,                     // A4
+      fitToWidth: 1,                    // All columns on one page
+      fitToHeight: 0,                   // Rows can break across pages
+      scale: 95,                        // Slight shrink for safety
+      horizontalDpi: 300,
+      verticalDpi: 300,
+    };
+
+    // Standard A4 margins (in inches) – adjust as preferred
+    wsInvoice["!margins"] = {
+      left: 0.7,
+      right: 0.7,
+      top: 0.75,
+      bottom: 0.75,
+      header: 0.3,
+      footer: 0.3,
+    };
+
+    // Set print area to the used range (avoid printing empty cells)
+    if (wsInvoice["!ref"]) {
+      wsInvoice["!printArea"] = { s: { r: 0, c: 0 }, e: range.e };
+    }
+
     XLSX.utils.book_append_sheet(workbook, wsInvoice, "Invoice");
 
+    // --- Raw Data sheet (unchanged, but keep margins and page setup) ---
     const rawData = items.map((item) => ({
-      "Product ID": item.productId,
-      "Product Name": item.product?.name || "Unknown",
+      ID: item.productId,
+      Name: item.product?.name || "Unknown",
       Quantity: item.amount,
       "Unit Price": item.unit_price,
       "Discount %": item.discount_percent,
@@ -168,6 +236,9 @@ const BillExport = ({ billId, billData: propBillData }) => {
       Total: item.total,
     }));
     const wsRaw = XLSX.utils.json_to_sheet(rawData);
+    wsRaw["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 12 }];
+    wsRaw["!pageSetup"] = { orientation: "portrait", paperSize: 9, fitToWidth: 1, fitToHeight: 0 };
+    wsRaw["!margins"] = { left: 0.7, right: 0.7, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 };
     XLSX.utils.book_append_sheet(workbook, wsRaw, "Raw Data");
 
     const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });

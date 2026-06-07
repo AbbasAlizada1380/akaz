@@ -36,14 +36,19 @@ const DepartmentManager = () => {
   };
 
   // ✅ New - Fetch from /users
-  const fetchMembers = async () => {
-    try {
-      const res = await axios.get(`${BASE_URL}/users`);
-      setMembers(res.data || []); // because your API returns array directly
-    } catch (error) {
-      console.error("Error fetching users:", error);
-    }
-  };
+const fetchMembers = async () => {
+  try {
+    const res = await axios.get(`${BASE_URL}/users`);
+    const allUsers = res.data || [];
+    // Keep only users whose role is 'stakeholder' or 'admin'
+    const filteredMembers = allUsers.filter(
+      (user) => user.role === "stakeholder" || user.role === "admin"
+    );
+    setMembers(filteredMembers);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+  }
+};
 
   useEffect(() => {
     fetchDepartments(currentPage);
