@@ -1,6 +1,7 @@
-import { Pay, SellerAccount, sequelize, StockIncome } from "../../Models/index.js";
+import { Pay, SellerAccount, sequelize, Factor } from "../../Models/index.js";
 import { Seller } from "../../Models/index.js";
 import { Op } from "sequelize";
+
 export const createPay = async (req, res) => {
   const transaction = await sequelize.transaction();
 
@@ -24,7 +25,7 @@ export const createPay = async (req, res) => {
       });
     }
 
-    // 1. Create the pay record
+    // 1. Create the pay record (initial, will be updated with factor info later if needed)
     const pay = await Pay.create(
       {
         seller,
@@ -34,14 +35,14 @@ export const createPay = async (req, res) => {
       { transaction }
     );
 
-    // 2. Find the seller account
+    // 2. Find or create seller account
     let sellerAccount = await SellerAccount.findOne({
       where: { sellerId: seller },
       transaction,
     });
 
     if (!sellerAccount) {
-      // If seller account doesn't exist, create one with empty arrays
+      // No account at all: just create with empty arrays and commit
       sellerAccount = await SellerAccount.create(
         {
           sellerId: seller,
@@ -51,130 +52,132 @@ export const createPay = async (req, res) => {
         },
         { transaction }
       );
-
       await transaction.commit();
-
       return res.status(201).json({
         success: true,
-        message: "Payment created successfully (new seller account)",
-        data: {
-          pay,
-          sellerAccount,
-        },
+        message: "Payment created successfully (new seller account, no factors to pay)",
+        data: { pay, sellerAccount },
       });
     }
 
-    // 3. Get the unpaid array and sort it (smallest ID first)
-    const unpaidIds = Array.isArray(sellerAccount.unpaid)
-      ? [...sellerAccount.unpaid].sort((a, b) => a - b) // Sort ascending (smallest first)
-      : [];
-
-    if (unpaidIds.length === 0) {
-      // No unpaid records to process
+    // 3. Get unpaid factor IDs and sort them (oldest first: by id or createdAt)
+    let unpaidFactorIds = Array.isArray(sellerAccount.unpaid) ? [...sellerAccount.unpaid] : [];
+    if (unpaidFactorIds.length === 0) {
       await transaction.commit();
-
       return res.status(201).json({
         success: true,
-        message: "Payment created successfully (no unpaid records to process)",
-        data: {
-          pay,
-          sellerAccount,
-        },
+        message: "Payment created successfully (no unpaid factors to process)",
+        data: { pay, sellerAccount },
       });
     }
 
-    // 4. Fetch all unpaid stock incomes for this seller
-    const unpaidStockIncomes = await StockIncome.findAll({
+    // Fetch unpaid factors ordered by id (ascending = oldest first)
+    const unpaidFactors = await Factor.findAll({
       where: {
-        id: unpaidIds,
+        id: unpaidFactorIds,
         sellerId: seller,
+        remainingAmount: { [Op.gt]: 0 }, // only those with remaining balance
       },
-      order: [['id', 'ASC']], // Order by ID ascending (smallest first)
+      order: [['id', 'ASC']], // oldest factor first
       transaction,
     });
 
-    let remainingAmount = parseFloat(amount);
-    const processedPaidIds = [];
-    const remainingUnpaidIds = [];
+    if (unpaidFactors.length === 0) {
+      // All unpaid factors have zero remaining (inconsistent, fix by cleaning sellerAccount)
+      await sellerAccount.update({ unpaid: [], paid: [...(sellerAccount.paid || []), ...unpaidFactorIds] }, { transaction });
+      await transaction.commit();
+      return res.status(201).json({
+        success: true,
+        message: "Payment created but no factors with positive remaining (seller account cleaned)",
+        data: { pay, sellerAccount },
+      });
+    }
 
-    // 5. Process each unpaid stock income in order (smallest ID first)
-    for (const stockIncome of unpaidStockIncomes) {
-      if (remainingAmount <= 0) {
-        // No more money to distribute, keep this in unpaid
-        remainingUnpaidIds.push(stockIncome.id);
+    let remainingPayment = parseFloat(amount);
+    const processedFactorIds = [];      // fully paid
+    const remainingUnpaidFactorIds = []; // still unpaid (partial or untouched)
+
+    // 4. Process factors one by one (oldest first)
+    for (const factor of unpaidFactors) {
+      if (remainingPayment <= 0) {
+        // No more money left, keep this factor as unpaid
+        remainingUnpaidFactorIds.push(factor.id);
         continue;
       }
 
-      const stockRemaining = parseFloat(stockIncome.remaind) || 0;
-
-      if (stockRemaining <= 0) {
-        // This stock income has no remaining balance, should it be in unpaid?
-        // Move it to paid if it's fully paid
-        processedPaidIds.push(stockIncome.id);
+      const factorRemaining = parseFloat(factor.remainingAmount) || 0;
+      if (factorRemaining <= 0) {
+        // Should not happen because of filter, but skip if zero
+        processedFactorIds.push(factor.id);
         continue;
       }
 
-      if (remainingAmount >= stockRemaining) {
-        // Fully pay this stock income
-        remainingAmount -= stockRemaining;
-
-        // Update stock income to fully paid
-        await stockIncome.update(
+      if (remainingPayment >= factorRemaining) {
+        // Fully pay this factor
+        const newPaidAmount = (parseFloat(factor.paidAmount) || 0) + factorRemaining;
+        await factor.update(
           {
-            paid: (parseFloat(stockIncome.paid) || 0) + stockRemaining,
-            remaind: 0,
+            paidAmount: newPaidAmount,
+            remainingAmount: 0,
+            status: "paid",
           },
           { transaction }
         );
-
-        // Mark as paid
-        processedPaidIds.push(stockIncome.id);
+        remainingPayment -= factorRemaining;
+        processedFactorIds.push(factor.id);
       } else {
-        // Partially pay this stock income
-        const newReceived = (parseFloat(stockIncome.paid) || 0) + remainingAmount;
-        const newRemaining = stockRemaining - remainingAmount;
+        // Partial payment: reduce factor's remaining amount
+        const paymentUsed = remainingPayment;
+        const newPaidAmount = (parseFloat(factor.paidAmount) || 0) + paymentUsed;
+        const newRemaining = factorRemaining - paymentUsed;
 
-        await stockIncome.update(
+        await factor.update(
           {
-            paid: newReceived,
-            remaind: newRemaining,
+            paidAmount: newPaidAmount,
+            remainingAmount: newRemaining,
+            status: newRemaining === 0 ? "paid" : "partial", // partial -> remain >0
           },
           { transaction }
         );
-
-        // This stock income remains unpaid (with reduced balance)
-        remainingUnpaidIds.push(stockIncome.id);
-        remainingAmount = 0;
+        // This factor still has unpaid balance, keep it in unpaid array
+        remainingUnpaidFactorIds.push(factor.id);
+        remainingPayment = 0;
       }
     }
 
-    // If there are any unpaid stock incomes that weren't processed (beyond those we fetched)
-    // Add them to remainingUnpaidIds
-    const processedIds = unpaidStockIncomes.map(s => s.id);
-    const unprocessedIds = unpaidIds.filter(id => !processedIds.includes(id));
-    remainingUnpaidIds.push(...unprocessedIds);
+    // After the loop, any remaining unpaid factors that were not processed (e.g., due to filter)
+    // are already in remainingUnpaidFactorIds? Actually we added all unpaidFactors either fully paid or kept.
+    // Also need to add any factor IDs that existed in sellerAccount.unpaid but were not fetched because
+    // they had remainingAmount=0 (should be moved to paid)
+    const fetchedIds = unpaidFactors.map(f => f.id);
+    const zeroRemainingIds = unpaidFactorIds.filter(id => !fetchedIds.includes(id));
+    if (zeroRemainingIds.length > 0) {
+      processedFactorIds.push(...zeroRemainingIds);
+    }
 
-    // 6. Update seller account arrays
-    const currentPaid = Array.isArray(sellerAccount.paid)
-      ? [...sellerAccount.paid]
-      : [];
+    // 5. Update seller account arrays
+    const currentPaid = Array.isArray(sellerAccount.paid) ? [...sellerAccount.paid] : [];
+    const currentTotal = Array.isArray(sellerAccount.total) ? [...sellerAccount.total] : [];
 
-    const currentTotal = Array.isArray(sellerAccount.total)
-      ? [...sellerAccount.total]
-      : [];
-
-    // Add newly paid IDs to paid array (avoid duplicates)
-    processedPaidIds.forEach(id => {
-      if (!currentPaid.includes(id)) {
-        currentPaid.push(id);
-      }
+    // Add newly fully paid factors to paid array (avoid duplicates)
+    processedFactorIds.forEach(id => {
+      if (!currentPaid.includes(id)) currentPaid.push(id);
     });
 
-    // Update seller account with modified arrays
+    // New unpaid array = partially paid factors + any untouched factors that we didn't reach
+    // (remainingUnpaidFactorIds already contains partially paid factors, and any factors we didn't touch because payment ran out)
+    // But we also need to include factors from unpaidFactors that were never processed (if payment exhausted earlier)
+    // Actually we added all unpaidFactors: either into processedFactorIds or remainingUnpaidFactorIds.
+    // So final unpaid = remainingUnpaidFactorIds.
+    const newUnpaid = remainingUnpaidFactorIds;
+
+    // Remove from paid if somehow appears in newUnpaid (should not happen)
+    const finalPaid = currentPaid.filter(id => !newUnpaid.includes(id));
+
     await sellerAccount.update(
       {
-        paid: currentPaid,
-        unpaid: remainingUnpaidIds,
+        paid: finalPaid,
+        unpaid: newUnpaid,
         // total remains unchanged
       },
       { transaction }
@@ -183,37 +186,30 @@ export const createPay = async (req, res) => {
     await transaction.commit();
 
     // Fetch updated data for response
-    const updatedSellerAccount = await SellerAccount.findOne({
-      where: { sellerId: seller },
-    });
-
-    // Fetch the updated stock incomes that were affected
-    const affectedStockIncomes = await StockIncome.findAll({
-      where: {
-        id: [...processedPaidIds, ...remainingUnpaidIds],
-      },
+    const updatedSellerAccount = await SellerAccount.findOne({ where: { sellerId: seller } });
+    const affectedFactors = await Factor.findAll({
+      where: { id: [...processedFactorIds, ...remainingUnpaidFactorIds] },
     });
 
     res.status(201).json({
       success: true,
-      message: "Payment created and applied to unpaid records successfully",
+      message: "Payment created and applied to unpaid factors successfully",
       data: {
         pay,
         sellerAccount: updatedSellerAccount,
         paymentDistribution: {
           totalAmount: parseFloat(amount),
-          appliedAmount: parseFloat(amount) - remainingAmount,
-          remainingAmount: remainingAmount,
-          fullyPaidIds: processedPaidIds,
-          partiallyPaidIds: remainingUnpaidIds.filter(id =>
-            affectedStockIncomes.find(s => s.id === id && parseFloat(s.remaind) > 0)
+          appliedAmount: parseFloat(amount) - remainingPayment,
+          remainingAmount: remainingPayment,
+          fullyPaidFactorIds: processedFactorIds,
+          partiallyPaidFactorIds: remainingUnpaidFactorIds.filter(id =>
+            affectedFactors.find(f => f.id === id && parseFloat(f.remainingAmount) > 0)
           ),
-          unpaidIds: remainingUnpaidIds,
+          unpaidFactorIds: remainingUnpaidFactorIds,
         },
-        affectedStockIncomes,
+        affectedFactors,
       },
     });
-
   } catch (error) {
     await transaction.rollback();
     console.error("Error creating payment:", error);

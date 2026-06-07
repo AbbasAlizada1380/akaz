@@ -1,5 +1,6 @@
 import React from "react";
-import DashboardHome from "./report/DashboardHome";
+import Stakeholderpage from "./stakeholderpage";
+import CombinedReport from "./report/CombinedReport";
 
 const Dashboard = () => {
   return (
@@ -11,7 +12,8 @@ const Dashboard = () => {
 
       {/* Render the FinancialReports component */}
       <div className="mt-6">
-        <DashboardHome />
+        <CombinedReport/>
+        <Stakeholderpage />
         {/* <AnalyticsDashboard /> */}
       </div>
     </div>

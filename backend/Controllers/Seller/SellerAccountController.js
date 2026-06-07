@@ -3,7 +3,7 @@ import Seller from "../../Models/Seller/Seller.js"
 import sequelize from '../../dbconnection.js';
 import Sell from "../../Models/Stock/Sells.js";
 import { Op } from "sequelize";
-import { StockIncome } from "../../Models/index.js";
+import { StockIncome,Factor } from "../../Models/index.js";
 
 
 // @desc    Create a new seller account
@@ -159,20 +159,16 @@ export const deleteSellerAccount = async (req, res) => {
 
 export const getSellersWithUnpaid = async (req, res) => {
     try {
-        // 1. Find sellers with at least one unpaid item in their account
-        const accountsWithUnpaid = await SellerAccount.findAll({
-            where: sequelize.where(
-                sequelize.fn('JSON_LENGTH', sequelize.col('unpaid')),
-                '>',
-                0
-            ),
-            attributes: ['sellerId'],
+        // 1. Find all factors that are not fully paid (remainingAmount > 0)
+        const unpaidFactors = await Factor.findAll({
+            where: {
+                remainingAmount: { [Op.gt]: 0 }
+            },
+            attributes: ['sellerId', 'remainingAmount'],
             raw: true,
         });
 
-        const sellerIds = accountsWithUnpaid.map(a => a.sellerId);
-
-        if (sellerIds.length === 0) {
+        if (unpaidFactors.length === 0) {
             return res.status(200).json({
                 success: true,
                 data: [],
@@ -180,44 +176,33 @@ export const getSellersWithUnpaid = async (req, res) => {
             });
         }
 
-        // 2. Fetch seller details
+        // 2. Aggregate total remaining amount per seller
+        const sellerDueMap = new Map();
+        for (const factor of unpaidFactors) {
+            const sellerId = factor.sellerId;
+            const amount = parseFloat(factor.remainingAmount) || 0;
+            sellerDueMap.set(sellerId, (sellerDueMap.get(sellerId) || 0) + amount);
+        }
+
+        const sellerIds = Array.from(sellerDueMap.keys());
+
+        // 3. Fetch seller details (fullname)
         const sellers = await Seller.findAll({
             where: { id: sellerIds },
             attributes: ['id', 'fullname'],
             raw: true,
         });
 
-        // 3. Sum remaind amount per seller from StockIncome
-        const results = await StockIncome.findAll({
-            attributes: [
-                'sellerId',
-                [sequelize.fn('SUM', sequelize.col('remaind')), 'totalDue'],
-            ],
-            where: {
-                sellerId: sellerIds,
-                remaind: { [Op.gt]: 0 },
-            },
-            group: ['sellerId'],
-            raw: true,
-        });
-
-        // Build map of sellerId -> totalDue
-        const dueMap = new Map();
-        results.forEach(r => {
-            const totalDue = parseFloat(r.totalDue) || 0;
-            dueMap.set(r.sellerId, totalDue);
-        });
-
-        // 4. Combine seller info with due amount
-        const data = sellers.map(s => ({
+        // 4. Build response array
+        const data = sellers.map(seller => ({
             seller: {
-                id: s.id,
-                fullname: s.fullname,
+                id: seller.id,
+                fullname: seller.fullname,
             },
-            totalDue: dueMap.get(s.id) || 0,
+            totalDue: sellerDueMap.get(seller.id) || 0,
         }));
 
-        // 5. Calculate grand total
+        // 5. Grand total of all remaining amounts
         const total = data.reduce((sum, item) => sum + item.totalDue, 0);
 
         res.status(200).json({
@@ -225,13 +210,12 @@ export const getSellersWithUnpaid = async (req, res) => {
             data,
             total,
         });
-
     } catch (error) {
         console.error('Error in getSellersWithUnpaid:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             success: false,
-            message: 'Server error', 
-            error: error.message 
+            message: 'Server error',
+            error: error.message,
         });
     }
 };

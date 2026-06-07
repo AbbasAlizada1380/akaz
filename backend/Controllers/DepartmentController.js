@@ -202,17 +202,28 @@ export const deleteDepartment = async (req, res) => {
 
 export const getBenefitsByDepartmentAndDate = async (req, res) => {
   try {
-    const { departmentId } = req.params;
+    // Support both: departmentId from params (old route) or from query (new route)
+    let departmentId = req.params.departmentId || req.query.departmentId;
     const { startDate, endDate, page = 1, limit = 10 } = req.query;
 
-    // Validate department
-    const department = await Department.findByPk(departmentId);
-    if (!department) {
-      return res.status(404).json({ message: "Department not found" });
+    // Build where clause
+    const whereClause = {};
+
+    // If departmentId is provided and is NOT 'all' or empty string, validate and add filter
+    if (departmentId && departmentId !== 'all' && departmentId !== '') {
+      const deptIdNum = parseInt(departmentId);
+      if (isNaN(deptIdNum)) {
+        return res.status(400).json({ message: "Invalid department ID" });
+      }
+      // Check department exists
+      const department = await Department.findByPk(deptIdNum);
+      if (!department) {
+        return res.status(404).json({ message: "Department not found" });
+      }
+      whereClause.departmentId = deptIdNum;
     }
 
-    // Build where clause
-    const whereClause = { departmentId };
+    // Date range filter
     if (startDate || endDate) {
       whereClause.createdAt = {};
       if (startDate) {

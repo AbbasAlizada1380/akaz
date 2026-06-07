@@ -4,27 +4,46 @@ import { Department, Seller, SellerAccount, StockIncome, StockExist, Factor } fr
 import sequelize from "../../dbconnection.js";
 import { Op, Transaction } from "sequelize";
 
-async function updateSellerAccountPaid(sellerId, incomeIds, transaction) {
-  if (!incomeIds || incomeIds.length === 0) return null;
-
+// NEW helper: update SellerAccount using factor (not individual incomes)
+async function updateSellerAccountWithFactor(sellerId, factorId, status, transaction) {
   let sellerAccount = await SellerAccount.findOne({ where: { sellerId }, transaction });
 
   if (!sellerAccount) {
-    // Create new account: paid = [], unpaid = incomeIds, total = incomeIds
+    // Create new account with this factor
+    const totalArr = [factorId];
+    const paidArr = status === 'paid' ? [factorId] : [];
+    const unpaidArr = status !== 'paid' ? [factorId] : [];
+
     sellerAccount = await SellerAccount.create({
       sellerId,
-      paid: [],
-      unpaid: incomeIds,
-      total: incomeIds          // ✅ total gets the same IDs
+      paid: paidArr,
+      unpaid: unpaidArr,
+      total: totalArr
     }, { transaction });
   } else {
-    // Append new income IDs to both unpaid and total arrays
-    const currentUnpaid = sellerAccount.unpaid || [];
-    const currentTotal = sellerAccount.total || [];
-    const newUnpaid = [...currentUnpaid, ...incomeIds];
-    const newTotal = [...currentTotal, ...incomeIds];
+    let currentPaid = sellerAccount.paid || [];
+    let currentUnpaid = sellerAccount.unpaid || [];
+    let currentTotal = sellerAccount.total || [];
+
+    let newTotal = [...currentTotal];
+    if (!newTotal.includes(factorId)) newTotal.push(factorId);
+
+    let newPaid = [...currentPaid];
+    let newUnpaid = [...currentUnpaid];
+
+    if (status === 'paid') {
+      if (!newPaid.includes(factorId)) newPaid.push(factorId);
+      // Remove from unpaid if present (e.g., if status changed later)
+      newUnpaid = newUnpaid.filter(id => id !== factorId);
+    } else {
+      // unpaid or partial
+      if (!newUnpaid.includes(factorId)) newUnpaid.push(factorId);
+      // Ensure it's NOT in paid (in case of status change)
+      newPaid = newPaid.filter(id => id !== factorId);
+    }
 
     await sellerAccount.update({
+      paid: newPaid,
       unpaid: newUnpaid,
       total: newTotal
     }, { transaction });
@@ -33,39 +52,7 @@ async function updateSellerAccountPaid(sellerId, incomeIds, transaction) {
   return sellerAccount;
 }
 
-
-async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, transaction) {
-  // Fetch the StockExist record
-  const stockExist = await StockExist.findByPk(existId, { transaction });
-  if (!stockExist) {
-    throw new Error(`StockExist with id ${existId} not found`);
-  }
-
-  // Sum all amounts and total value (amount * unit_price) for this existId
-  // This includes the newly created income because the transaction is still open
-  const result = await StockIncome.findAll({
-    where: { existId },
-    attributes: [
-      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
-      [sequelize.fn('SUM', sequelize.literal('amount * unit_price')), 'totalValue']
-    ],
-    raw: true,
-    transaction
-  });
-
-  const totalAmount = parseFloat(result[0]?.totalAmount) || 0;
-  const totalValue = parseFloat(result[0]?.totalValue) || 0;
-  const avgUnitPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
-
-  // Update StockExist with new total amount and average unit price
-  await stockExist.update({
-    amount: totalAmount,
-    unit_price: avgUnitPrice
-  }, { transaction });
-
-  return stockExist;
-}
-
+// (The old updateSellerAccountPaid function can be deleted or commented out)
 
 export const createBatchStockIncome = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -97,7 +84,7 @@ export const createBatchStockIncome = async (req, res) => {
     // ---------- 2. Process each item ----------
     const createdIncomes = [];
     const createdIncomeIds = [];
-    const existIds = [];          // <-- collect all StockExist IDs (existing + new)
+    const existIds = [];
     let totalAmount = 0;
 
     for (const item of items) {
@@ -175,7 +162,6 @@ export const createBatchStockIncome = async (req, res) => {
         return res.status(400).json({ error: 'Invalid exist reference in item' });
       }
 
-      // Collect unique exist IDs
       if (!existIds.includes(existId)) existIds.push(existId);
 
       const income = await StockIncome.create({
@@ -199,12 +185,7 @@ export const createBatchStockIncome = async (req, res) => {
       totalAmount += totalPrice;
     }
 
-    // ---------- 3. Update SellerAccount ----------
-    if (createdIncomeIds.length > 0) {
-      await updateSellerAccountPaid(sellerId, createdIncomeIds, transaction);
-    }
-
-    // ---------- 4. Determine paid amount for the factor ----------
+    // ---------- 3. Determine paid amount and factor status ----------
     const finalPaidAmount = (userPaidAmount !== undefined && !isNaN(parseFloat(userPaidAmount)))
       ? parseFloat(userPaidAmount)
       : totalAmount;
@@ -212,22 +193,26 @@ export const createBatchStockIncome = async (req, res) => {
     const remainingAmount = totalAmount - finalPaidAmount;
     const status = remainingAmount === 0 ? "paid" : (finalPaidAmount > 0 ? "partial" : "unpaid");
 
-const factor = await Factor.create({
-  factorNumber: null, // temporary
-  sellerId: sellerId,
-  totalAmount: totalAmount,
-  paidAmount: finalPaidAmount,
-  remainingAmount: remainingAmount,
-  status: status,
-  notes: notes || null,
-  incomes: createdIncomeIds,
-  dep_Number: departmentId || null,
-}, { transaction });
+    // ---------- 4. Create Factor ----------
+    const factor = await Factor.create({
+      factorNumber: null, // temporary
+      sellerId: sellerId,
+      totalAmount: totalAmount,
+      paidAmount: finalPaidAmount,
+      remainingAmount: remainingAmount,
+      status: status,
+      notes: notes || null,
+      incomes: createdIncomeIds,
+      dep_Number: departmentId || null,
+    }, { transaction });
 
-// Set factorNumber equal to its id
-await factor.update({ 
-  factorNumber: `FAC-${factor.id.toString().padStart(6, '0')}` 
-}, { transaction });
+    // Set factorNumber = FAC-{id with leading zeros}
+    await factor.update({
+      factorNumber: `FAC-${factor.id.toString().padStart(6, '0')}`
+    }, { transaction });
+
+    // ---------- 5. Update SellerAccount using FACTOR (not individual incomes) ----------
+    await updateSellerAccountWithFactor(sellerId, factor.id, status, transaction);
 
     // ---------- 6. Create Pay record (if payment exists) ----------
     let payId = null;
@@ -244,7 +229,6 @@ await factor.update({
     if (departmentId) {
       const targetDepartment = await Department.findByPk(parseInt(departmentId), { transaction });
       if (targetDepartment) {
-        // Create new arrays (copy to trigger change detection)
         let currentFactors = Array.isArray(targetDepartment.Factors) ? [...targetDepartment.Factors] : [];
         let currentPays = Array.isArray(targetDepartment.pays) ? [...targetDepartment.pays] : [];
         let currentExist = Array.isArray(targetDepartment.exist) ? [...targetDepartment.exist] : [];
@@ -253,17 +237,14 @@ await factor.update({
         let paysChanged = false;
         let existChanged = false;
 
-        // Add factor ID
         if (!currentFactors.includes(factor.id)) {
           currentFactors.push(factor.id);
           factorsChanged = true;
         }
-        // Add pay ID
         if (payId && !currentPays.includes(payId)) {
           currentPays.push(payId);
           paysChanged = true;
         }
-        // Add each exist ID from this batch
         for (const eid of existIds) {
           if (!currentExist.includes(eid)) {
             currentExist.push(eid);
@@ -277,16 +258,11 @@ await factor.update({
             pays: currentPays,
             exist: currentExist
           }, { transaction });
-          console.log('Department updated successfully');
-        } else {
-          console.log('No changes to department arrays, skipping update');
         }
-      } else {
-        console.warn(`Department with id ${departmentId} not found – cannot update department.`);
       }
     }
 
-    // ---------- 8. Assign factorId to all StockIncome records ----------
+    // ---------- 8. Link all StockIncome records to the factor ----------
     if (createdIncomeIds.length > 0) {
       await StockIncome.update(
         { FactorId: factor.id },
@@ -315,6 +291,7 @@ await factor.update({
     res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 };
+
 export const getAllStockIncome = async (req, res) => {
   try {
     // Get pagination parameters from query string, with defaults
@@ -371,6 +348,37 @@ export const getAllStockIncome = async (req, res) => {
     });
   }
 };
+
+async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, transaction) {
+  const stockExist = await StockExist.findByPk(existId, { transaction });
+  if (!stockExist) {
+    throw new Error(`StockExist with id ${existId} not found`);
+  }
+
+  // Sum all amounts and total value (amount * unit_price) for this existId
+  // This includes the newly created income because the transaction is still open
+  const result = await StockIncome.findAll({
+    where: { existId },
+    attributes: [
+      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
+      [sequelize.fn('SUM', sequelize.literal('amount * unit_price')), 'totalValue']
+    ],
+    raw: true,
+    transaction
+  });
+
+  const totalAmount = parseFloat(result[0]?.totalAmount) || 0;
+  const totalValue = parseFloat(result[0]?.totalValue) || 0;
+  const avgUnitPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
+
+  // Update StockExist with new total amount and average unit price
+  await stockExist.update({
+    amount: totalAmount,
+    unit_price: avgUnitPrice
+  }, { transaction });
+
+  return stockExist;
+}
 
 // Get single stock income with associations
 export const getStockIncomeById = async (req, res) => {

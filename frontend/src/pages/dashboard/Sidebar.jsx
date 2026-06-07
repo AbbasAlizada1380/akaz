@@ -54,7 +54,6 @@ const Sidebar = ({ setActiveComponent }) => {
   };
   const AllComponents = [
     { name: "Home Page", value: "home", icon: <MdOutlineDashboardCustomize /> },
-    { name: "Home page", value: "stakeholder home", icon: <MdOutlineDashboardCustomize /> },
     { name: "Stock", value: "stock", icon: <FaBoxes /> },
     { name: "Finance", value: "finance", icon: <FaMoneyBillWave /> },
     { name: "Expense", value: "expense", icon: <FaReceipt /> },
@@ -86,7 +85,7 @@ const Sidebar = ({ setActiveComponent }) => {
     }
     else if (userRole === "stakeholder") {
       const receptionAllowedValues = [
-        "stakeholder home",
+        "home",
         "signout",
       ];
       accessibleComponents = AllComponents.filter((component) =>

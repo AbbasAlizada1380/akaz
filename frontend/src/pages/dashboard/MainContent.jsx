@@ -23,10 +23,7 @@ const { currentUser } = useSelector((state) => state.user);
 const userRole = currentUser?.role;
 
 const renderContent = () => {
-  // Stakeholder always sees the Stock component (stakeholder home)
-  if (userRole === 'stakeholder') {
-    return <Stakeholderpage />;
-  }
+
 
   // For admin and reception (and any other role), follow the normal navigation
   switch (activeComponent) {

@@ -6,7 +6,7 @@ import {
   updateDepartment,
   deleteDepartment,
   getDepartmentsByUserHolding,
-  getUserDepartmentsWithShare,      // <-- new controller (detailed with userShare)
+  getUserDepartmentsWithShare,
   getBenefitsByDepartmentAndDate,
   getBenefitsWithFilters,
   getDepartmentCounts,
@@ -15,35 +15,27 @@ import {
 
 const DepartmentRoute = express.Router();
 
-// Create
+// --- Create / Get all ---
 DepartmentRoute.post("/", createDepartment);
-
-// Get all (with optional ?active=true)
 DepartmentRoute.get("/", getAllDepartments);
 
-// Get departments by user holding (basic version, returns full department objects)
+// --- User-specific department endpoints ---
 DepartmentRoute.get("/user/:userId", getDepartmentsByUserHolding);
-
-// NEW: Get departments by user holding with explicit userShare percentage
 DepartmentRoute.get("/user/:userId/share", getUserDepartmentsWithShare);
 
-// Get benefits for a specific department (by department ID)
+// --- Report endpoints (must come before generic /:id) ---
+// Benefits for a specific department (URL param)
 DepartmentRoute.get("/:departmentId/benefits", getBenefitsByDepartmentAndDate);
-DepartmentRoute.get("/report", getBenefitsWithFilters);  // supports all query params
+// Benefits with filters (departmentId optional via query, date range, pagination)
+DepartmentRoute.get("/report", getBenefitsWithFilters);
 
-// Get counts for withdraw, deposit, realizedBenefit, etc.
+// Department counts & details (specific department, URL param)
 DepartmentRoute.get("/:departmentId/counts", getDepartmentCounts);
-
-// Get detailed records (withdraws, deposits, realizedBenefits, existingStocks, pays)
 DepartmentRoute.get("/:departmentId/details", getDepartmentDetails);
 
-// Get one by ID (must be last, after all specific :departmentId routes)
+// --- CRUD for single department (generic :id – must be LAST) ---
 DepartmentRoute.get("/:id", getDepartmentById);
-
-// Update
 DepartmentRoute.put("/:id", updateDepartment);
-
-// Delete
 DepartmentRoute.delete("/:id", deleteDepartment);
 
 export default DepartmentRoute;

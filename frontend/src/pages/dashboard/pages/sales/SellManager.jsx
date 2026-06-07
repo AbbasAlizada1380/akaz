@@ -14,7 +14,7 @@ const SellManager = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [billsKey, setBillsKey] = useState(0);
-
+  const [globalDiscountAmount, setGlobalDiscountAmount] = useState(0);  // NEW: store the global discount amount
   const [customerType, setCustomerType] = useState("existing");
   const [customerId, setCustomerId] = useState("");
   const [newCustomerName, setNewCustomerName] = useState("");
