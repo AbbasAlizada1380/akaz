@@ -1,7 +1,7 @@
 import { DataTypes } from "sequelize";
 import sequelize from "../../dbconnection.js";
-const Sells = sequelize.define(
 
+const Sells = sequelize.define(
   "Sells",
   {
     exist: {
@@ -14,10 +14,21 @@ const Sells = sequelize.define(
       allowNull: false,
       defaultValue: 0,
     },
-    billId: {                       // changed from 'bill' to 'billId' for clarity
+    billId: {
       type: DataTypes.INTEGER,
       allowNull: false,
       references: { model: "Bills", key: "id" },
+    },
+    departmentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Departments",
+        key: "id"
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'RESTRICT',
+      comment: "Department this sell belongs to"
     },
     unit_price: {
       type: DataTypes.DECIMAL(12, 2),
@@ -47,6 +58,27 @@ const Sells = sequelize.define(
       defaultValue: 0,
     },
   },
-  { timestamps: true }
+  { 
+    timestamps: true,
+    indexes: [
+      {
+        name: 'sells_department_id_idx',
+        fields: ['departmentId']
+      },
+      {
+        name: 'sells_bill_id_idx',
+        fields: ['billId']
+      },
+      {
+        name: 'sells_exist_idx',
+        fields: ['exist']
+      },
+      {
+        name: 'sells_department_created_idx',
+        fields: ['departmentId', 'createdAt']
+      }
+    ]
+  }
 );
-export default Sells
+
+export default Sells;

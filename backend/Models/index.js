@@ -14,7 +14,7 @@ import Bill from './Finance/Bill.js';
 import Factor from './Finance/Factor.js';
 import Benefit from './Benefit.js';
 import User from './User.js';
-import Expense from './Expense.js';  // 👈 Import Expense model
+import Expense from './Expense.js';
 
 const models = {
   Department,
@@ -32,7 +32,7 @@ const models = {
   Factor,
   Benefit,
   User,
-  Expense,  // 👈 Add Expense to models
+  Expense,
 };
 
 /* ===============================
@@ -57,7 +57,8 @@ Department.associate = (models) => {
   Department.hasMany(models.StockExist, { foreignKey: "departmentId", as: "stockExists" });
   Department.hasMany(models.DepartmentTransaction, { foreignKey: "depId", as: "transactions" });
   Department.hasMany(models.Benefit, { foreignKey: "departmentId", as: "benefits" });
-  Department.hasMany(models.Expense, { foreignKey: "departmentId", as: "expenses" }); // 👈 Add Expense association
+  Department.hasMany(models.Expense, { foreignKey: "departmentId", as: "expenses" });
+  Department.hasMany(models.Sells, { foreignKey: "departmentId", as: "sells" }); // 👈 Add Sells association
 };
 
 // ---------- Seller ----------
@@ -100,6 +101,7 @@ Bill.associate = (models) => {
 Sells.associate = (models) => {
   Sells.belongsTo(models.StockExist, { foreignKey: "exist", as: "product" });
   Sells.belongsTo(models.Bill, { foreignKey: "billId", as: "bill" });
+  Sells.belongsTo(models.Department, { foreignKey: "departmentId", as: "department" }); // 👈 Add Department association
   Sells.hasMany(models.Benefit, { foreignKey: "sellId", as: "benefits" });
 };
 
@@ -163,5 +165,5 @@ export {
   Factor,
   Benefit,
   User,
-  Expense,  // 👈 Export Expense
+  Expense,
 };

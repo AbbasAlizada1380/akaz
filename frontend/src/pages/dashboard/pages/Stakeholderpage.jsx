@@ -20,6 +20,12 @@ const Stakeholderpage = () => {
   const [error, setError] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [showSellsDetails, setShowSellsDetails] = useState(false);
+  const [showDepositsDetails, setShowDepositsDetails] = useState(false);
+  const [showPaysDetails, setShowPaysDetails] = useState(false);
+  const [showExpensesDetails, setShowExpensesDetails] = useState(false);
+  const [showBenefitsDetails, setShowBenefitsDetails] = useState(false);
+  const [showWithdrawsDetails, setShowWithdrawsDetails] = useState(false);
 
   // Fetch departments based on user role
   useEffect(() => {
@@ -29,11 +35,9 @@ const Stakeholderpage = () => {
       try {
         let res;
         if (currentUser.role === "admin") {
-          // Admin sees all departments
           res = await axios.get(`${BASE_URL}/department`);
           setDepartments(res.data.data || []);
         } else {
-          // Regular user sees only departments where they have a holding share
           res = await axios.get(`${BASE_URL}/department/user/${currentUser.id}/share`);
           setDepartments(res.data.data || []);
         }
@@ -46,14 +50,14 @@ const Stakeholderpage = () => {
     fetchDepartments();
   }, [currentUser?.id, currentUser?.role]);
 
-  // Fetch stats when department or dates change
+  // Fetch details when department or dates change
   useEffect(() => {
     if (!selectedDept) {
       setStats(null);
       return;
     }
 
-    const fetchStats = async () => {
+    const fetchDetails = async () => {
       setLoading(true);
       setError("");
       try {
@@ -61,7 +65,7 @@ const Stakeholderpage = () => {
         if (startDate) params.startDate = startDate;
         if (endDate) params.endDate = endDate;
 
-        const res = await axios.get(`${BASE_URL}/department/${selectedDept}/counts`, { params });
+        const res = await axios.get(`${BASE_URL}/department/${selectedDept}/details`, { params });
         if (res.status === 200) {
           setStats(res.data.data);
         } else {
@@ -69,18 +73,23 @@ const Stakeholderpage = () => {
         }
       } catch (err) {
         console.error(err);
-        setError(err.response?.data?.message || "Failed to fetch department statistics.");
+        setError(err.response?.data?.message || "Failed to fetch department details.");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchStats();
+    fetchDetails();
   }, [selectedDept, startDate, endDate]);
 
   // Format currency
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  };
+
+  // Format number
+  const formatNumber = (num) => {
+    return new Intl.NumberFormat('en-US').format(num);
   };
 
   // PDF Download
@@ -101,7 +110,7 @@ const Stakeholderpage = () => {
         const to = stats.dateRange.endDate || "Any";
         dateRangeText = `${from} → ${to}`;
       }
-      const title = `Department Financial Summary - ${deptName}`;
+      const title = `Department Financial Details - ${deptName}`;
       doc.setFontSize(16);
       doc.text(title, doc.internal.pageSize.width / 2, 50, { align: "center" });
 
@@ -111,12 +120,19 @@ const Stakeholderpage = () => {
 
       const tableData = [
         ["Category", "Total Amount", "Number of Records"],
-        ["Withdrawals", formatCurrency(stats.amounts.withdraw), stats.counts.withdraw],
-        ["Deposits", formatCurrency(stats.amounts.deposit), stats.counts.deposit],
-        ["Realized Benefits", formatCurrency(stats.amounts.realizedBenefit), stats.counts.realizedBenefit],
-        ["Inventory Value (Exist)", formatCurrency(stats.amounts.exist), stats.counts.exist],
-        ["Pays", formatCurrency(stats.amounts.pays), stats.counts.pays],
-        ["Grand Total", formatCurrency(stats.amounts.grandTotal), "-"],
+        ["Withdrawals", formatCurrency(stats.totals.withdraws || 0), stats.withdraws?.length || 0],
+        ["Deposits", formatCurrency(stats.totals.deposits || 0), stats.deposits?.length || 0],
+        ["Realized Benefits", formatCurrency(stats.totals.realizedBenefits || 0), stats.realizedBenefits?.length || 0],
+        ["Inventory Value", formatCurrency(stats.totals.existingStock || 0), stats.existingStocks?.length || 0],
+        ["Pays (Incoming)", formatCurrency(stats.totals.pays || 0), stats.pays?.length || 0],
+        ["Expenses", formatCurrency(stats.totals.expenses || 0), stats.expenses?.length || 0],
+        ["Sales Revenue", formatCurrency(stats.totals.totalSales || 0), stats.sells?.length || 0],
+        ["Sales Receipt (Collected)", formatCurrency(stats.totals.sellsReceipt || 0), "-"],
+        ["Sales Remaind (Pending)", formatCurrency(stats.totals.sellsRemaind || 0), "-"],
+        ["Total Incoming", formatCurrency(stats.totals.totalIncoming || 0), "-"],
+        ["Total Outgoing", formatCurrency(stats.totals.totalOutgoing || 0), "-"],
+        ["Net Cash Flow", formatCurrency(stats.totals.netCashFlow || 0), "-"],
+        ["GRAND TOTAL (Balance)", formatCurrency(stats.totals.grandTotal || 0), "-"],
       ];
 
       autoTable(doc, {
@@ -124,10 +140,144 @@ const Stakeholderpage = () => {
         head: [tableData[0]],
         body: tableData.slice(1),
         theme: "grid",
-        styles: { fontSize: 10, cellPadding: 5, halign: "center" },
+        styles: { fontSize: 9, cellPadding: 5, halign: "center" },
         headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
         alternateRowStyles: { fillColor: [240, 240, 240] },
+        didDrawCell: (data) => {
+          // Highlight the grand total row
+          if (data.row.index === tableData.length - 2) {
+            data.cell.styles.fillColor = [255, 215, 0];
+            data.cell.styles.textColor = [0, 0, 0];
+            data.cell.styles.fontStyle = "bold";
+          }
+        }
       });
+
+      // Deposits Details
+      if (stats.deposits && stats.deposits.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Deposits Details", 40, 50, { align: "left" });
+        
+        const depositsHeaders = [["ID", "Amount", "Date"]];
+        const depositsBody = stats.deposits.map(d => [
+          d.id,
+          formatCurrency(d.amount),
+          moment(d.createdAt).format("YYYY-MM-DD HH:mm")
+        ]);
+        
+        autoTable(doc, {
+          startY: 70,
+          head: depositsHeaders,
+          body: depositsBody,
+          theme: "grid",
+          styles: { fontSize: 9, cellPadding: 4, halign: "center" },
+          headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+        });
+      }
+
+      // Pays Details
+      if (stats.pays && stats.pays.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Pays Details (Incoming Payments)", 40, 50, { align: "left" });
+        
+        const paysHeaders = [["ID", "Amount", "Seller Name", "Description", "Date"]];
+        const paysBody = stats.pays.map(p => [
+          p.id,
+          formatCurrency(p.amount),
+          p.sellerName || "Unknown",
+          p.description || "-",
+          moment(p.createdAt).format("YYYY-MM-DD HH:mm")
+        ]);
+        
+        autoTable(doc, {
+          startY: 70,
+          head: paysHeaders,
+          body: paysBody,
+          theme: "grid",
+          styles: { fontSize: 9, cellPadding: 4, halign: "center" },
+          headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+        });
+      }
+
+      // Sells Details
+      if (stats.sells && stats.sells.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Sells Details", 40, 50, { align: "left" });
+        
+        const sellsHeaders = [["ID", "Product", "Quantity", "Total", "Receipt", "Remaind", "Bill Number", "Date"]];
+        const sellsBody = stats.sells.map(s => [
+          s.id,
+          s.productName || "Unknown",
+          s.amount,
+          formatCurrency(parseFloat(s.total)),
+          formatCurrency(parseFloat(s.receipt)),
+          formatCurrency(parseFloat(s.remaind)),
+          s.billNumber || "N/A",
+          moment(s.createdAt).format("YYYY-MM-DD")
+        ]);
+        
+        autoTable(doc, {
+          startY: 70,
+          head: sellsHeaders,
+          body: sellsBody,
+          theme: "grid",
+          styles: { fontSize: 8, cellPadding: 4, halign: "center" },
+          headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+        });
+      }
+
+      // Expenses Details
+      if (stats.expenses && stats.expenses.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Expenses Details", 40, 50, { align: "left" });
+        
+        const expensesHeaders = [["ID", "Amount", "Purpose", "Created By", "Description", "Date"]];
+        const expensesBody = stats.expenses.map(e => [
+          e.id,
+          formatCurrency(parseFloat(e.amount)),
+          e.purpose || "-",
+          e.by || "Unknown",
+          e.description || "-",
+          moment(e.createdAt).format("YYYY-MM-DD HH:mm")
+        ]);
+        
+        autoTable(doc, {
+          startY: 70,
+          head: expensesHeaders,
+          body: expensesBody,
+          theme: "grid",
+          styles: { fontSize: 9, cellPadding: 4, halign: "center" },
+          headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+        });
+      }
+
+      // Benefits Details
+      if (stats.realizedBenefits && stats.realizedBenefits.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Realized Benefits Details", 40, 50, { align: "left" });
+        
+        const benefitsHeaders = [["ID", "Amount", "Sell ID", "Date"]];
+        const benefitsBody = stats.realizedBenefits.map(b => [
+          b.id,
+          formatCurrency(parseFloat(b.amount)),
+          b.sellId,
+          moment(b.createdAt).format("YYYY-MM-DD HH:mm")
+        ]);
+        
+        autoTable(doc, {
+          startY: 70,
+          head: benefitsHeaders,
+          body: benefitsBody,
+          theme: "grid",
+          styles: { fontSize: 9, cellPadding: 4, halign: "center" },
+          headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+        });
+      }
 
       const pageCount = doc.internal.getNumberOfPages();
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -137,7 +287,7 @@ const Stakeholderpage = () => {
         doc.text(`${i}/${pageCount}`, pageWidth - 40, pageHeight - 30, { align: "right" });
       }
 
-      const fileName = `department_${stats.departmentId}_${moment().format("YYYY-MM-DD")}.pdf`;
+      const fileName = `department_${stats.departmentId}_details_${moment().format("YYYY-MM-DD")}.pdf`;
       doc.save(fileName);
     } catch (err) {
       console.error("PDF generation error:", err);
@@ -156,30 +306,127 @@ const Stakeholderpage = () => {
 
     setDownloading(true);
     try {
+      const workbook = XLSX.utils.book_new();
+
+      // Summary Sheet
       const summaryData = [
-        ["Department Financial Summary"],
+        ["Department Financial Details"],
         ["Department Name", stats.departmentName],
         ["Department ID", stats.departmentId],
         ["Date Range", stats.dateRange === "all" ? "All time" : `${stats.dateRange.startDate || "Any"} → ${stats.dateRange.endDate || "Any"}`],
         ["Generated On", moment().format("YYYY-MM-DD HH:mm:ss")],
         [],
         ["Category", "Total Amount (USD)", "Number of Records"],
-        ["Withdrawals", stats.amounts.withdraw, stats.counts.withdraw],
-        ["Deposits", stats.amounts.deposit, stats.counts.deposit],
-        ["Realized Benefits", stats.amounts.realizedBenefit, stats.counts.realizedBenefit],
-        ["Inventory Value (Exist)", stats.amounts.exist, stats.counts.exist],
-        ["Pays", stats.amounts.pays, stats.counts.pays],
-        ["Grand Total", stats.amounts.grandTotal, "-"],
+        ["Withdrawals", stats.totals.withdraws || 0, stats.withdraws?.length || 0],
+        ["Deposits", stats.totals.deposits || 0, stats.deposits?.length || 0],
+        ["Realized Benefits", stats.totals.realizedBenefits || 0, stats.realizedBenefits?.length || 0],
+        ["Inventory Value", stats.totals.existingStock || 0, stats.existingStocks?.length || 0],
+        ["Pays (Incoming)", stats.totals.pays || 0, stats.pays?.length || 0],
+        ["Expenses", stats.totals.expenses || 0, stats.expenses?.length || 0],
+        ["Sales Revenue", stats.totals.totalSales || 0, stats.sells?.length || 0],
+        ["Sales Receipt", stats.totals.sellsReceipt || 0, "-"],
+        ["Sales Remaind", stats.totals.sellsRemaind || 0, "-"],
+        ["Total Incoming", stats.totals.totalIncoming || 0, "-"],
+        ["Total Outgoing", stats.totals.totalOutgoing || 0, "-"],
+        ["Net Cash Flow", stats.totals.netCashFlow || 0, "-"],
+        ["GRAND TOTAL (Balance)", stats.totals.grandTotal || 0, "-"],
       ];
 
-      const workbook = XLSX.utils.book_new();
-      const worksheet = XLSX.utils.aoa_to_sheet(summaryData);
-      worksheet["!cols"] = [{ wch: 20 }, { wch: 20 }, { wch: 15 }];
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Department Summary");
+      const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+      summarySheet["!cols"] = [{ wch: 25 }, { wch: 20 }, { wch: 15 }];
+      XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+
+      // Deposits Sheet
+      if (stats.deposits && stats.deposits.length > 0) {
+        const depositsData = [
+          ["ID", "Amount", "Date"],
+          ...stats.deposits.map(d => [d.id, d.amount, moment(d.createdAt).format("YYYY-MM-DD HH:mm")])
+        ];
+        const depositsSheet = XLSX.utils.aoa_to_sheet(depositsData);
+        XLSX.utils.book_append_sheet(workbook, depositsSheet, "Deposits");
+      }
+
+      // Pays Sheet
+      if (stats.pays && stats.pays.length > 0) {
+        const paysData = [
+          ["ID", "Amount", "Seller Name", "Description", "Date"],
+          ...stats.pays.map(p => [p.id, p.amount, p.sellerName || "Unknown", p.description || "-", moment(p.createdAt).format("YYYY-MM-DD HH:mm")])
+        ];
+        const paysSheet = XLSX.utils.aoa_to_sheet(paysData);
+        XLSX.utils.book_append_sheet(workbook, paysSheet, "Pays");
+      }
+
+      // Sells Sheet
+      if (stats.sells && stats.sells.length > 0) {
+        const sellsData = [
+          ["ID", "Product", "Quantity", "Total", "Receipt", "Remaind", "Bill Number", "Date"],
+          ...stats.sells.map(s => [
+            s.id,
+            s.productName || "Unknown",
+            s.amount,
+            parseFloat(s.total),
+            parseFloat(s.receipt),
+            parseFloat(s.remaind),
+            s.billNumber || "N/A",
+            moment(s.createdAt).format("YYYY-MM-DD")
+          ])
+        ];
+        const sellsSheet = XLSX.utils.aoa_to_sheet(sellsData);
+        sellsSheet["!cols"] = [{ wch: 10 }, { wch: 20 }, { wch: 10 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }];
+        XLSX.utils.book_append_sheet(workbook, sellsSheet, "Sells");
+      }
+
+      // Expenses Sheet
+      if (stats.expenses && stats.expenses.length > 0) {
+        const expensesData = [
+          ["ID", "Amount", "Purpose", "Created By", "Description", "Date"],
+          ...stats.expenses.map(e => [
+            e.id,
+            parseFloat(e.amount),
+            e.purpose || "-",
+            e.by || "Unknown",
+            e.description || "-",
+            moment(e.createdAt).format("YYYY-MM-DD HH:mm")
+          ])
+        ];
+        const expensesSheet = XLSX.utils.aoa_to_sheet(expensesData);
+        XLSX.utils.book_append_sheet(workbook, expensesSheet, "Expenses");
+      }
+
+      // Benefits Sheet
+      if (stats.realizedBenefits && stats.realizedBenefits.length > 0) {
+        const benefitsData = [
+          ["ID", "Amount", "Sell ID", "Date"],
+          ...stats.realizedBenefits.map(b => [
+            b.id,
+            parseFloat(b.amount),
+            b.sellId,
+            moment(b.createdAt).format("YYYY-MM-DD HH:mm")
+          ])
+        ];
+        const benefitsSheet = XLSX.utils.aoa_to_sheet(benefitsData);
+        XLSX.utils.book_append_sheet(workbook, benefitsSheet, "Benefits");
+      }
+
+      // Stock Sheet
+      if (stats.existingStocks && stats.existingStocks.length > 0) {
+        const stockData = [
+          ["ID", "Name", "Quantity", "Unit Price", "Total Value"],
+          ...stats.existingStocks.map(s => [
+            s.id,
+            s.name,
+            s.amount,
+            s.unit_price,
+            s.total_value
+          ])
+        ];
+        const stockSheet = XLSX.utils.aoa_to_sheet(stockData);
+        XLSX.utils.book_append_sheet(workbook, stockSheet, "Existing Stock");
+      }
 
       const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
       const blob = new Blob([excelBuffer], { type: "application/octet-stream" });
-      saveAs(blob, `department_summary_${stats.departmentId}_${moment().format("YYYY-MM-DD")}.xlsx`);
+      saveAs(blob, `department_${stats.departmentId}_details_${moment().format("YYYY-MM-DD")}.xlsx`);
     } catch (err) {
       console.error("Excel generation error:", err);
       alert("Failed to generate Excel");
@@ -190,7 +437,7 @@ const Stakeholderpage = () => {
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-md">
-      <h2 className="text-2xl font-bold mb-6">Department Financial Summary</h2>
+      <h2 className="text-2xl font-bold mb-6">Department Financial Details</h2>
 
       {/* Department Selector */}
       <div className="mb-6">
@@ -211,7 +458,7 @@ const Stakeholderpage = () => {
         </select>
       </div>
 
-      {/* Date Range Picker - Native HTML inputs */}
+      {/* Date Range Picker */}
       <div className="mb-6 flex flex-wrap gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -255,21 +502,15 @@ const Stakeholderpage = () => {
             disabled={downloading}
             className="bg-cyan-800 text-white px-5 py-2 rounded hover:bg-cyan-700 disabled:bg-gray-400 transition"
           >
-            {downloading ? "Generating..." : "Download Summary PDF"}
+            {downloading ? "Generating..." : "Download Details PDF"}
           </button>
           <button
             onClick={handleDownloadExcel}
             disabled={downloading}
             className="bg-green-700 text-white px-5 py-2 rounded hover:bg-green-600 disabled:bg-gray-400 transition"
           >
-            {downloading ? "Generating..." : "Download Summary Excel"}
+            {downloading ? "Generating..." : "Download Details Excel"}
           </button>
-          <DepartmentDetailsDownload
-            departmentId={selectedDept}
-            departmentName={stats.departmentName}
-            startDate={startDate}
-            endDate={endDate}
-          />
         </div>
       )}
 
@@ -277,7 +518,7 @@ const Stakeholderpage = () => {
       {loading && (
         <div className="text-center py-8">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-gray-500">Loading statistics...</p>
+          <p className="mt-2 text-gray-500">Loading department details...</p>
         </div>
       )}
 
@@ -301,113 +542,315 @@ const Stakeholderpage = () => {
             </p>
           </div>
 
-          {/* Withdraw Card */}
-          <div className="bg-blue-50 rounded-xl p-5 shadow-sm mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="text-blue-700">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-blue-800">Withdrawals</h3>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-blue-800">{formatCurrency(stats.amounts.withdraw)}</div>
-                <div className="text-sm text-blue-600">{stats.counts.withdraw} transactions</div>
-              </div>
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <div className="bg-green-50 rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-green-600">Total Deposits</p>
+              <p className="text-2xl font-bold text-green-700">{formatCurrency(stats.totals.deposits || 0)}</p>
+              <p className="text-xs text-green-500">{stats.deposits?.length || 0} transactions</p>
+            </div>
+            <div className="bg-blue-50 rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-blue-600">Total Pays Received</p>
+              <p className="text-2xl font-bold text-blue-700">{formatCurrency(stats.totals.pays || 0)}</p>
+              <p className="text-xs text-blue-500">{stats.pays?.length || 0} payments</p>
+            </div>
+            <div className="bg-emerald-50 rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-emerald-600">Sales Receipts</p>
+              <p className="text-2xl font-bold text-emerald-700">{formatCurrency(stats.totals.sellsReceipt || 0)}</p>
+              <p className="text-xs text-emerald-500">From customer payments</p>
+            </div>
+            <div className="bg-orange-50 rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-orange-600">Outstanding Remaind</p>
+              <p className="text-2xl font-bold text-orange-700">{formatCurrency(stats.totals.sellsRemaind || 0)}</p>
+              <p className="text-xs text-orange-500">To be collected</p>
             </div>
           </div>
 
-          {/* Deposit Card */}
-          <div className="bg-green-50 rounded-xl p-5 shadow-sm mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="text-green-700">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 10l7-7m0 0l7 7m-7-7v18" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-green-800">Deposits</h3>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-green-800">{formatCurrency(stats.amounts.deposit)}</div>
-                <div className="text-sm text-green-600">{stats.counts.deposit} transactions</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Realized Benefit Card */}
-          <div className="bg-purple-50 rounded-xl p-5 shadow-sm mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="text-purple-700">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-purple-800">Realized Benefits</h3>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-purple-800">{formatCurrency(stats.amounts.realizedBenefit)}</div>
-                <div className="text-sm text-purple-600">{stats.counts.realizedBenefit} records</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Inventory Value (Exist) Card */}
-          <div className="bg-yellow-50 rounded-xl p-5 shadow-sm mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="text-yellow-700">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-yellow-800">Inventory Value</h3>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-yellow-800">{formatCurrency(stats.amounts.exist)}</div>
-                <div className="text-sm text-yellow-600">{stats.counts.exist} stock items</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Pays Card */}
-          <div className="bg-indigo-50 rounded-xl p-5 shadow-sm mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="text-indigo-700">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                </div>
-                <h3 className="text-lg font-semibold text-indigo-800">Pays (Incoming)</h3>
-              </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-indigo-800">{formatCurrency(stats.amounts.pays)}</div>
-                <div className="text-sm text-indigo-600">{stats.counts.pays} payments</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Grand Total Card */}
-          <div className="bg-gradient-to-r from-blue-600 to-blue-800 rounded-xl p-5 shadow-lg mt-4">
+          {/* Grand Total Card - Highlighted */}
+          <div className="bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-xl p-6 shadow-lg mb-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
                 <div className="text-white">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <h3 className="text-lg font-semibold text-white">Grand Total</h3>
+                <div>
+                  <h3 className="text-xl font-bold text-white">GRAND TOTAL (Department Balance)</h3>
+                  <p className="text-sm text-white/80">Total Assets - Total Liabilities</p>
+                </div>
               </div>
               <div className="text-right">
-                <div className="text-2xl font-bold text-white">{formatCurrency(stats.amounts.grandTotal)}</div>
-                <div className="text-sm text-white/80">Combined total</div>
+                <div className="text-3xl font-bold text-white">{formatCurrency(stats.totals.grandTotal || 0)}</div>
+                <div className="text-sm text-white/80">Net Department Value</div>
               </div>
             </div>
           </div>
+
+          {/* Additional Financial Metrics */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="bg-gray-50 rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-gray-600">Total Incoming</p>
+              <p className="text-2xl font-bold text-green-600">{formatCurrency(stats.totals.totalIncoming || 0)}</p>
+              <p className="text-xs text-gray-500">Deposits + Benefits + Pays + Receipts</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-gray-600">Total Outgoing</p>
+              <p className="text-2xl font-bold text-red-600">{formatCurrency(stats.totals.totalOutgoing || 0)}</p>
+              <p className="text-xs text-gray-500">Withdrawals + Expenses</p>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 shadow-sm">
+              <p className="text-sm text-gray-600">Net Cash Flow</p>
+              <p className={`text-2xl font-bold ${(stats.totals.netCashFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {formatCurrency(stats.totals.netCashFlow || 0)}
+              </p>
+              <p className="text-xs text-gray-500">Incoming - Outgoing</p>
+            </div>
+          </div>
+
+          {/* Deposits Details Section */}
+          {stats.deposits && stats.deposits.length > 0 && (
+            <div className="mb-6">
+              <button
+                onClick={() => setShowDepositsDetails(!showDepositsDetails)}
+                className="w-full bg-blue-50 hover:bg-blue-100 text-blue-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
+              >
+                <span>💰 Deposits ({stats.deposits.length} transactions, {formatCurrency(stats.totals.deposits)})</span>
+                <span>{showDepositsDetails ? "▲" : "▼"}</span>
+              </button>
+              {showDepositsDetails && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">ID</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Amount</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.deposits.map((d) => (
+                        <tr key={d.id} className="border-t border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-2 text-sm">{d.id}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(d.amount)}</td>
+                          <td className="px-4 py-2 text-sm">{moment(d.createdAt).format("YYYY-MM-DD HH:mm")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Rest of your sections remain the same... */}
+          {/* Pays Details Section */}
+          {stats.pays && stats.pays.length > 0 && (
+            <div className="mb-6">
+              <button
+                onClick={() => setShowPaysDetails(!showPaysDetails)}
+                className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
+              >
+                <span>💳 Pays Received ({stats.pays.length} payments, {formatCurrency(stats.totals.pays)})</span>
+                <span>{showPaysDetails ? "▲" : "▼"}</span>
+              </button>
+              {showPaysDetails && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">ID</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Amount</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Seller</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Description</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.pays.map((p) => (
+                        <tr key={p.id} className="border-t border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-2 text-sm">{p.id}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(p.amount)}</td>
+                          <td className="px-4 py-2 text-sm">{p.sellerName || "Unknown"}</td>
+                          <td className="px-4 py-2 text-sm">{p.description || "-"}</td>
+                          <td className="px-4 py-2 text-sm">{moment(p.createdAt).format("YYYY-MM-DD HH:mm")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Sells Details Section */}
+          {stats.sells && stats.sells.length > 0 && (
+            <div className="mb-6">
+              <button
+                onClick={() => setShowSellsDetails(!showSellsDetails)}
+                className="w-full bg-teal-50 hover:bg-teal-100 text-teal-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
+              >
+                <span>🛒 Sells ({stats.sells.length} sales, Receipt: {formatCurrency(stats.totals.sellsReceipt)}, Remaind: {formatCurrency(stats.totals.sellsRemaind)})</span>
+                <span>{showSellsDetails ? "▲" : "▼"}</span>
+              </button>
+              {showSellsDetails && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">ID</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Product</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Qty</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Total</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold bg-emerald-100">Receipt</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold bg-orange-100">Remaind</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Bill #</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.sells.map((s) => (
+                        <tr key={s.id} className="border-t border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-2 text-sm">{s.id}</td>
+                          <td className="px-4 py-2 text-sm">{s.productName || "Unknown"}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatNumber(s.amount)}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(parseFloat(s.total))}</td>
+                          <td className="px-4 py-2 text-sm text-right bg-emerald-50">{formatCurrency(parseFloat(s.receipt))}</td>
+                          <td className="px-4 py-2 text-sm text-right bg-orange-50">{formatCurrency(parseFloat(s.remaind))}</td>
+                          <td className="px-4 py-2 text-sm">{s.billNumber || "N/A"}</td>
+                          <td className="px-4 py-2 text-sm">{moment(s.createdAt).format("YYYY-MM-DD")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-100">
+                      <tr>
+                        <td colSpan="3" className="px-4 py-2 text-right font-semibold">Totals:</td>
+                        <td className="px-4 py-2 text-right font-semibold">{formatCurrency(stats.totals.totalSales)}</td>
+                        <td className="px-4 py-2 text-right font-semibold bg-emerald-100">{formatCurrency(stats.totals.sellsReceipt)}</td>
+                        <td className="px-4 py-2 text-right font-semibold bg-orange-100">{formatCurrency(stats.totals.sellsRemaind)}</td>
+                        <td colSpan="2"></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Expenses Details Section */}
+          {stats.expenses && stats.expenses.length > 0 && (
+            <div className="mb-6">
+              <button
+                onClick={() => setShowExpensesDetails(!showExpensesDetails)}
+                className="w-full bg-red-50 hover:bg-red-100 text-red-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
+              >
+                <span>📊 Expenses ({stats.expenses.length} records, {formatCurrency(stats.totals.expenses)})</span>
+                <span>{showExpensesDetails ? "▲" : "▼"}</span>
+              </button>
+              {showExpensesDetails && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">ID</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Amount</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Purpose</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Created By</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Description</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.expenses.map((e) => (
+                        <tr key={e.id} className="border-t border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-2 text-sm">{e.id}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(parseFloat(e.amount))}</td>
+                          <td className="px-4 py-2 text-sm">{e.purpose || "-"}</td>
+                          <td className="px-4 py-2 text-sm">{e.by || "Unknown"}</td>
+                          <td className="px-4 py-2 text-sm">{e.description || "-"}</td>
+                          <td className="px-4 py-2 text-sm">{moment(e.createdAt).format("YYYY-MM-DD HH:mm")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Benefits Details Section */}
+          {stats.realizedBenefits && stats.realizedBenefits.length > 0 && (
+            <div className="mb-6">
+              <button
+                onClick={() => setShowBenefitsDetails(!showBenefitsDetails)}
+                className="w-full bg-purple-50 hover:bg-purple-100 text-purple-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
+              >
+                <span>📈 Realized Benefits ({stats.realizedBenefits.length} records, {formatCurrency(stats.totals.realizedBenefits)})</span>
+                <span>{showBenefitsDetails ? "▲" : "▼"}</span>
+              </button>
+              {showBenefitsDetails && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">ID</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Amount</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Sell ID</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.realizedBenefits.map((b) => (
+                        <tr key={b.id} className="border-t border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-2 text-sm">{b.id}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(parseFloat(b.amount))}</td>
+                          <td className="px-4 py-2 text-sm text-right">{b.sellId}</td>
+                          <td className="px-4 py-2 text-sm">{moment(b.createdAt).format("YYYY-MM-DD HH:mm")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Stock Details Section */}
+          {stats.existingStocks && stats.existingStocks.length > 0 && (
+            <div className="mb-6">
+              <div className="bg-yellow-50 rounded-lg p-4">
+                <h3 className="font-semibold text-yellow-800 mb-2">📦 Current Stock Inventory</h3>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Product</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Quantity</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Unit Price</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Total Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.existingStocks.map((s) => (
+                        <tr key={s.id} className="border-t border-gray-200">
+                          <td className="px-4 py-2 text-sm">{s.name}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatNumber(s.amount)}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(s.unit_price)}</td>
+                          <td className="px-4 py-2 text-sm text-right font-semibold">{formatCurrency(s.total_value)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-100">
+                      <tr>
+                        <td colSpan="3" className="px-4 py-2 text-right font-semibold">Total Stock Value:</td>
+                        <td className="px-4 py-2 text-right font-semibold">{formatCurrency(stats.totals.existingStock)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

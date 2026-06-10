@@ -1,4 +1,4 @@
-import { Department, Benefit, DepartmentTransaction, sequelize, StockExist, Pay, User, Seller } from "../Models/index.js";
+import { Department, Sells, Benefit, DepartmentTransaction, sequelize, StockExist, Pay, User, Seller,Bill } from "../Models/index.js";
 import { Op } from "sequelize";
 import {Expense} from "../Models/index.js";
 
@@ -417,11 +417,10 @@ export const getDepartmentCounts = async (req, res) => {
       paysCount = parseInt(result[0]?.count || 0);
     }
 
-    // EXPENSES: Find directly from Expense table based on departmentId (NOT from department.expenses array)
+    // EXPENSES: Find directly from Expense table based on departmentId
     let expensesTotal = 0, expensesCount = 0;
     const expenseWhere = { departmentId: parseInt(departmentId) };
     
-    // Add date filter if provided
     if (startDate || endDate) {
       expenseWhere.createdAt = {};
       if (startDate) expenseWhere.createdAt[Op.gte] = new Date(startDate);
@@ -444,12 +443,61 @@ export const getDepartmentCounts = async (req, res) => {
     expensesTotal = parseFloat(expensesResult[0]?.totalAmount || 0);
     expensesCount = parseInt(expensesResult[0]?.count || 0);
 
+    // SELLS: Get sells related to this department
+    const sellsWhere = { departmentId: parseInt(departmentId) };
+    
+    if (startDate || endDate) {
+      sellsWhere.createdAt = {};
+      if (startDate) sellsWhere.createdAt[Op.gte] = new Date(startDate);
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        sellsWhere.createdAt[Op.lte] = endDateTime;
+      }
+    }
+
+    // Get sells summary (receipt and remaind sums)
+    const sellsResult = await Sells.findAll({
+      where: sellsWhere,
+      attributes: [
+        [sequelize.fn('SUM', sequelize.col('receipt')), 'totalReceipt'],
+        [sequelize.fn('SUM', sequelize.col('remaind')), 'totalRemaind'],
+        [sequelize.fn('SUM', sequelize.col('total')), 'totalSales'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+      ],
+      raw: true,
+    });
+
+    const totalReceipt = parseFloat(sellsResult[0]?.totalReceipt || 0);
+    const totalRemaind = parseFloat(sellsResult[0]?.totalRemaind || 0);
+    const totalSales = parseFloat(sellsResult[0]?.totalSales || 0);
+    const sellsCount = parseInt(sellsResult[0]?.count || 0);
+
+    // Get detailed sells data for reference (optional - can be removed if not needed)
+    let sellsList = [];
+    if (sellsCount > 0) {
+      sellsList = await Sells.findAll({
+        where: sellsWhere,
+        attributes: ['id', 'amount', 'total', 'receipt', 'remaind', 'createdAt'],
+        include: [
+          {
+            model: StockExist,
+            as: 'product',
+            attributes: ['id', 'name']
+          }
+        ],
+        order: [['createdAt', 'DESC']],
+        raw: true,
+        nest: true
+      });
+    }
+
     // Calculate total incoming and outgoing
-    const totalIncoming = depositTotal + realizedBenefitTotal + paysTotal;
+    const totalIncoming = depositTotal + realizedBenefitTotal + paysTotal + totalReceipt;
     const totalOutgoing = withdrawTotal + expensesTotal;
     
-    // Grand total = deposit - withdraw + realizedBenefit + existTotal + pays - expenses
-    const grandTotal = depositTotal - withdrawTotal + realizedBenefitTotal + existTotal + paysTotal - expensesTotal;
+    // Grand total calculation including sells
+    const grandTotal = depositTotal - withdrawTotal + realizedBenefitTotal + existTotal - paysTotal - expensesTotal + totalReceipt;
     
     // Net cash flow (excluding stock value)
     const netCashFlow = totalIncoming - totalOutgoing;
@@ -466,6 +514,9 @@ export const getDepartmentCounts = async (req, res) => {
           exist: existTotal,
           pays: paysTotal,
           expenses: expensesTotal,
+          sellsReceipt: totalReceipt,
+          sellsRemaind: totalRemaind,
+          totalSales: totalSales,
           totalIncoming: totalIncoming,
           totalOutgoing: totalOutgoing,
           netCashFlow: netCashFlow,
@@ -478,7 +529,9 @@ export const getDepartmentCounts = async (req, res) => {
           exist: existCount,
           pays: paysCount,
           expenses: expensesCount,
+          sells: sellsCount,
         },
+        sellsList: sellsList, // Detailed sells data (optional)
         dateRange: startDate || endDate
           ? { startDate: startDate || null, endDate: endDate || null }
           : "all",
@@ -523,7 +576,7 @@ export const getDepartmentDetails = async (req, res) => {
     }
 
     // Fetch all data with details
-    const [withdraws, deposits, realizedBenefits, existingStocks, pays, expenses] = await Promise.all([
+    const [withdraws, deposits, realizedBenefits, existingStocks, pays, expenses, sells] = await Promise.all([
       withdrawIds.length > 0 
         ? DepartmentTransaction.findAll({ 
             where: { id: { [Op.in]: withdrawIds }, is_deposit: false, ...dateFilter },
@@ -556,7 +609,6 @@ export const getDepartmentDetails = async (req, res) => {
             order: [['createdAt', 'DESC']]
           })
         : [],
-      // Find expenses directly from Expense table based on departmentId
       Expense.findAll({
         where: { 
           departmentId: parseInt(departmentId),
@@ -564,16 +616,50 @@ export const getDepartmentDetails = async (req, res) => {
         },
         include: [{ model: Department, as: 'department' }],
         order: [['createdAt', 'DESC']]
+      }),
+      Sells.findAll({
+        where: {
+          departmentId: parseInt(departmentId),
+          ...dateFilter
+        },
+        include: [
+          { 
+            model: StockExist, 
+            as: 'product',
+            attributes: ['id', 'name']
+          },
+          {
+            model: Bill,
+            as: 'bill',
+            attributes: ['id', 'billNumber']
+          }
+        ],
+        order: [['createdAt', 'DESC']]
       })
     ]);
 
-    // Calculate totals
-    const totalWithdraws = withdraws.reduce((sum, w) => sum + (w.amount || 0), 0);
-    const totalDeposits = deposits.reduce((sum, d) => sum + (d.amount || 0), 0);
-    const totalBenefits = realizedBenefits.reduce((sum, b) => sum + (b.amount || 0), 0);
-    const totalPays = pays.reduce((sum, p) => sum + (p.amount || 0), 0);
-    const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
-    const totalStockValue = existingStocks.reduce((sum, s) => sum + ((s.amount || 0) * (s.unit_price || 0)), 0);
+    // Calculate totals - ensure all values are numbers
+    const totalWithdraws = withdraws.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
+    const totalDeposits = deposits.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0);
+    const totalBenefits = realizedBenefits.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
+    const totalPays = pays.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
+    const totalExpenses = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+    const totalStockValue = existingStocks.reduce((sum, s) => sum + ((parseFloat(s.amount) || 0) * (parseFloat(s.unit_price) || 0)), 0);
+    const totalReceipt = sells.reduce((sum, s) => sum + (parseFloat(s.receipt) || 0), 0);
+    const totalRemaind = sells.reduce((sum, s) => sum + (parseFloat(s.remaind) || 0), 0);
+    const totalSales = sells.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
+
+      // Calculate financial metrics
+      const totalIncoming = totalDeposits + totalReceipt + totalRemaind;
+      const totalOutgoing = totalWithdraws + totalExpenses + totalPays;
+      const netCashFlow = totalIncoming - totalOutgoing;
+      
+    // Calculate Grand Total (Balance)
+    // Assets = Deposits + Benefits + Pays + SalesReceipt + Inventory Value
+    // Liabilities = Withdrawals + Expenses + SalesRemaind (outstanding customer debt)
+    const totalAssets = totalDeposits + totalRemaind + totalReceipt + totalStockValue;
+    const totalLiabilities = totalWithdraws + totalExpenses + totalPays ;
+    const grandTotal = totalAssets - totalLiabilities;
 
     res.status(200).json({
       message: "Department details fetched successfully",
@@ -588,47 +674,63 @@ export const getDepartmentDetails = async (req, res) => {
           existingStock: totalStockValue,
           pays: totalPays,
           expenses: totalExpenses,
-          netFlow: totalDeposits + totalBenefits + totalPays - totalWithdraws - totalExpenses
+          sellsReceipt: totalReceipt,
+          sellsRemaind: totalRemaind,
+          totalSales: totalSales,
+          totalIncoming: totalIncoming,
+          totalOutgoing: totalOutgoing,
+          netCashFlow: netCashFlow,
+          grandTotal: grandTotal
         },
         withdraws: withdraws.map(w => ({
           id: w.id,
-          amount: w.amount,
+          amount: parseFloat(w.amount) || 0,
           userName: w.userName,
           createdAt: w.createdAt
         })),
         deposits: deposits.map(d => ({
           id: d.id,
-          amount: d.amount,
+          amount: parseFloat(d.amount) || 0,
           userName: d.userName,
           createdAt: d.createdAt
         })),
         realizedBenefits: realizedBenefits.map(b => ({
           id: b.id,
-          amount: b.amount,
+          amount: parseFloat(b.amount) || 0,
           sellId: b.sellId,
           createdAt: b.createdAt
         })),
         existingStocks: existingStocks.map(s => ({
           id: s.id,
           name: s.name,
-          amount: s.amount,
-          unit_price: s.unit_price,
-          total_value: (s.amount || 0) * (s.unit_price || 0)
+          amount: parseFloat(s.amount) || 0,
+          unit_price: parseFloat(s.unit_price) || 0,
+          total_value: (parseFloat(s.amount) || 0) * (parseFloat(s.unit_price) || 0)
         })),
         pays: pays.map(p => ({
           id: p.id,
-          amount: p.amount,
+          amount: parseFloat(p.amount) || 0,
           sellerName: p.sellerInfo?.fullname || "Unknown",
           description: p.description,
           createdAt: p.createdAt
         })),
         expenses: expenses.map(e => ({
           id: e.id,
-          amount: e.amount,
+          amount: parseFloat(e.amount) || 0,
           purpose: e.purpose,
           by: e.by,
           description: e.description,
           createdAt: e.createdAt
+        })),
+        sells: sells.map(s => ({
+          id: s.id,
+          amount: parseFloat(s.amount) || 0,
+          total: parseFloat(s.total) || 0,
+          receipt: parseFloat(s.receipt) || 0,
+          remaind: parseFloat(s.remaind) || 0,
+          productName: s.product?.name || "Unknown",
+          billNumber: s.bill?.billNumber || "N/A",
+          createdAt: s.createdAt
         }))
       }
     });
