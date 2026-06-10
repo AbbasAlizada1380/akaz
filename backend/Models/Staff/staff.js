@@ -27,6 +27,17 @@ const Staff = sequelize.define(
       },
       comment: "weekly salary",
     },
+    departmentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'Departments',
+        key: 'id'
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'RESTRICT',
+      comment: "Department this expense belongs to"
+    },
     overTimePerHour: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
@@ -48,9 +59,12 @@ const Staff = sequelize.define(
   {
     timestamps: true,
     indexes: [
-      {
-        fields: ["NIC"],
+       {
+        fields: ['departmentId']
       },
+      {
+        fields: ['NIC']
+      }
     ],
   }
 );

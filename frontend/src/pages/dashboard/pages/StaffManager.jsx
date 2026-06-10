@@ -12,10 +12,12 @@ const initialForm = {
   salary: "",
   overTimePerHour: "",
   workingDaysPerWeek: "",
+  departmentId: "",
 };
 
 const StaffManager = () => {
   const [staffs, setStaffs] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const { currentUser } = useSelector((state) => state.user);
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
@@ -36,8 +38,19 @@ const StaffManager = () => {
     }
   };
 
+  const fetchDepartments = async () => {
+    try {
+      const res = await axios.get(`${BASE_URL}/department`);
+      setDepartments(res.data.data || []);
+    } catch (error) {
+      console.error("Error fetching departments:", error);
+      setDepartments([]);
+    }
+  };
+
   useEffect(() => {
     fetchStaffs();
+    fetchDepartments();
   }, []);
 
   const handleSubmit = async (e) => {
@@ -49,6 +62,7 @@ const StaffManager = () => {
       salary: Number(form.salary),
       overTimePerHour: Number(form.overTimePerHour),
       workingDaysPerWeek: Number(form.workingDaysPerWeek),
+      departmentId: form.departmentId ? Number(form.departmentId) : null,
     };
 
     try {
@@ -70,7 +84,15 @@ const StaffManager = () => {
   };
 
   const handleEdit = (staff) => {
-    setForm(staff);
+    setForm({
+      name: staff.name || "",
+      fatherName: staff.fatherName || "",
+      NIC: staff.NIC || "",
+      salary: staff.salary || "",
+      overTimePerHour: staff.overTimePerHour || "",
+      workingDaysPerWeek: staff.workingDaysPerWeek || "",
+      departmentId: staff.departmentId || "",
+    });
     setEditingId(staff.id);
     // Scroll to form
     document.getElementById("staff-form")?.scrollIntoView({ behavior: "smooth" });
@@ -91,6 +113,11 @@ const StaffManager = () => {
 
   const formatDate = (date) =>
     new Date(date).toLocaleDateString("en-US");
+
+  const getDepartmentName = (departmentId) => {
+    const department = departments.find(d => d.id === departmentId);
+    return department ? department.name : "Unassigned";
+  };
 
   // Initial loading screen
   if (tableLoading && staffs.length === 0) {
@@ -192,6 +219,30 @@ const StaffManager = () => {
                 />
               </div>
 
+              {/* Department Selection */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <span className="text-red-500">*</span> Department
+                </label>
+                <select
+                  required
+                  value={form.departmentId}
+                  onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition bg-white"
+                  disabled={formLoading}
+                >
+                  <option value="">Select Department</option>
+                  {departments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Working Days and Department (if needed) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Working Days Field */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -209,29 +260,6 @@ const StaffManager = () => {
                   disabled={formLoading}
                 />
               </div>
-            </div>
-
-            {/* Salary and Overtime Section */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Salary Field */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <span className="text-red-500">*</span> Weekly Salary (AFN)
-                </label>
-                <div className="relative">
-                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
-                    ؋
-                  </div>
-                  <input
-                    required
-                    type="number"
-                    value={form.salary}
-                    onChange={(e) => setForm({ ...form, salary: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition"
-                    disabled={formLoading}
-                  />
-                </div>
-              </div>
 
               {/* Overtime Field */}
               <div>
@@ -247,6 +275,29 @@ const StaffManager = () => {
                     type="number"
                     value={form.overTimePerHour}
                     onChange={(e) => setForm({ ...form, overTimePerHour: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition"
+                    disabled={formLoading}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Salary Section */}
+            <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
+              {/* Salary Field */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <span className="text-red-500">*</span> Weekly Salary (AFN)
+                </label>
+                <div className="relative">
+                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+                    ؋
+                  </div>
+                  <input
+                    required
+                    type="number"
+                    value={form.salary}
+                    onChange={(e) => setForm({ ...form, salary: e.target.value })}
                     className="w-full border border-gray-300 rounded-lg pl-10 pr-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition"
                     disabled={formLoading}
                   />
@@ -337,6 +388,7 @@ const StaffManager = () => {
                   <th className="p-3 border-b font-semibold">Name</th>
                   <th className="p-3 border-b font-semibold">Father's Name</th>
                   <th className="p-3 border-b font-semibold">NIC</th>
+                  <th className="p-3 border-b font-semibold">Department</th>
                   <th className="p-3 border-b font-semibold">Salary (AFN)</th>
                   <th className="p-3 border-b font-semibold">Work Days</th>
                   <th className="p-3 border-b font-semibold">Created At</th>
@@ -347,7 +399,7 @@ const StaffManager = () => {
               <tbody>
                 {staffs.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="p-8">
+                    <td colSpan="9" className="p-8">
                       <div className="flex flex-col items-center justify-center">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -369,6 +421,13 @@ const StaffManager = () => {
                       <td className="p-3">
                         <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-sm">
                           {staff.NIC}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
+                          staff.departmentId ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {staff.department?.name || getDepartmentName(staff.departmentId) || "Unassigned"}
                         </span>
                       </td>
                       <td className="p-3">

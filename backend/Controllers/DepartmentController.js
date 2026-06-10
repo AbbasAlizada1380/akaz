@@ -1,6 +1,6 @@
 import { Department, Sells, Benefit, DepartmentTransaction, sequelize, StockExist, Pay, User, Seller,Bill } from "../Models/index.js";
 import { Op } from "sequelize";
-import {Expense} from "../Models/index.js";
+import {Attendance,Staff,Expense} from "../Models/index.js";
 
 // ✅ Helper: safely get holding object
 const getHoldingObject = (holding) => {
@@ -575,8 +575,8 @@ export const getDepartmentDetails = async (req, res) => {
       }
     }
 
-    // Fetch all data with details
-    const [withdraws, deposits, realizedBenefits, existingStocks, pays, expenses, sells] = await Promise.all([
+    // Fetch all data with details - ADD ATTENDANCE HERE
+    const [withdraws, deposits, realizedBenefits, existingStocks, pays, expenses, sells, attendances] = await Promise.all([
       withdrawIds.length > 0 
         ? DepartmentTransaction.findAll({ 
             where: { id: { [Op.in]: withdrawIds }, is_deposit: false, ...dateFilter },
@@ -592,20 +592,20 @@ export const getDepartmentDetails = async (req, res) => {
       realizedBenefitIds.length > 0 
         ? Benefit.findAll({ 
             where: { id: { [Op.in]: realizedBenefitIds }, ...dateFilter },
-            include: [{ model: Sells, as: 'sell' }],
+            include: [{ model: Sells, as: "benefitSell" }],
             order: [['createdAt', 'DESC']]
           })
         : [],
       existIds.length > 0 
         ? StockExist.findAll({ 
             where: { id: { [Op.in]: existIds } },
-            include: [{ model: Department, as: 'department' }]
+            include: [{ model: Department, as: "stockDepartment" }]
           })
         : [],
       paysIds.length > 0 
         ? Pay.findAll({ 
             where: { id: { [Op.in]: paysIds }, ...dateFilter },
-            include: [{ model: Seller, as: 'sellerInfo' }],
+            include: [{ model: Seller, as: "paySeller" }],
             order: [['createdAt', 'DESC']]
           })
         : [],
@@ -614,7 +614,7 @@ export const getDepartmentDetails = async (req, res) => {
           departmentId: parseInt(departmentId),
           ...dateFilter
         },
-        include: [{ model: Department, as: 'department' }],
+        include: [{ model: Department, as: "department" }],
         order: [['createdAt', 'DESC']]
       }),
       Sells.findAll({
@@ -625,20 +625,35 @@ export const getDepartmentDetails = async (req, res) => {
         include: [
           { 
             model: StockExist, 
-            as: 'product',
+            as: "sellProduct",
             attributes: ['id', 'name']
           },
           {
             model: Bill,
-            as: 'bill',
+            as: "sellBill",
             attributes: ['id', 'billNumber']
+          }
+        ],
+        order: [['createdAt', 'DESC']]
+      }),
+      // Add Attendance records for this department
+      Attendance.findAll({
+        where: {
+          departmentId: parseInt(departmentId),
+          ...dateFilter
+        },
+        include: [
+          {
+            model: Staff,
+            as: "attendanceStaff",
+            attributes: ["id", "name", "fatherName", "salary", "overTimePerHour", "workingDaysPerWeek"]
           }
         ],
         order: [['createdAt', 'DESC']]
       })
     ]);
 
-    // Calculate totals - ensure all values are numbers
+    // Calculate totals
     const totalWithdraws = withdraws.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
     const totalDeposits = deposits.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0);
     const totalBenefits = realizedBenefits.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
@@ -648,17 +663,23 @@ export const getDepartmentDetails = async (req, res) => {
     const totalReceipt = sells.reduce((sum, s) => sum + (parseFloat(s.receipt) || 0), 0);
     const totalRemaind = sells.reduce((sum, s) => sum + (parseFloat(s.remaind) || 0), 0);
     const totalSales = sells.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
+    
+    // Calculate Attendance totals
+    const totalAttendanceSalary = attendances.reduce((sum, a) => sum + (parseFloat(a.salary) || 0), 0);
+    const totalAttendanceOvertime = attendances.reduce((sum, a) => sum + (parseFloat(a.overtime) || 0), 0);
+    const totalAttendanceAmount = attendances.reduce((sum, a) => sum + (parseFloat(a.total) || 0), 0);
+    const totalAttendanceReceipt = attendances.reduce((sum, a) => sum + (parseFloat(a.receipt) || 0), 0);
+    const totalAttendanceRemaind = attendances.reduce((sum, a) => sum + ((parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0)), 0);
+    const totalAttendanceRecords = attendances.length;
 
-      // Calculate financial metrics
-      const totalIncoming = totalDeposits + totalReceipt + totalRemaind;
-      const totalOutgoing = totalWithdraws + totalExpenses + totalPays;
-      const netCashFlow = totalIncoming - totalOutgoing;
-      
+    // Calculate financial metrics (including attendance)
+    const totalIncoming = totalDeposits + totalBenefits + totalPays + totalReceipt + totalAttendanceReceipt;
+    const totalOutgoing = totalWithdraws + totalExpenses + totalAttendanceAmount;
+    const netCashFlow = totalIncoming - totalOutgoing;
+    
     // Calculate Grand Total (Balance)
-    // Assets = Deposits + Benefits + Pays + SalesReceipt + Inventory Value
-    // Liabilities = Withdrawals + Expenses + SalesRemaind (outstanding customer debt)
-    const totalAssets = totalDeposits + totalRemaind + totalReceipt + totalStockValue;
-    const totalLiabilities = totalWithdraws + totalExpenses + totalPays ;
+    const totalAssets = totalDeposits + totalBenefits + totalPays + totalReceipt + totalStockValue + totalAttendanceReceipt;
+    const totalLiabilities = totalWithdraws + totalExpenses + totalRemaind + totalAttendanceRemaind;
     const grandTotal = totalAssets - totalLiabilities;
 
     res.status(200).json({
@@ -677,6 +698,14 @@ export const getDepartmentDetails = async (req, res) => {
           sellsReceipt: totalReceipt,
           sellsRemaind: totalRemaind,
           totalSales: totalSales,
+          attendance: {
+            totalSalary: totalAttendanceSalary,
+            totalOvertime: totalAttendanceOvertime,
+            totalAmount: totalAttendanceAmount,
+            totalReceipt: totalAttendanceReceipt,
+            totalRemaind: totalAttendanceRemaind,
+            totalRecords: totalAttendanceRecords
+          },
           totalIncoming: totalIncoming,
           totalOutgoing: totalOutgoing,
           netCashFlow: netCashFlow,
@@ -710,7 +739,7 @@ export const getDepartmentDetails = async (req, res) => {
         pays: pays.map(p => ({
           id: p.id,
           amount: parseFloat(p.amount) || 0,
-          sellerName: p.sellerInfo?.fullname || "Unknown",
+          sellerName: p.paySeller?.fullname || "Unknown",
           description: p.description,
           createdAt: p.createdAt
         })),
@@ -728,9 +757,26 @@ export const getDepartmentDetails = async (req, res) => {
           total: parseFloat(s.total) || 0,
           receipt: parseFloat(s.receipt) || 0,
           remaind: parseFloat(s.remaind) || 0,
-          productName: s.product?.name || "Unknown",
-          billNumber: s.bill?.billNumber || "N/A",
+          productName: s.sellProduct?.name || "Unknown",
+          billNumber: s.sellBill?.billNumber || "N/A",
           createdAt: s.createdAt
+        })),
+        attendances: attendances.map(a => ({
+          id: a.id,
+          staffId: a.staffId,
+          staffName: a.attendanceStaff?.name || "Unknown",
+          staffFatherName: a.attendanceStaff?.fatherName || "",
+          attendance: a.attendance,
+          salary: parseFloat(a.salary) || 0,
+          overtime: parseFloat(a.overtime) || 0,
+          total: parseFloat(a.total) || 0,
+          receipt: parseFloat(a.receipt) || 0,
+          remaind: (parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0),
+          calculated: a.calculated,
+          weekStartDate: a.weekStartDate,
+          month: a.month,
+          year: a.year,
+          createdAt: a.createdAt
         }))
       }
     });

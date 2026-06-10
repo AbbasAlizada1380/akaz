@@ -58,7 +58,7 @@ const SalaryManagement = () => {
   const fetchAttendance = async (pageNum = page) => {
     setLoading((prev) => ({ ...prev, records: true }));
     try {
-      const res = await axios.get(`${BASE_URL}/attendence`, {
+      const res = await axios.get(`${BASE_URL}/attendance`, {
         params: { page: pageNum, limit },
       });
       // Expected response: { data: [], totalRecords, totalPages, currentPage }
@@ -112,12 +112,12 @@ const SalaryManagement = () => {
     try {
       setSubmitting(true);
       if (editingId) {
-        await axios.put(`${BASE_URL}/attendence/${editingId}`, {
+        await axios.put(`${BASE_URL}/attendance/${editingId}`, {
           attendance: form.attendance,
           receipt: form.receipt,
         });
       } else {
-        await axios.post(`${BASE_URL}/attendence`, form);
+        await axios.post(`${BASE_URL}/attendance`, form);
       }
       await fetchAttendance(page); // refresh current page
       resetForm();
@@ -147,7 +147,7 @@ const SalaryManagement = () => {
   const handleDelete = async (id) => {
     if (!confirm("Are you sure you want to delete this record?")) return;
     try {
-      await axios.delete(`${BASE_URL}/attendence/${id}`);
+      await axios.delete(`${BASE_URL}/attendance/${id}`);
       // If current page becomes empty and not first page, go back
       if (records.length === 1 && page > 1) {
         setPage(page - 1);
@@ -343,7 +343,7 @@ const SalaryManagement = () => {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className={`px-6 py-3 rounded-lg font-medium shadow-md transition flex items-center gap-2 ${submitting ? "bg-gray-400 cursor-not-allowed" : "bg-gradient-to-r from-primary-800 to-primary-600 hover:from-primary-900 hover:to-primary-700 text-white"
+                    className={`px-6 py-3 rounded-lg font-medium shadow-md transition flex items-center gap-2 ${submitting ? "bg-gray-400 cursor-not-allowed" : "bg-primary hover:from-primary-900 hover:to-primary-700 text-white"
                       }`}
                   >
                     {submitting ? (
