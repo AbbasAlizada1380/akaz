@@ -26,6 +26,7 @@ const Stakeholderpage = () => {
   const [showExpensesDetails, setShowExpensesDetails] = useState(false);
   const [showBenefitsDetails, setShowBenefitsDetails] = useState(false);
   const [showWithdrawsDetails, setShowWithdrawsDetails] = useState(false);
+  const [showAttendanceDetails, setShowAttendanceDetails] = useState(false);
 
   // Fetch departments based on user role
   useEffect(() => {
@@ -120,19 +121,22 @@ const Stakeholderpage = () => {
 
       const tableData = [
         ["Category", "Total Amount", "Number of Records"],
-        ["Withdrawals", formatCurrency(stats.totals.withdraws || 0), stats.withdraws?.length || 0],
-        ["Deposits", formatCurrency(stats.totals.deposits || 0), stats.deposits?.length || 0],
-        ["Realized Benefits", formatCurrency(stats.totals.realizedBenefits || 0), stats.realizedBenefits?.length || 0],
-        ["Inventory Value", formatCurrency(stats.totals.existingStock || 0), stats.existingStocks?.length || 0],
-        ["Pays (Incoming)", formatCurrency(stats.totals.pays || 0), stats.pays?.length || 0],
-        ["Expenses", formatCurrency(stats.totals.expenses || 0), stats.expenses?.length || 0],
-        ["Sales Revenue", formatCurrency(stats.totals.totalSales || 0), stats.sells?.length || 0],
-        ["Sales Receipt (Collected)", formatCurrency(stats.totals.sellsReceipt || 0), "-"],
-        ["Sales Remaind (Pending)", formatCurrency(stats.totals.sellsRemaind || 0), "-"],
-        ["Total Incoming", formatCurrency(stats.totals.totalIncoming || 0), "-"],
-        ["Total Outgoing", formatCurrency(stats.totals.totalOutgoing || 0), "-"],
-        ["Net Cash Flow", formatCurrency(stats.totals.netCashFlow || 0), "-"],
-        ["GRAND TOTAL (Balance)", formatCurrency(stats.totals.grandTotal || 0), "-"],
+        ["💰 Withdrawals", formatCurrency(stats.totals.withdraws || 0), stats.withdraws?.length || 0],
+        ["💵 Deposits", formatCurrency(stats.totals.deposits || 0), stats.deposits?.length || 0],
+        ["📈 Realized Benefits", formatCurrency(stats.totals.realizedBenefits || 0), stats.realizedBenefits?.length || 0],
+        ["📦 Inventory Value", formatCurrency(stats.totals.existingStock || 0), stats.existingStocks?.length || 0],
+        ["💳 Pays (Incoming)", formatCurrency(stats.totals.pays || 0), stats.pays?.length || 0],
+        ["📊 Expenses", formatCurrency(stats.totals.expenses || 0), stats.expenses?.length || 0],
+        ["🛒 Sales Revenue", formatCurrency(stats.totals.totalSales || 0), stats.sells?.length || 0],
+        ["💰 Sales Receipt (Collected)", formatCurrency(stats.totals.sellsReceipt || 0), "-"],
+        ["💸 Sales Remaind (Pending)", formatCurrency(stats.totals.sellsRemaind || 0), "-"],
+        ["👥 Staff Salaries", formatCurrency(stats.totals.attendance?.totalAmount || 0), stats.totals.attendance?.totalRecords || 0],
+        ["💰 Salary Paid", formatCurrency(stats.totals.attendance?.totalReceipt || 0), "-"],
+        ["💸 Salary Remaind", formatCurrency(stats.totals.attendance?.totalRemaind || 0), "-"],
+        ["📥 Total Incoming", formatCurrency(stats.totals.totalIncoming || 0), "-"],
+        ["📤 Total Outgoing", formatCurrency(stats.totals.totalOutgoing || 0), "-"],
+        ["💹 Net Cash Flow", formatCurrency(stats.totals.netCashFlow || 0), "-"],
+        ["⚖️ GRAND TOTAL (Balance)", formatCurrency(stats.totals.grandTotal || 0), "-"],
       ];
 
       autoTable(doc, {
@@ -144,7 +148,6 @@ const Stakeholderpage = () => {
         headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
         alternateRowStyles: { fillColor: [240, 240, 240] },
         didDrawCell: (data) => {
-          // Highlight the grand total row
           if (data.row.index === tableData.length - 2) {
             data.cell.styles.fillColor = [255, 215, 0];
             data.cell.styles.textColor = [0, 0, 0];
@@ -152,6 +155,35 @@ const Stakeholderpage = () => {
           }
         }
       });
+
+      // Attendance Details
+      if (stats.attendances && stats.attendances.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Staff Attendance & Salary Details", 40, 50, { align: "left" });
+        
+        const attendanceHeaders = [["ID", "Staff Name", "Father Name", "Salary", "Overtime", "Total", "Paid", "Remaind", "Date"]];
+        const attendanceBody = stats.attendances.map(a => [
+          a.id,
+          a.staffName || "Unknown",
+          a.staffFatherName || "",
+          formatCurrency(a.salary),
+          formatCurrency(a.overtime),
+          formatCurrency(a.total),
+          formatCurrency(a.receipt),
+          formatCurrency(a.remaind),
+          moment(a.createdAt).format("YYYY-MM-DD")
+        ]);
+        
+        autoTable(doc, {
+          startY: 70,
+          head: attendanceHeaders,
+          body: attendanceBody,
+          theme: "grid",
+          styles: { fontSize: 9, cellPadding: 4, halign: "center" },
+          headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
+        });
+      }
 
       // Deposits Details
       if (stats.deposits && stats.deposits.length > 0) {
@@ -326,6 +358,9 @@ const Stakeholderpage = () => {
         ["Sales Revenue", stats.totals.totalSales || 0, stats.sells?.length || 0],
         ["Sales Receipt", stats.totals.sellsReceipt || 0, "-"],
         ["Sales Remaind", stats.totals.sellsRemaind || 0, "-"],
+        ["Staff Salaries", stats.totals.attendance?.totalAmount || 0, stats.totals.attendance?.totalRecords || 0],
+        ["Salary Paid", stats.totals.attendance?.totalReceipt || 0, "-"],
+        ["Salary Remaind", stats.totals.attendance?.totalRemaind || 0, "-"],
         ["Total Incoming", stats.totals.totalIncoming || 0, "-"],
         ["Total Outgoing", stats.totals.totalOutgoing || 0, "-"],
         ["Net Cash Flow", stats.totals.netCashFlow || 0, "-"],
@@ -335,6 +370,26 @@ const Stakeholderpage = () => {
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
       summarySheet["!cols"] = [{ wch: 25 }, { wch: 20 }, { wch: 15 }];
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+
+      // Attendance Sheet
+      if (stats.attendances && stats.attendances.length > 0) {
+        const attendanceData = [
+          ["ID", "Staff Name", "Father Name", "Salary", "Overtime", "Total", "Paid", "Remaind", "Date"],
+          ...stats.attendances.map(a => [
+            a.id,
+            a.staffName || "Unknown",
+            a.staffFatherName || "",
+            a.salary,
+            a.overtime,
+            a.total,
+            a.receipt,
+            a.remaind,
+            moment(a.createdAt).format("YYYY-MM-DD")
+          ])
+        ];
+        const attendanceSheet = XLSX.utils.aoa_to_sheet(attendanceData);
+        XLSX.utils.book_append_sheet(workbook, attendanceSheet, "Attendance");
+      }
 
       // Deposits Sheet
       if (stats.deposits && stats.deposits.length > 0) {
@@ -566,6 +621,35 @@ const Stakeholderpage = () => {
             </div>
           </div>
 
+          {/* Staff Salary Card */}
+          <div className="bg-purple-50 rounded-xl p-5 shadow-sm mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center space-x-3">
+                <div className="text-purple-700">
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-semibold text-purple-800">Staff Salaries</h3>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-purple-600">Total Salary Amount</p>
+                <p className="text-xl font-bold text-purple-700">{formatCurrency(stats.totals.attendance?.totalAmount || 0)}</p>
+                <p className="text-xs text-purple-500">{stats.totals.attendance?.totalRecords || 0} records</p>
+              </div>
+              <div>
+                <p className="text-xs text-green-600">Paid Amount</p>
+                <p className="text-xl font-bold text-green-700">{formatCurrency(stats.totals.attendance?.totalReceipt || 0)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-orange-600">Remaining (Unpaid)</p>
+                <p className="text-xl font-bold text-orange-700">{formatCurrency(stats.totals.attendance?.totalRemaind || 0)}</p>
+              </div>
+            </div>
+          </div>
+
           {/* Grand Total Card - Highlighted */}
           <div className="bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-xl p-6 shadow-lg mb-6">
             <div className="flex items-center justify-between">
@@ -592,12 +676,12 @@ const Stakeholderpage = () => {
             <div className="bg-gray-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-gray-600">Total Incoming</p>
               <p className="text-2xl font-bold text-green-600">{formatCurrency(stats.totals.totalIncoming || 0)}</p>
-              <p className="text-xs text-gray-500">Deposits + Benefits + Pays + Receipts</p>
+              <p className="text-xs text-gray-500">Deposits + Benefits + Pays + Receipts + Salary Paid</p>
             </div>
             <div className="bg-gray-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-gray-600">Total Outgoing</p>
               <p className="text-2xl font-bold text-red-600">{formatCurrency(stats.totals.totalOutgoing || 0)}</p>
-              <p className="text-xs text-gray-500">Withdrawals + Expenses</p>
+              <p className="text-xs text-gray-500">Withdrawals + Expenses + Salaries</p>
             </div>
             <div className="bg-gray-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-gray-600">Net Cash Flow</p>
@@ -607,6 +691,62 @@ const Stakeholderpage = () => {
               <p className="text-xs text-gray-500">Incoming - Outgoing</p>
             </div>
           </div>
+
+          {/* Attendance Details Section */}
+          {stats.attendances && stats.attendances.length > 0 && (
+            <div className="mb-6">
+              <button
+                onClick={() => setShowAttendanceDetails(!showAttendanceDetails)}
+                className="w-full bg-purple-50 hover:bg-purple-100 text-purple-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
+              >
+                <span>👥 Staff Attendance & Salary Details ({stats.attendances.length} records, Total: {formatCurrency(stats.totals.attendance?.totalAmount || 0)})</span>
+                <span>{showAttendanceDetails ? "▲" : "▼"}</span>
+              </button>
+              {showAttendanceDetails && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-full bg-white border border-gray-200 rounded-lg">
+                    <thead className="bg-gray-100">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">ID</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Staff Name</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Father Name</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Salary</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Overtime</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold">Total</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold bg-emerald-100">Paid</th>
+                        <th className="px-4 py-2 text-right text-sm font-semibold bg-orange-100">Remaind</th>
+                        <th className="px-4 py-2 text-left text-sm font-semibold">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.attendances.map((a) => (
+                        <tr key={a.id} className="border-t border-gray-200 hover:bg-gray-50">
+                          <td className="px-4 py-2 text-sm">{a.id}</td>
+                          <td className="px-4 py-2 text-sm font-medium">{a.staffName || "Unknown"}</td>
+                          <td className="px-4 py-2 text-sm">{a.staffFatherName || ""}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(a.salary)}</td>
+                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(a.overtime)}</td>
+                          <td className="px-4 py-2 text-sm text-right font-semibold">{formatCurrency(a.total)}</td>
+                          <td className="px-4 py-2 text-sm text-right bg-emerald-50">{formatCurrency(a.receipt)}</td>
+                          <td className="px-4 py-2 text-sm text-right bg-orange-50">{formatCurrency(a.remaind)}</td>
+                          <td className="px-4 py-2 text-sm">{moment(a.createdAt).format("YYYY-MM-DD")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot className="bg-gray-100">
+                      <tr>
+                        <td colSpan="5" className="px-4 py-2 text-right font-semibold">Totals:</td>
+                        <td className="px-4 py-2 text-right font-semibold">{formatCurrency(stats.totals.attendance?.totalAmount || 0)}</td>
+                        <td className="px-4 py-2 text-right font-semibold bg-emerald-100">{formatCurrency(stats.totals.attendance?.totalReceipt || 0)}</td>
+                        <td className="px-4 py-2 text-right font-semibold bg-orange-100">{formatCurrency(stats.totals.attendance?.totalRemaind || 0)}</td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Deposits Details Section */}
           {stats.deposits && stats.deposits.length > 0 && (
