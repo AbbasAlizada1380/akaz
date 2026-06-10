@@ -78,7 +78,7 @@ app.use("/customerAccount", CustomerAccountRoute);
 app.use("/sellerAccount", SellerAccountRoute);
 app.use("/report", ReportRoute);
 app.use("/staff", StaffRoute);
-app.use("/attendence", AttendenceRoute);
+app.use("/attendance", AttendenceRoute);
 app.use("/departmentTransaction", DepartmentTransactionRouter);
 app.use("/Bill", BillRouter);
 app.use("/Factor", FactorRouter);

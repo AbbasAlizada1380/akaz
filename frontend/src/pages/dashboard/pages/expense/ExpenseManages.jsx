@@ -8,6 +8,7 @@ const limit = 10;
 
 const ExpenseManager = () => {
   const [expenses, setExpenses] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const { currentUser } = useSelector((state) => state.user);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -19,8 +20,24 @@ const ExpenseManager = () => {
     purpose: "",
     by: "",
     amount: "",
+    departmentId: "",
     description: "",
   });
+
+  /* ======================
+     Fetch Departments
+  ====================== */
+  const fetchDepartments = async () => {
+    try {
+      const res = await axios.get(`${BASE_URL}/department`);
+      // Assuming response structure: { data: [] } or just array
+      const departmentsData = res.data.data || res.data;
+      setDepartments(departmentsData);
+    } catch (err) {
+      console.error("Failed to fetch departments:", err);
+      alert("Failed to load departments list");
+    }
+  };
 
   /* ======================
      Fetch Expenses (with pagination)
@@ -46,15 +63,23 @@ const ExpenseManager = () => {
 
   useEffect(() => {
     fetchExpenses(currentPage);
+    fetchDepartments();
   }, [currentPage]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
 
+    // Validate department selection
+    if (!form.departmentId) {
+      alert("Please select a department");
+      return;
+    }
+
     const payload = {
       ...form,
       amount: parseFloat(form.amount),
+      departmentId: parseInt(form.departmentId),
     };
 
     try {
@@ -83,7 +108,8 @@ const ExpenseManager = () => {
       purpose: expense.purpose,
       by: expense.by,
       amount: expense.amount,
-      description: expense.description,
+      departmentId: expense.departmentId || "",
+      description: expense.description || "",
     });
   };
 
@@ -106,7 +132,13 @@ const ExpenseManager = () => {
   };
 
   const resetForm = () => {
-    setForm({ purpose: "", by: "", amount: "", description: "" });
+    setForm({ 
+      purpose: "", 
+      by: "", 
+      amount: "", 
+      departmentId: "", 
+      description: "" 
+    });
     setEditingId(null);
   };
 
@@ -140,7 +172,7 @@ const ExpenseManager = () => {
 
       {/* Form Section */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        <div className="bg-primary text-white p-4">
+        <div className="bg-blue-600 text-white p-4">
           <h2 className="text-xl font-bold">
             {editingId ? "Edit Expense" : "Add New Expense"}
           </h2>
@@ -165,7 +197,7 @@ const ExpenseManager = () => {
                   onChange={(e) =>
                     setForm({ ...form, purpose: e.target.value })
                   }
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
               <div>
@@ -179,29 +211,52 @@ const ExpenseManager = () => {
                   onChange={(e) =>
                     setForm({ ...form, by: e.target.value })
                   }
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <span className="text-red-500">*</span> Amount (AFN)
-              </label>
-              <input
-                required
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.amount}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    amount: e.target.value,
-                  })
-                }
-                className="w-full border border-gray-300 rounded-lg px-4 py-3"
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <span className="text-red-500">*</span> Amount (AFN)
+                </label>
+                <input
+                  required
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.amount}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      amount: e.target.value,
+                    })
+                  }
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <span className="text-red-500">*</span> Department
+                </label>
+                <select
+                  required
+                  value={form.departmentId}
+                  onChange={(e) =>
+                    setForm({ ...form, departmentId: e.target.value })
+                  }
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                >
+                  <option value="">Select Department</option>
+                  {departments.map((dept) => (
+                    <option key={dept.id} value={dept.id}>
+                      {dept.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div>
@@ -215,7 +270,7 @@ const ExpenseManager = () => {
                   setForm({ ...form, description: e.target.value })
                 }
                 rows={3}
-                className="w-full border border-gray-300 rounded-lg px-4 py-3"
+                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               />
             </div>
 
@@ -224,7 +279,7 @@ const ExpenseManager = () => {
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+                  className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
@@ -232,7 +287,7 @@ const ExpenseManager = () => {
               <button
                 type="submit"
                 disabled={submitting}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
                 {submitting
                   ? "Saving..."

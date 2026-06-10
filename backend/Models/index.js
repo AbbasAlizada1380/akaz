@@ -13,7 +13,8 @@ import DepartmentTransaction from './Finance/DepartmentTransaction.js';
 import Bill from './Finance/Bill.js';
 import Factor from './Finance/Factor.js';
 import Benefit from './Benefit.js';
-import User from './User.js';                // 👈 Import User model (adjust path if needed)
+import User from './User.js';
+import Expense from './Expense.js';  // 👈 Import Expense model
 
 const models = {
   Department,
@@ -30,7 +31,8 @@ const models = {
   Bill,
   Factor,
   Benefit,
-  User,                                      // 👈 add User to models
+  User,
+  Expense,  // 👈 Add Expense to models
 };
 
 /* ===============================
@@ -44,12 +46,18 @@ StockIncome.associate = (models) => {
   StockIncome.belongsTo(models.StockExist, { foreignKey: "existId", as: "stock" });
 };
 
+// ---------- Expense ----------
+Expense.associate = (models) => {
+  Expense.belongsTo(models.Department, { foreignKey: "departmentId", as: "department" });
+};
+
 // ---------- Department ----------
 Department.associate = (models) => {
   Department.hasMany(models.StockIncome, { foreignKey: "departmentId", as: "stockIncomes" });
   Department.hasMany(models.StockExist, { foreignKey: "departmentId", as: "stockExists" });
   Department.hasMany(models.DepartmentTransaction, { foreignKey: "depId", as: "transactions" });
   Department.hasMany(models.Benefit, { foreignKey: "departmentId", as: "benefits" });
+  Department.hasMany(models.Expense, { foreignKey: "departmentId", as: "expenses" }); // 👈 Add Expense association
 };
 
 // ---------- Seller ----------
@@ -110,7 +118,7 @@ Pay.associate = (models) => {
 // ---------- DepartmentTransaction ----------
 DepartmentTransaction.associate = (models) => {
   DepartmentTransaction.belongsTo(models.Department, { foreignKey: "depId", as: "department" });
-  DepartmentTransaction.belongsTo(models.User, { foreignKey: "userId", as: "user" });   // 👈 association to User
+  DepartmentTransaction.belongsTo(models.User, { foreignKey: "userId", as: "user" });
 };
 
 // ---------- Factor ----------
@@ -126,7 +134,7 @@ Benefit.associate = (models) => {
 
 // ---------- User ----------
 User.associate = (models) => {
-  User.hasMany(models.DepartmentTransaction, { foreignKey: "userId", as: "departmentTransactions" });   // 👈 one-to-many
+  User.hasMany(models.DepartmentTransaction, { foreignKey: "userId", as: "departmentTransactions" });
 };
 
 /* ===============================
@@ -154,5 +162,6 @@ export {
   Bill,
   Factor,
   Benefit,
-  User,          // 👈 exported
+  User,
+  Expense,  // 👈 Export Expense
 };

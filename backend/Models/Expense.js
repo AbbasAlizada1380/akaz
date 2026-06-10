@@ -4,7 +4,6 @@ import sequelize from "../dbconnection.js";
 const Expense = sequelize.define(
   "Expense",
   {
-    // Since 'for' is a reserved keyword in JavaScript, we'll use 'recipient' or 'purpose'
     purpose: {
       type: DataTypes.STRING,
       allowNull: false,
@@ -22,6 +21,17 @@ const Expense = sequelize.define(
         min: 0
       }
     },
+    departmentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: 'Departments',
+        key: 'id'
+      },
+      onUpdate: 'CASCADE',
+      onDelete: 'RESTRICT',
+      comment: "Department this expense belongs to"
+    },
     calculated: {
       type: DataTypes.BOOLEAN,
       defaultValue: false,
@@ -29,17 +39,20 @@ const Expense = sequelize.define(
     description: {
       type: DataTypes.TEXT
     },
-
   },
   {
     timestamps: true,
     indexes: [
+      // Essential index for department filtering
       {
-        fields: ['purpose']
+        name: 'expenses_department_id_idx',
+        fields: ['departmentId']
       },
+      // CRITICAL: Composite index for date range queries per department
       {
-        fields: ['by']
-      },
+        name: 'expenses_dept_created_idx',
+        fields: ['departmentId', 'createdAt']
+      }
     ]
   }
 );

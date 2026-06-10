@@ -41,6 +41,7 @@ const ExpenseTable = ({
               <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">Paid By</th>
               <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">Amount (AFN)</th>
               <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">Description</th>
+               <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">Department</th>
               <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">Date</th>
               <th className="px-6 py-3 text-right text-sm font-semibold text-gray-700">Actions</th>
             </tr>
@@ -77,6 +78,9 @@ const ExpenseTable = ({
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate" title={expense.description}>
                     {expense.description || "-"}
+                  </td>
+                                    <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate" title={expense.description}>
+                    {expense.department.name || "-"}
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {formatDate(expense.createdAt)}

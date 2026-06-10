@@ -1,5 +1,6 @@
 import { Department, Benefit, DepartmentTransaction, sequelize, StockExist, Pay, User, Seller } from "../Models/index.js";
 import { Op } from "sequelize";
+import {Expense} from "../Models/index.js";
 
 // ✅ Helper: safely get holding object
 const getHoldingObject = (holding) => {
@@ -323,8 +324,7 @@ const parseJSONArray = (value) => {
   }
   return [];
 };
-
-// Get amounts (and counts) for withdraw, deposit, realizedBenefit, exist, and pays for a department
+// Get amounts (and counts) for withdraw, deposit, realizedBenefit, exist, pays, and expenses for a department
 export const getDepartmentCounts = async (req, res) => {
   try {
     const { departmentId } = req.params;
@@ -340,7 +340,7 @@ export const getDepartmentCounts = async (req, res) => {
     const depositIds = parseJSONArray(department.deposit);
     const realizedBenefitIds = parseJSONArray(department.realizedBenefit);
     const existIds = parseJSONArray(department.exist);
-    const paysIds = parseJSONArray(department.pays);   // <-- new: Pay IDs
+    const paysIds = parseJSONArray(department.pays);
 
     // Date filter for transactions & benefits
     const dateFilter = {};
@@ -417,8 +417,42 @@ export const getDepartmentCounts = async (req, res) => {
       paysCount = parseInt(result[0]?.count || 0);
     }
 
-    // Grand total = deposit - withdraw + realizedBenefit + existTotal + paysTotal
-    const grandTotal = depositTotal - withdrawTotal + realizedBenefitTotal + existTotal - paysTotal;
+    // EXPENSES: Find directly from Expense table based on departmentId (NOT from department.expenses array)
+    let expensesTotal = 0, expensesCount = 0;
+    const expenseWhere = { departmentId: parseInt(departmentId) };
+    
+    // Add date filter if provided
+    if (startDate || endDate) {
+      expenseWhere.createdAt = {};
+      if (startDate) expenseWhere.createdAt[Op.gte] = new Date(startDate);
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        expenseWhere.createdAt[Op.lte] = endDateTime;
+      }
+    }
+    
+    const expensesResult = await Expense.findAll({
+      where: expenseWhere,
+      attributes: [
+        [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
+        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
+      ],
+      raw: true,
+    });
+    
+    expensesTotal = parseFloat(expensesResult[0]?.totalAmount || 0);
+    expensesCount = parseInt(expensesResult[0]?.count || 0);
+
+    // Calculate total incoming and outgoing
+    const totalIncoming = depositTotal + realizedBenefitTotal + paysTotal;
+    const totalOutgoing = withdrawTotal + expensesTotal;
+    
+    // Grand total = deposit - withdraw + realizedBenefit + existTotal + pays - expenses
+    const grandTotal = depositTotal - withdrawTotal + realizedBenefitTotal + existTotal + paysTotal - expensesTotal;
+    
+    // Net cash flow (excluding stock value)
+    const netCashFlow = totalIncoming - totalOutgoing;
 
     res.status(200).json({
       message: "Department amounts fetched successfully",
@@ -431,6 +465,10 @@ export const getDepartmentCounts = async (req, res) => {
           realizedBenefit: realizedBenefitTotal,
           exist: existTotal,
           pays: paysTotal,
+          expenses: expensesTotal,
+          totalIncoming: totalIncoming,
+          totalOutgoing: totalOutgoing,
+          netCashFlow: netCashFlow,
           grandTotal: grandTotal,
         },
         counts: {
@@ -439,6 +477,7 @@ export const getDepartmentCounts = async (req, res) => {
           realizedBenefit: realizedBenefitCount,
           exist: existCount,
           pays: paysCount,
+          expenses: expensesCount,
         },
         dateRange: startDate || endDate
           ? { startDate: startDate || null, endDate: endDate || null }
@@ -454,7 +493,6 @@ export const getDepartmentCounts = async (req, res) => {
   }
 };
 
-// Get detailed records for withdraw, deposit, realizedBenefit, exist, and pays
 export const getDepartmentDetails = async (req, res) => {
   try {
     const { departmentId } = req.params;
@@ -484,139 +522,125 @@ export const getDepartmentDetails = async (req, res) => {
       }
     }
 
-    // Helper to apply date filter only if object has createdAt field
-    const applyDateFilter = (whereClause) => {
-      if (Object.keys(dateFilter).length && dateFilter.createdAt) {
-        whereClause.createdAt = dateFilter.createdAt;
-      }
-      return whereClause;
-    };
+    // Fetch all data with details
+    const [withdraws, deposits, realizedBenefits, existingStocks, pays, expenses] = await Promise.all([
+      withdrawIds.length > 0 
+        ? DepartmentTransaction.findAll({ 
+            where: { id: { [Op.in]: withdrawIds }, is_deposit: false, ...dateFilter },
+            order: [['createdAt', 'DESC']]
+          })
+        : [],
+      depositIds.length > 0 
+        ? DepartmentTransaction.findAll({ 
+            where: { id: { [Op.in]: depositIds }, is_deposit: true, ...dateFilter },
+            order: [['createdAt', 'DESC']]
+          })
+        : [],
+      realizedBenefitIds.length > 0 
+        ? Benefit.findAll({ 
+            where: { id: { [Op.in]: realizedBenefitIds }, ...dateFilter },
+            include: [{ model: Sells, as: 'sell' }],
+            order: [['createdAt', 'DESC']]
+          })
+        : [],
+      existIds.length > 0 
+        ? StockExist.findAll({ 
+            where: { id: { [Op.in]: existIds } },
+            include: [{ model: Department, as: 'department' }]
+          })
+        : [],
+      paysIds.length > 0 
+        ? Pay.findAll({ 
+            where: { id: { [Op.in]: paysIds }, ...dateFilter },
+            include: [{ model: Seller, as: 'sellerInfo' }],
+            order: [['createdAt', 'DESC']]
+          })
+        : [],
+      // Find expenses directly from Expense table based on departmentId
+      Expense.findAll({
+        where: { 
+          departmentId: parseInt(departmentId),
+          ...dateFilter
+        },
+        include: [{ model: Department, as: 'department' }],
+        order: [['createdAt', 'DESC']]
+      })
+    ]);
 
-    // 1. Withdraw transactions (is_deposit = false) with user name
-    let withdraws = [];
-    if (withdrawIds.length > 0) {
-      withdraws = await DepartmentTransaction.findAll({
-        where: applyDateFilter({ id: { [Op.in]: withdrawIds }, is_deposit: false }),
-        include: [
-          {
-            model: User,
-            as: 'user',        // adjust alias if different (e.g., 'userInfo')
-            attributes: ['fullname'], // try 'fullname' first, fallback to 'name'
-            required: false,
-          },
-        ],
-        attributes: ['id', 'amount', 'createdAt', 'userId', 'depId'],
-        order: [['createdAt', 'DESC']],
-        raw: true,
-        nest: true,
-      });
-      // Extract user name (choose fullname if exists, else name)
-      withdraws = withdraws.map(w => ({
-        ...w,
-        userName: w.user?.fullname || w.user?.name || 'Unknown',
-        user: undefined, // remove nested user object
-      }));
-    }
-
-    // 2. Deposit transactions (is_deposit = true) with user name
-    let deposits = [];
-    if (depositIds.length > 0) {
-      deposits = await DepartmentTransaction.findAll({
-        where: applyDateFilter({ id: { [Op.in]: depositIds }, is_deposit: true }),
-        include: [
-          {
-            model: User,
-            as: 'user',
-            attributes: ['fullname'],
-            required: false,
-          },
-        ],
-        attributes: ['id', 'amount', 'createdAt', 'userId', 'depId'],
-        order: [['createdAt', 'DESC']],
-        raw: true,
-        nest: true,
-      });
-      deposits = deposits.map(d => ({
-        ...d,
-        userName: d.user?.fullname || 'Unknown',
-        user: undefined,
-      }));
-    }
-
-    // 3. Realized Benefits (no user info needed)
-    let realizedBenefits = [];
-    if (realizedBenefitIds.length > 0) {
-      realizedBenefits = await Benefit.findAll({
-        where: applyDateFilter({ id: { [Op.in]: realizedBenefitIds } }),
-        attributes: ['id', 'amount', 'sellId', 'departmentId', 'createdAt'],
-        order: [['createdAt', 'DESC']],
-        raw: true,
-      });
-    }
-
-    // 4. Existing Stock Items (no user info)
-    let existingStocks = [];
-    if (existIds.length > 0) {
-      existingStocks = await StockExist.findAll({
-        where: { id: { [Op.in]: existIds } },
-        attributes: ['id', 'name', 'amount', 'unit_price', 'sell_price', 'departmentId', 'createdAt'],
-        order: [['name', 'ASC']],
-        raw: true,
-      });
-      existingStocks = existingStocks.map(item => ({
-        ...item,
-        total_value: (item.amount || 0) * (item.unit_price || 0)
-      }));
-    }
-
- // 5. Pays with seller's full name (assuming seller is a foreign key to Seller model)
-let pays = [];
-if (paysIds.length > 0) {
-  pays = await Pay.findAll({
-    where: applyDateFilter({ id: { [Op.in]: paysIds } }),
-    include: [
-      {
-        model: Seller,
-        as: 'sellerInfo',   // correct alias from association
-        attributes: ['fullname'],
-        required: false,
-      },
-    ],
-    attributes: ['id', 'amount', 'seller', 'description', 'createdAt'],
-    order: [['createdAt', 'DESC']],
-    raw: true,
-    nest: true,
-  });
-  pays = pays.map(p => ({
-    ...p,
-    sellerName: p.sellerInfo?.fullname || p.seller || 'Unknown',
-    sellerInfo: undefined,
-  }));
-}
+    // Calculate totals
+    const totalWithdraws = withdraws.reduce((sum, w) => sum + (w.amount || 0), 0);
+    const totalDeposits = deposits.reduce((sum, d) => sum + (d.amount || 0), 0);
+    const totalBenefits = realizedBenefits.reduce((sum, b) => sum + (b.amount || 0), 0);
+    const totalPays = pays.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const totalExpenses = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+    const totalStockValue = existingStocks.reduce((sum, s) => sum + ((s.amount || 0) * (s.unit_price || 0)), 0);
 
     res.status(200).json({
       message: "Department details fetched successfully",
       data: {
         departmentId: department.id,
         departmentName: department.name,
-        dateRange: startDate || endDate
-          ? { startDate: startDate || null, endDate: endDate || null }
-          : "all",
-        withdraws,
-        deposits,
-        realizedBenefits,
-        existingStocks,
-        pays,
-      },
+        dateRange: startDate || endDate ? { startDate: startDate || null, endDate: endDate || null } : "all",
+        totals: {
+          withdraws: totalWithdraws,
+          deposits: totalDeposits,
+          realizedBenefits: totalBenefits,
+          existingStock: totalStockValue,
+          pays: totalPays,
+          expenses: totalExpenses,
+          netFlow: totalDeposits + totalBenefits + totalPays - totalWithdraws - totalExpenses
+        },
+        withdraws: withdraws.map(w => ({
+          id: w.id,
+          amount: w.amount,
+          userName: w.userName,
+          createdAt: w.createdAt
+        })),
+        deposits: deposits.map(d => ({
+          id: d.id,
+          amount: d.amount,
+          userName: d.userName,
+          createdAt: d.createdAt
+        })),
+        realizedBenefits: realizedBenefits.map(b => ({
+          id: b.id,
+          amount: b.amount,
+          sellId: b.sellId,
+          createdAt: b.createdAt
+        })),
+        existingStocks: existingStocks.map(s => ({
+          id: s.id,
+          name: s.name,
+          amount: s.amount,
+          unit_price: s.unit_price,
+          total_value: (s.amount || 0) * (s.unit_price || 0)
+        })),
+        pays: pays.map(p => ({
+          id: p.id,
+          amount: p.amount,
+          sellerName: p.sellerInfo?.fullname || "Unknown",
+          description: p.description,
+          createdAt: p.createdAt
+        })),
+        expenses: expenses.map(e => ({
+          id: e.id,
+          amount: e.amount,
+          purpose: e.purpose,
+          by: e.by,
+          description: e.description,
+          createdAt: e.createdAt
+        }))
+      }
     });
   } catch (error) {
     console.error("Error in getDepartmentDetails:", error);
     res.status(500).json({
       message: "Failed to fetch department details",
-      error: error.message,
+      error: error.message
     });
   }
 };
+
 
 
 // NEW: Get departments for a specific user with their holding percentage

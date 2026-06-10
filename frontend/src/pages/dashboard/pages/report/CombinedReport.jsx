@@ -22,7 +22,7 @@ const CombinedReport = () => {
       { name: "benefits", url: `${BASE_URL}/department/report`, params: { ...params, limit: 10000 } },
       { name: "receipts", url: `${BASE_URL}/receive/date_range`, params },
       { name: "payments", url: `${BASE_URL}/pay/date-range`, params },
-      { name: "expenses", url: `${BASE_URL}/expense/date_range`, params },
+      { name: "expenses", url: `${BASE_URL}/expense/date-range`, params },
       { name: "salaries", url: `${BASE_URL}/attendance/date-range`, params },
     ];
 
@@ -53,16 +53,16 @@ const CombinedReport = () => {
           benefitsList = result.data.data || [];
           break;
         case "receipts":
-          receiptsList = result.data.data?.receives || [];
+          receiptsList = result.data.data?.receives || result.data.receives || [];
           break;
         case "payments":
-          paymentsList = result.data.data?.pays || [];
+          paymentsList = result.data.data?.pays || result.data.pays || [];
           break;
         case "expenses":
-          expensesList = result.data.data?.expenses || [];
+          expensesList = result.data.data?.expenses || result.data.expenses || [];
           break;
         case "salaries":
-          salariesList = result.data.data || [];
+          salariesList = result.data.data || result.data || [];
           break;
         default:
           break;
@@ -90,13 +90,15 @@ const CombinedReport = () => {
       const { benefitsList, receiptsList, paymentsList, expensesList, salariesList } =
         await fetchAllData(from, to);
 
-      if (
-        benefitsList.length === 0 &&
-        receiptsList.length === 0 &&
-        paymentsList.length === 0 &&
-        expensesList.length === 0 &&
-        salariesList.length === 0
-      ) {
+      // Check if ANY data exists
+      const hasData = 
+        benefitsList.length > 0 ||
+        receiptsList.length > 0 ||
+        paymentsList.length > 0 ||
+        expensesList.length > 0 ||
+        salariesList.length > 0;
+
+      if (!hasData) {
         alert("No data found in the selected date range.");
         return;
       }
@@ -121,165 +123,191 @@ const CombinedReport = () => {
       doc.text(`Period: ${formattedFrom} to ${formattedTo}`, margin, 75, { align: "left" });
       doc.text(`Generated: ${today}`, margin, 95, { align: "left" });
 
-      // ========== SUMMARY TABLE ==========
+      // ========== SUMMARY TABLE (only show categories with data) ==========
       const summaryHeaders = [["Category", "Count", "Total Amount (AFN)"]];
       const summaryBody = [];
 
       const calcTotal = (list, amountField = "amount") => {
-        const total = list.reduce((sum, item) => sum + parseFloat(item[amountField] || 0), 0);
-        return total;
+        return list.reduce((sum, item) => sum + parseFloat(item[amountField] || 0), 0);
       };
 
       const benefitsTotal = calcTotal(benefitsList);
       const receiptsTotal = calcTotal(receiptsList);
       const paymentsTotal = calcTotal(paymentsList);
       const expensesTotal = calcTotal(expensesList);
-      // Salaries use "total" field (amount to pay)
       const salariesTotal = salariesList.reduce((sum, s) => sum + parseFloat(s.total || 0), 0);
 
-      if (benefitsList.length) summaryBody.push(["Benefits", benefitsList.length, benefitsTotal.toLocaleString()]);
-      if (receiptsList.length) summaryBody.push(["Receipts (Customer Payments)", receiptsList.length, receiptsTotal.toLocaleString()]);
-      if (paymentsList.length) summaryBody.push(["Payments (Supplier/Seller)", paymentsList.length, paymentsTotal.toLocaleString()]);
-      if (expensesList.length) summaryBody.push(["Expenses", expensesList.length, expensesTotal.toLocaleString()]);
-      if (salariesList.length) summaryBody.push(["Salaries", salariesList.length, salariesTotal.toLocaleString()]);
+      // Only add to summary if data exists
+      if (benefitsList.length > 0) summaryBody.push(["Benefits", benefitsList.length, benefitsTotal.toLocaleString()]);
+      if (receiptsList.length > 0) summaryBody.push(["Receipts (Customer Payments)", receiptsList.length, receiptsTotal.toLocaleString()]);
+      if (paymentsList.length > 0) summaryBody.push(["Payments (Supplier/Seller)", paymentsList.length, paymentsTotal.toLocaleString()]);
+      if (expensesList.length > 0) summaryBody.push(["Expenses", expensesList.length, expensesTotal.toLocaleString()]);
+      if (salariesList.length > 0) summaryBody.push(["Salaries", salariesList.length, salariesTotal.toLocaleString()]);
 
-      autoTable(doc, {
-        startY: 120,
-        margin: { left: margin, right: margin },
-        head: summaryHeaders,
-        body: summaryBody,
-        theme: "striped",
-        styles: { font: "Vazirmatn", fontSize: 11, halign: "center", cellPadding: 8 },
-        headStyles: { fillColor: [70, 130, 180], textColor: 255, fontStyle: "bold" },
-      });
+      // Only create summary table if there are entries
+      if (summaryBody.length > 0) {
+        autoTable(doc, {
+          startY: 120,
+          margin: { left: margin, right: margin },
+          head: summaryHeaders,
+          body: summaryBody,
+          theme: "striped",
+          styles: { font: "Vazirmatn", fontSize: 11, halign: "center", cellPadding: 8 },
+          headStyles: { fillColor: [70, 130, 180], textColor: 255, fontStyle: "bold" },
+        });
+      }
 
-      // ========== DETAILED SECTIONS (each on new page) ==========
-      const addDetailSection = (title, list, renderTable) => {
-        if (list.length === 0) return;
+      // ========== DETAILED SECTIONS (only if data exists) ==========
+      let currentY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 40 : 140;
+
+      // Benefits Detail Section
+      if (benefitsList.length > 0) {
         doc.addPage();
         doc.setFontSize(14);
-        doc.text(title, margin, 40, { align: "left" });
-        renderTable(doc, list, margin);
-      };
-
-      // Benefits detail
-      addDetailSection("Benefits Details", benefitsList, (doc, list, margin) => {
-        const headers = [["ID", "Amount (AFN)", "Sell ID", "Department", "Created At"]];
-        const body = list.map(b => [
+        doc.text("Benefits Details", margin, 40, { align: "left" });
+        
+        const benefitsHeaders = [["ID", "Amount (AFN)", "Sell ID", "Department", "Created At"]];
+        const benefitsBody = benefitsList.map(b => [
           b.id,
-          parseFloat(b.amount).toLocaleString("eng-en"),
-          b.sellId,
+          parseFloat(b.amount).toLocaleString(),
+          b.sellId || b.sell_id || "—",
           b.department?.name || "—",
           moment(b.createdAt).format("YYYY/MM/DD HH:mm"),
         ]);
+        
         autoTable(doc, {
           startY: 60,
           margin: { left: margin, right: margin },
-          head: headers,
-          body,
+          head: benefitsHeaders,
+          body: benefitsBody,
           theme: "grid",
           styles: { font: "Vazirmatn", fontSize: 10, halign: "center", cellPadding: 6 },
           headStyles: { fillColor: [70, 130, 180], textColor: 255 },
         });
-        const total = list.reduce((s, b) => s + parseFloat(b.amount), 0);
+        
         const finalY = doc.lastAutoTable.finalY + 15;
         doc.setFontSize(10);
-        doc.text(`Total Benefits: ${total.toLocaleString("eng-en")} AFN`, margin, finalY, { align: "left" });
-      });
+        doc.text(`Total Benefits: ${benefitsTotal.toLocaleString()} AFN`, margin, finalY, { align: "left" });
+      }
 
-      // Receipts detail
-      addDetailSection("Receipts Details", receiptsList, (doc, list, margin) => {
-        const headers = [["Amount (AFN)", "Customer", "Date", "Receipt ID"]];
-        const body = list.map(r => [
+      // Receipts Detail Section
+      if (receiptsList.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Receipts Details", margin, 40, { align: "left" });
+        
+        const receiptsHeaders = [["Amount (AFN)", "Customer", "Date", "Receipt ID"]];
+        const receiptsBody = receiptsList.map(r => [
           parseFloat(r.amount).toLocaleString(),
-          r.customerInfo?.fullname || "Unknown",
+          r.customerInfo?.fullname || r.customer?.fullname || "Unknown",
           moment(r.createdAt).format("YYYY/MM/DD"),
           r.id.toString().slice(-8),
         ]);
+        
         autoTable(doc, {
           startY: 60,
           margin: { left: margin, right: margin },
-          head: headers,
-          body,
+          head: receiptsHeaders,
+          body: receiptsBody,
           theme: "grid",
           styles: { font: "Vazirmatn", fontSize: 9, halign: "center", cellPadding: 5 },
           headStyles: { fillColor: [70, 130, 180], textColor: 255 },
         });
-        const total = list.reduce((s, r) => s + parseFloat(r.amount), 0);
+        
         const finalY = doc.lastAutoTable.finalY + 15;
         doc.setFontSize(10);
-        doc.text(`Total Receipts: ${total.toLocaleString()} AFN`, margin, finalY, { align: "left" });
-      });
+        doc.text(`Total Receipts: ${receiptsTotal.toLocaleString()} AFN`, margin, finalY, { align: "left" });
+      }
 
-      // Payments detail
-      addDetailSection("Payments Details", paymentsList, (doc, list, margin) => {
-        const headers = [["Amount (AFN)", "Seller", "Date", "Payment ID"]];
-        const body = list.map(p => [
+      // Payments Detail Section
+      if (paymentsList.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Payments Details", margin, 40, { align: "left" });
+        
+        const paymentsHeaders = [["Amount (AFN)", "Seller", "Date", "Payment ID"]];
+        const paymentsBody = paymentsList.map(p => [
           parseFloat(p.amount).toLocaleString(),
-          p.sellerInfo?.fullname || "Unknown",
+          p.sellerInfo?.fullname || p.seller?.fullname || "Unknown",
           moment(p.createdAt).format("YYYY/MM/DD"),
           p.id.toString().slice(-8),
         ]);
+        
         autoTable(doc, {
           startY: 60,
           margin: { left: margin, right: margin },
-          head: headers,
-          body,
+          head: paymentsHeaders,
+          body: paymentsBody,
           theme: "grid",
           styles: { font: "Vazirmatn", fontSize: 9, halign: "center", cellPadding: 5 },
           headStyles: { fillColor: [70, 130, 180], textColor: 255 },
         });
-        const total = list.reduce((s, p) => s + parseFloat(p.amount), 0);
+        
         const finalY = doc.lastAutoTable.finalY + 15;
-        doc.text(`Total Payments: ${total.toLocaleString()} AFN`, margin, finalY, { align: "left" });
-      });
+        doc.setFontSize(10);
+        doc.text(`Total Payments: ${paymentsTotal.toLocaleString()} AFN`, margin, finalY, { align: "left" });
+      }
 
-      // Expenses detail
-      addDetailSection("Expenses Details", expensesList, (doc, list, margin) => {
-        const headers = [["Amount (AFN)", "Purpose", "By", "Date", "ID"]];
-        const body = list.map(e => [
+      // Expenses Detail Section
+      if (expensesList.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Expenses Details", margin, 40, { align: "left" });
+        
+        const expensesHeaders = [["Amount (AFN)", "Purpose", "By", "Department", "Date", "ID"]];
+        const expensesBody = expensesList.map(e => [
           parseFloat(e.amount).toLocaleString(),
           e.purpose || "—",
           e.by || "Unknown",
+          e.department?.name || "N/A",
           moment(e.createdAt).format("YYYY/MM/DD"),
           e.id,
         ]);
+        
         autoTable(doc, {
           startY: 60,
           margin: { left: margin, right: margin },
-          head: headers,
-          body,
+          head: expensesHeaders,
+          body: expensesBody,
           theme: "grid",
           styles: { font: "Vazirmatn", fontSize: 10, halign: "center", cellPadding: 6 },
           headStyles: { fillColor: [70, 130, 180], textColor: 255 },
         });
-        const total = list.reduce((s, e) => s + parseFloat(e.amount), 0);
+        
         const finalY = doc.lastAutoTable.finalY + 15;
-        doc.text(`Total Expenses: ${total.toLocaleString()} AFN`, margin, finalY, { align: "left" });
-      });
+        doc.setFontSize(10);
+        doc.text(`Total Expenses: ${expensesTotal.toLocaleString()} AFN`, margin, finalY, { align: "left" });
+      }
 
-      // Salaries detail
-      addDetailSection("Salaries Details", salariesList, (doc, list, margin) => {
-        const headers = [["Payment Date", "Paid Amount (AFN)", "Total Payable (AFN)", "Employee"]];
-        const body = list.map(s => [
-          moment(s.createdAt).format("YYYY/MM/DD"),
-          parseFloat(s.receipt || 0).toLocaleString(),
-          parseFloat(s.total || 0).toLocaleString(),
-          s.Staff?.name || "Unknown",
+      // Salaries Detail Section
+      if (salariesList.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.text("Salaries Details", margin, 40, { align: "left" });
+        
+        const salariesHeaders = [["Payment Date", "Paid Amount (AFN)", "Total Payable (AFN)", "Employee", "Month"]];
+        const salariesBody = salariesList.map(s => [
+          moment(s.createdAt || s.payment_date).format("YYYY/MM/DD"),
+          parseFloat(s.receipt || s.paid_amount || 0).toLocaleString(),
+          parseFloat(s.total || s.payable_amount || 0).toLocaleString(),
+          s.Staff?.name || s.employee_name || s.staff?.name || "Unknown",
+          s.month || moment(s.createdAt).format("YYYY/MM"),
         ]);
+        
         autoTable(doc, {
           startY: 60,
           margin: { left: margin, right: margin },
-          head: headers,
-          body,
+          head: salariesHeaders,
+          body: salariesBody,
           theme: "grid",
           styles: { font: "Vazirmatn", fontSize: 10, halign: "center", cellPadding: 6 },
           headStyles: { fillColor: [70, 130, 180], textColor: 255 },
         });
-        const totalPayable = list.reduce((s, sals) => s + parseFloat(sals.total || 0), 0);
+        
         const finalY = doc.lastAutoTable.finalY + 15;
-        doc.text(`Total Salaries Payable: ${totalPayable.toLocaleString()} AFN`, margin, finalY, { align: "left" });
-      });
+        doc.setFontSize(10);
+        doc.text(`Total Salaries Payable: ${salariesTotal.toLocaleString()} AFN`, margin, finalY, { align: "left" });
+      }
 
       // Add page numbers
       const pageCount = doc.internal.getNumberOfPages();
@@ -311,6 +339,7 @@ const CombinedReport = () => {
       </h2>
       <p className="text-sm text-gray-600">
         Generate a single PDF with summary and detailed data for Benefits, Receipts, Payments, Expenses, and Salaries.
+        Only sections with data will be included.
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

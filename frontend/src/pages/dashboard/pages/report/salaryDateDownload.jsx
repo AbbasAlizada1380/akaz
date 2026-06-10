@@ -25,7 +25,7 @@ const SalaryDateDownload = () => {
             setLoading(true);
 
             const { data } = await axios.get(
-                `${BASE_URL}/attendance/date-range`,
+                `${BASE_URL}/attendnce/date-range`,
                 {
                     params: { from, to },
                 }
