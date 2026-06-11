@@ -17,13 +17,14 @@ export const getAllReceives = async (req, res) => {
             include: [
                 {
                     model: Customer,
-                    as: 'customerInfo',
+                    as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
                     attributes: ['id', 'fullname', 'phoneNumber'],
                 },
             ],
             order: [['createdAt', 'DESC']],
             limit: limit,
             offset: offset,
+            distinct: true,
         });
 
         // Pagination metadata
@@ -39,7 +40,7 @@ export const getAllReceives = async (req, res) => {
         });
     } catch (error) {
         console.error('خطا در دریافت لیست دریافت‌ها:', error);
-        res.status(500).json({ message: 'خطای سرور' });
+        res.status(500).json({ message: 'خطای سرور', error: error.message });
     }
 };
 
@@ -51,18 +52,21 @@ export const getReceiveById = async (req, res) => {
             include: [
                 {
                     model: Customer,
-                    as: 'customerInfo',   // تغییر به customerInfo
-                    attributes: ['id', 'fullname', 'phoneNumber'],
+                    as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
+                    attributes: ['id', 'fullname', 'phoneNumber' ],
                 },
             ],
         });
         if (!receive) {
             return res.status(404).json({ message: 'دریافت‌کننده یافت نشد' });
         }
-        res.status(200).json(receive);
+        res.status(200).json({
+            success: true,
+            data: receive
+        });
     } catch (error) {
         console.error('خطا در دریافت دریافت‌کننده:', error);
-        res.status(500).json({ message: 'خطای سرور' });
+        res.status(500).json({ message: 'خطای سرور', error: error.message });
     }
 };
 
@@ -89,37 +93,37 @@ const updateDepartmentBenefitsOnFullPayment = async (sellIds, transaction) => {
     deptToBenefitIds[deptId].push(benefit.id);
   }
 
-for (const [deptId, benefitIds] of Object.entries(deptToBenefitIds)) {
-  const department = await Department.findByPk(deptId, { transaction });
-  if (!department) continue;
+  for (const [deptId, benefitIds] of Object.entries(deptToBenefitIds)) {
+    const department = await Department.findByPk(deptId, { transaction });
+    if (!department) continue;
 
-  let pending = department.benifit;
-  if (typeof pending === 'string') pending = JSON.parse(pending);
-  if (!Array.isArray(pending)) pending = [];
-  // Convert existing pending IDs to numbers
-  pending = pending.map(id => typeof id === 'number' ? id : Number(id));
+    let pending = department.benifit;
+    if (typeof pending === 'string') pending = JSON.parse(pending);
+    if (!Array.isArray(pending)) pending = [];
+    // Convert existing pending IDs to numbers
+    pending = pending.map(id => typeof id === 'number' ? id : Number(id));
 
-  let realized = department.realizedBenefit;
-  if (typeof realized === 'string') realized = JSON.parse(realized);
-  if (!Array.isArray(realized)) realized = [];
-  // Convert existing realized IDs to numbers
-  realized = realized.map(id => typeof id === 'number' ? id : Number(id));
+    let realized = department.realizedBenefit;
+    if (typeof realized === 'string') realized = JSON.parse(realized);
+    if (!Array.isArray(realized)) realized = [];
+    // Convert existing realized IDs to numbers
+    realized = realized.map(id => typeof id === 'number' ? id : Number(id));
 
-  // Ensure new benefitIds are numbers
-  const numericBenefitIds = benefitIds.map(id => typeof id === 'number' ? id : Number(id));
+    // Ensure new benefitIds are numbers
+    const numericBenefitIds = benefitIds.map(id => typeof id === 'number' ? id : Number(id));
 
-  // Filter out numeric IDs
-  const newPending = pending.filter(id => !numericBenefitIds.includes(id));
-  const newRealized = [...realized, ...numericBenefitIds];
+    // Filter out numeric IDs
+    const newPending = pending.filter(id => !numericBenefitIds.includes(id));
+    const newRealized = [...realized, ...numericBenefitIds];
 
-  await department.update(
-    {
-      benifit: newPending,
-      realizedBenefit: newRealized,
-    },
-    { transaction }
-  );
-}
+    await department.update(
+      {
+        benifit: newPending,
+        realizedBenefit: newRealized,
+      },
+      { transaction }
+    );
+  }
 };
 
 export const createReceive = async (req, res) => {
@@ -127,7 +131,10 @@ export const createReceive = async (req, res) => {
 
   // Basic validation
   if (!customer) {
-    return res.status(400).json({ message: 'مشتری الزامی است' });
+    return res.status(400).json({ 
+      success: false,
+      message: 'مشتری الزامی است' 
+    });
   }
 
   const deptKeys = Object.keys(deptAmounts).filter(k => k.startsWith('department'));
@@ -137,18 +144,27 @@ export const createReceive = async (req, res) => {
     for (const key of deptKeys) {
       const val = parseFloat(deptAmounts[key]);
       if (isNaN(val) || val < 0) {
-        return res.status(400).json({ message: `مبلغ نامعتبر برای ${key}` });
+        return res.status(400).json({ 
+          success: false,
+          message: `مبلغ نامعتبر برای ${key}` 
+        });
       }
       totalPayment += val;
     }
   } else {
     const { amount } = req.body;
     if (!amount) {
-      return res.status(400).json({ message: 'مبلغ الزامی است' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'مبلغ الزامی است' 
+      });
     }
     totalPayment = parseFloat(amount);
     if (isNaN(totalPayment) || totalPayment < 0) {
-      return res.status(400).json({ message: 'مبلغ نامعتبر است' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'مبلغ نامعتبر است' 
+      });
     }
   }
 
@@ -158,7 +174,10 @@ export const createReceive = async (req, res) => {
     const customerExists = await Customer.findByPk(customer, { transaction });
     if (!customerExists) {
       await transaction.rollback();
-      return res.status(400).json({ message: 'مشتری مشخص‌شده وجود ندارد' });
+      return res.status(400).json({ 
+        success: false,
+        message: 'مشتری مشخص‌شده وجود ندارد' 
+      });
     }
 
     const newReceive = await Receive.create(
@@ -180,9 +199,17 @@ export const createReceive = async (req, res) => {
     if (!customerAccount) {
       await transaction.commit();
       const createdReceive = await Receive.findByPk(newReceive.id, {
-        include: [{ model: Customer, as: 'customerInfo', attributes: ['id', 'fullname', 'phoneNumber'] }],
+        include: [{ 
+          model: Customer, 
+          as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
+          attributes: ['id', 'fullname', 'phoneNumber'] 
+        }],
       });
-      return res.status(201).json(createdReceive);
+      return res.status(201).json({
+        success: true,
+        message: "دریافت با موفقیت ایجاد شد",
+        data: createdReceive
+      });
     }
 
     let unpaidByDept = customerAccount.unpaid;
@@ -192,9 +219,17 @@ export const createReceive = async (req, res) => {
     if (Object.keys(unpaidByDept).length === 0) {
       await transaction.commit();
       const createdReceive = await Receive.findByPk(newReceive.id, {
-        include: [{ model: Customer, as: 'customerInfo', attributes: ['id', 'fullname', 'phoneNumber'] }],
+        include: [{ 
+          model: Customer, 
+          as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
+          attributes: ['id', 'fullname', 'phoneNumber'] 
+        }],
       });
-      return res.status(201).json(createdReceive);
+      return res.status(201).json({
+        success: true,
+        message: "دریافت با موفقیت ایجاد شد",
+        data: createdReceive
+      });
     }
 
     const fetchSells = async (ids) => {
@@ -219,7 +254,10 @@ export const createReceive = async (req, res) => {
         const unpaidIdsInDept = unpaidByDept[deptId] || [];
         if (unpaidIdsInDept.length === 0) {
           await transaction.rollback();
-          return res.status(400).json({ message: `بدهی برای دپارتمان ${deptId} وجود ندارد` });
+          return res.status(400).json({ 
+            success: false,
+            message: `بدهی برای دپارتمان ${deptId} وجود ندارد` 
+          });
         }
 
         const sells = await fetchSells(unpaidIdsInDept);
@@ -227,6 +265,7 @@ export const createReceive = async (req, res) => {
         if (paymentForDept > totalOwedInDept) {
           await transaction.rollback();
           return res.status(400).json({
+            success: false,
             message: `مبلغ پرداختی برای دپارتمان ${deptId} (${paymentForDept}) بیشتر از کل بدهی آن دپارتمان (${totalOwedInDept}) است`,
           });
         }
@@ -264,6 +303,7 @@ export const createReceive = async (req, res) => {
       if (totalPayment > totalOwed) {
         await transaction.rollback();
         return res.status(400).json({
+          success: false,
           message: `مبلغ پرداختی (${totalPayment}) بیشتر از کل بدهی (${totalOwed}) است`,
         });
       }
@@ -380,14 +420,27 @@ export const createReceive = async (req, res) => {
     await transaction.commit();
 
     const createdReceive = await Receive.findByPk(newReceive.id, {
-      include: [{ model: Customer, as: 'customerInfo', attributes: ['id', 'fullname', 'phoneNumber'] }],
+      include: [{ 
+        model: Customer, 
+        as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
+        attributes: ['id', 'fullname', 'phoneNumber'] 
+      }],
     });
-    res.status(201).json(createdReceive);
+    
+    res.status(201).json({
+      success: true,
+      message: "دریافت با موفقیت ایجاد شد",
+      data: createdReceive
+    });
 
   } catch (error) {
     await transaction.rollback();
     console.error('خطا در ایجاد دریافت:', error);
-    res.status(500).json({ message: 'خطای سرور', error: error.message });
+    res.status(500).json({ 
+      success: false,
+      message: 'خطای سرور', 
+      error: error.message 
+    });
   }
 };
 
@@ -399,14 +452,20 @@ export const updateReceive = async (req, res) => {
     try {
         const receive = await Receive.findByPk(id);
         if (!receive) {
-            return res.status(404).json({ message: 'دریافت‌کننده یافت نشد' });
+            return res.status(404).json({ 
+                success: false,
+                message: 'دریافت‌کننده یافت نشد' 
+            });
         }
 
         // اگر مشتری جدید داده شده، بررسی وجود آن
         if (customer && customer !== receive.customer) {
             const customerExists = await Customer.findByPk(customer);
             if (!customerExists) {
-                return res.status(400).json({ message: 'مشتری مشخص‌شده وجود ندارد' });
+                return res.status(400).json({ 
+                    success: false,
+                    message: 'مشتری مشخص‌شده وجود ندارد' 
+                });
             }
         }
 
@@ -419,31 +478,79 @@ export const updateReceive = async (req, res) => {
         });
 
         const updatedReceive = await Receive.findByPk(id, {
-            include: [{ model: Customer, as: 'customerInfo', attributes: ['id', 'fullname', 'phoneNumber'] }],
+            include: [{ 
+                model: Customer, 
+                as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
+                attributes: ['id', 'fullname', 'phoneNumber'] 
+            }],
         });
-        res.status(200).json(updatedReceive);
+        
+        res.status(200).json({
+            success: true,
+            message: "دریافت با موفقیت به‌روزرسانی شد",
+            data: updatedReceive
+        });
     } catch (error) {
         console.error('خطا در به‌روزرسانی دریافت:', error);
-        res.status(500).json({ message: 'خطای سرور' });
+        res.status(500).json({ 
+            success: false,
+            message: 'خطای سرور', 
+            error: error.message 
+        });
     }
 };
 
 // حذف یک Receive
 export const deleteReceive = async (req, res) => {
     const { id } = req.params;
+    
+    const transaction = await sequelize.transaction();
+    
     try {
         const receive = await Receive.findByPk(id);
         if (!receive) {
-            return res.status(404).json({ message: 'دریافت‌کننده یافت نشد' });
+            await transaction.rollback();
+            return res.status(404).json({ 
+                success: false,
+                message: 'دریافت‌کننده یافت نشد' 
+            });
         }
-        await receive.destroy();
-        res.status(200).json({ message: 'دریافت‌کننده با موفقیت حذف شد' });
+        
+        // Remove receive reference from customer account
+        const customerAccount = await CustomerAccount.findOne({
+            where: { customerId: receive.customer },
+            transaction
+        });
+        
+        if (customerAccount) {
+            let receiveArray = customerAccount.receive;
+            if (typeof receiveArray === 'string') receiveArray = JSON.parse(receiveArray);
+            if (Array.isArray(receiveArray)) {
+                const updatedReceiveArray = receiveArray.filter(id => id !== receive.id);
+                await customerAccount.update(
+                    { receive: updatedReceiveArray },
+                    { transaction }
+                );
+            }
+        }
+        
+        await receive.destroy({ transaction });
+        await transaction.commit();
+        
+        res.status(200).json({ 
+            success: true,
+            message: 'دریافت‌کننده با موفقیت حذف شد' 
+        });
     } catch (error) {
+        await transaction.rollback();
         console.error('خطا در حذف دریافت:', error);
-        res.status(500).json({ message: 'خطای سرور' });
+        res.status(500).json({ 
+            success: false,
+            message: 'خطای سرور', 
+            error: error.message 
+        });
     }
 };
-
 
 export const getReceivesByDateRange = async (req, res) => {
   const { from, to, customerId } = req.query;
@@ -479,7 +586,7 @@ export const getReceivesByDateRange = async (req, res) => {
       include: [
         {
           model: Customer,
-          as: "customerInfo", // Must match the alias defined in your index
+          as: "receiveCustomer", // Fixed: changed from 'customerInfo' to 'receiveCustomer'
           attributes: ["id", "fullname", "phoneNumber"],
         },
       ],
@@ -512,6 +619,66 @@ export const getReceivesByDateRange = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error fetching receives",
+      error: error.message,
+    });
+  }
+};
+
+// ==============================
+// Get Customer Payment Summary
+// ==============================
+export const getCustomerReceiveSummary = async (req, res) => {
+  try {
+    const { customerId } = req.params;
+
+    if (!customerId) {
+      return res.status(400).json({
+        success: false,
+        message: "Customer ID is required",
+      });
+    }
+
+    // Get all receives for this customer
+    const receives = await Receive.findAll({
+      where: { customer: customerId },
+      order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: Customer,
+          as: "receiveCustomer", // Fixed: changed from 'customerInfo' to 'receiveCustomer'
+          attributes: ["id", "fullname", "phoneNumber"],
+        },
+      ],
+    });
+
+    // Calculate summary statistics
+    const totalReceived = receives.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+    const receiveCount = receives.length;
+    const averageReceive = receiveCount > 0 ? totalReceived / receiveCount : 0;
+
+    // Get latest and first receive dates
+    const latestReceive = receives.length > 0 ? receives[0].createdAt : null;
+    const firstReceive = receives.length > 0 ? receives[receives.length - 1].createdAt : null;
+
+    res.json({
+      success: true,
+      data: {
+        customerId,
+        summary: {
+          totalReceived,
+          receiveCount,
+          averageReceive,
+          latestReceive,
+          firstReceive,
+        },
+        receives,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getCustomerReceiveSummary:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching customer receive summary",
       error: error.message,
     });
   }

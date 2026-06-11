@@ -45,24 +45,24 @@ const models = {
 
 // ---------- StockIncome ----------
 StockIncome.associate = (models) => {
-  StockIncome.belongsTo(models.Department, { foreignKey: "departmentId", as: "department" });
-  StockIncome.belongsTo(models.Seller, { foreignKey: "sellerId", as: "seller" });
-  StockIncome.belongsTo(models.StockExist, { foreignKey: "existId", as: "stock" });
+  StockIncome.belongsTo(models.Department, { foreignKey: "departmentId", as: "stockIncomeDepartment" });
+  StockIncome.belongsTo(models.Seller, { foreignKey: "sellerId", as: "stockIncomeSeller" });
+  StockIncome.belongsTo(models.StockExist, { foreignKey: "existId", as: "stockIncomeStockExist" });
 };
 
 // ---------- Expense ----------
 Expense.associate = (models) => {
-  Expense.belongsTo(models.Department, { foreignKey: "departmentId", as: "department" });
+  Expense.belongsTo(models.Department, { foreignKey: "departmentId", as: "expenseDepartment" });
 };
 
 // ---------- Department ----------
 Department.associate = (models) => {
-  Department.hasMany(models.StockIncome, { foreignKey: "departmentId", as: "stockIncomes" });
-  Department.hasMany(models.StockExist, { foreignKey: "departmentId", as: "stockExists" });
+  Department.hasMany(models.StockIncome, { foreignKey: "departmentId", as: "departmentStockIncomes" });
+  Department.hasMany(models.StockExist, { foreignKey: "departmentId", as: "departmentStockExists" });
   Department.hasMany(models.DepartmentTransaction, { foreignKey: "depId", as: "departmentTransactions" });
-  Department.hasMany(models.Benefit, { foreignKey: "departmentId", as: "benefits" });
-  Department.hasMany(models.Expense, { foreignKey: "departmentId", as: "expenses" });
-  Department.hasMany(models.Sells, { foreignKey: "departmentId", as: "sells" });
+  Department.hasMany(models.Benefit, { foreignKey: "departmentId", as: "departmentBenefits" });
+  Department.hasMany(models.Expense, { foreignKey: "departmentId", as: "departmentExpenses" });
+  Department.hasMany(models.Sells, { foreignKey: "departmentId", as: "departmentSells" });
   Department.hasMany(models.Staff, { foreignKey: "departmentId", as: "departmentStaffs" });
   Department.hasMany(models.Attendance, { foreignKey: "departmentId", as: "departmentAttendances" });
 };
@@ -77,7 +77,7 @@ Seller.associate = (models) => {
 
 // ---------- Receive ----------
 Receive.associate = (models) => {
-  Receive.belongsTo(models.Customer, { foreignKey: "customer", as: "customerInfo" });
+  Receive.belongsTo(models.Customer, { foreignKey: "customer", as: "receiveCustomer" });
 };
 
 // ---------- Customer ----------
@@ -89,23 +89,23 @@ Customer.associate = (models) => {
 
 // ---------- CustomerAccount ----------
 CustomerAccount.associate = (models) => {
-  CustomerAccount.belongsTo(models.Customer, { foreignKey: "customerId", as: "customer" });
+  CustomerAccount.belongsTo(models.Customer, { foreignKey: "customerId", as: "customerAccountCustomer" });
 };
 
 // ---------- SellerAccount ----------
 SellerAccount.associate = (models) => {
-  SellerAccount.belongsTo(models.Seller, { foreignKey: "sellerId", as: "seller" });
+  SellerAccount.belongsTo(models.Seller, { foreignKey: "sellerId", as: "sellerAccountSeller" });
 };
 
 // ---------- Bill ----------
 Bill.associate = (models) => {
-  Bill.belongsTo(models.Customer, { foreignKey: "customerId", as: "customer" });
-  Bill.hasMany(models.Sells, { foreignKey: "billId", as: "billItems" });
+  Bill.belongsTo(models.Customer, { foreignKey: "customerId", as: "billCustomer" });
+  Bill.hasMany(models.Sells, { foreignKey: "billId", as: "billSells" });
 };
 
 // ---------- Sells ----------
 Sells.associate = (models) => {
-  Sells.belongsTo(models.StockExist, { foreignKey: "exist", as: "sellProduct" });
+  Sells.belongsTo(models.StockExist, { foreignKey: "exist", as: "sellStockExist" });
   Sells.belongsTo(models.Bill, { foreignKey: "billId", as: "sellBill" });
   Sells.belongsTo(models.Department, { foreignKey: "departmentId", as: "sellDepartment" });
   Sells.hasMany(models.Benefit, { foreignKey: "sellId", as: "sellBenefits" });
@@ -113,9 +113,9 @@ Sells.associate = (models) => {
 
 // ---------- StockExist ----------
 StockExist.associate = (models) => {
-  StockExist.belongsTo(models.Department, { foreignKey: "departmentId", as: "stockDepartment" });
-  StockExist.hasMany(models.StockIncome, { foreignKey: "existId", as: "stockIncomes" });
-  StockExist.hasMany(models.Sells, { foreignKey: "exist", as: "stockSells" });
+  StockExist.belongsTo(models.Department, { foreignKey: "departmentId", as: "stockExistDepartment" });
+  StockExist.hasMany(models.StockIncome, { foreignKey: "existId", as: "stockExistIncomes" });
+  StockExist.hasMany(models.Sells, { foreignKey: "exist", as: "stockExistSells" });
 };
 
 // ---------- Pay ----------
@@ -126,7 +126,7 @@ Pay.associate = (models) => {
 // ---------- Staff ----------
 Staff.associate = (models) => {
   Staff.belongsTo(models.Department, { foreignKey: "departmentId", as: "staffDepartment" });
-  Staff.hasMany(models.Attendance, { foreignKey: "staffId", as: "staffAttendanceRecords" }); // Changed from "attendances"
+  Staff.hasMany(models.Attendance, { foreignKey: "staffId", as: "staffAttendances" });
 };
 
 // ---------- DepartmentTransaction ----------
@@ -154,7 +154,7 @@ Attendance.associate = (models) => {
 
 // ---------- User ----------
 User.associate = (models) => {
-  User.hasMany(models.DepartmentTransaction, { foreignKey: "userId", as: "userDepartmentTransactions" });
+  User.hasMany(models.DepartmentTransaction, { foreignKey: "userId", as: "userTransactions" });
 };
 
 /* ===============================

@@ -221,7 +221,6 @@ export const createPay = async (req, res) => {
   }
 };
 
-
 // ==============================
 // Get All Pays (Pagination)
 // ==============================
@@ -241,10 +240,11 @@ export const getAllPays = async (req, res) => {
       include: [
         {
           model: Seller,
-          as: "sellerInfo",
+          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
           attributes: ["id", "fullname", "phoneNumber"],
         },
       ],
+      distinct: true,
       limit: pageLimit,
       offset,
       order: [["createdAt", "DESC"]],
@@ -268,7 +268,6 @@ export const getAllPays = async (req, res) => {
   }
 };
 
-
 // ==============================
 // Get Single Pay
 // ==============================
@@ -280,7 +279,7 @@ export const getSinglePay = async (req, res) => {
       include: [
         {
           model: Seller,
-          as: "sellerInfo",
+          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
           attributes: ["id", "fullname", "phoneNumber"],
         },
       ],
@@ -307,11 +306,12 @@ export const getSinglePay = async (req, res) => {
   }
 };
 
-
 // ==============================
 // Update Pay
 // ==============================
 export const updatePay = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
   try {
     const { id } = req.params;
     const { seller, amount, description } = req.body;
@@ -319,24 +319,47 @@ export const updatePay = async (req, res) => {
     const pay = await Pay.findByPk(id);
 
     if (!pay) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: "Payment not found",
       });
     }
 
+    // If seller is being changed, we need to update seller account relationships
+    if (seller && seller !== pay.seller) {
+      // Remove payment from old seller's account logic would go here
+      // This is complex and depends on your business rules
+      // For now, we'll just update the payment
+      console.warn(`Payment ${id} seller changed from ${pay.seller} to ${seller}`);
+    }
+
     await pay.update({
-      seller,
-      amount,
-      description,
+      seller: seller || pay.seller,
+      amount: amount || pay.amount,
+      description: description || pay.description,
+    }, { transaction });
+
+    await transaction.commit();
+
+    // Fetch updated payment with seller info
+    const updatedPay = await Pay.findByPk(id, {
+      include: [
+        {
+          model: Seller,
+          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
+          attributes: ["id", "fullname", "phoneNumber"],
+        },
+      ],
     });
 
     res.json({
       success: true,
       message: "Payment updated successfully",
-      data: pay,
+      data: updatedPay,
     });
   } catch (error) {
+    await transaction.rollback();
     console.error(error);
     res.status(500).json({
       success: false,
@@ -346,30 +369,46 @@ export const updatePay = async (req, res) => {
   }
 };
 
-
 // ==============================
 // Delete Pay
 // ==============================
 export const deletePay = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
   try {
     const { id } = req.params;
 
     const pay = await Pay.findByPk(id);
 
     if (!pay) {
+      await transaction.rollback();
       return res.status(404).json({
         success: false,
         message: "Payment not found",
       });
     }
 
-    await pay.destroy();
+    // Remove payment reference from seller account if needed
+    const sellerAccount = await SellerAccount.findOne({
+      where: { sellerId: pay.seller },
+      transaction,
+    });
+
+    if (sellerAccount) {
+      // You might want to reverse the payment allocation to factors here
+      // This is complex and depends on your business rules
+      console.warn(`Payment ${id} deleted, but seller account ${sellerAccount.id} not updated automatically`);
+    }
+
+    await pay.destroy({ transaction });
+    await transaction.commit();
 
     res.json({
       success: true,
       message: "Payment deleted successfully",
     });
   } catch (error) {
+    await transaction.rollback();
     console.error(error);
     res.status(500).json({
       success: false,
@@ -416,7 +455,7 @@ export const getPaysByDateRange = async (req, res) => {
       include: [
         {
           model: Seller,
-          as: "sellerInfo", // Must match the alias defined in your association
+          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
           attributes: ["id", "fullname", "phoneNumber"],
         },
       ],
@@ -449,6 +488,66 @@ export const getPaysByDateRange = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Error fetching pays",
+      error: error.message,
+    });
+  }
+};
+
+// ==============================
+// Get Seller Payment Summary
+// ==============================
+export const getSellerPaymentSummary = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+
+    if (!sellerId) {
+      return res.status(400).json({
+        success: false,
+        message: "Seller ID is required",
+      });
+    }
+
+    // Get all payments for this seller
+    const payments = await Pay.findAll({
+      where: { seller: sellerId },
+      order: [["createdAt", "DESC"]],
+      include: [
+        {
+          model: Seller,
+          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
+          attributes: ["id", "fullname", "phoneNumber"],
+        },
+      ],
+    });
+
+    // Calculate summary statistics
+    const totalPaid = payments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+    const paymentCount = payments.length;
+    const averagePayment = paymentCount > 0 ? totalPaid / paymentCount : 0;
+
+    // Get latest payment date
+    const latestPayment = payments.length > 0 ? payments[0].createdAt : null;
+    const firstPayment = payments.length > 0 ? payments[payments.length - 1].createdAt : null;
+
+    res.json({
+      success: true,
+      data: {
+        sellerId,
+        summary: {
+          totalPaid,
+          paymentCount,
+          averagePayment,
+          latestPayment,
+          firstPayment,
+        },
+        payments,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getSellerPaymentSummary:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error fetching seller payment summary",
       error: error.message,
     });
   }

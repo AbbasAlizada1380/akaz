@@ -15,21 +15,20 @@ export const getAllBills = async (req, res) => {
     const offset = (page - 1) * limit;
 
     const { count, rows } = await Bill.findAndCountAll({
-      distinct: true,              // <-- essential: counts distinct bills
-      // or: distinct: true, col: 'Bill.id'
+      distinct: true, // essential: counts distinct bills
       include: [
         {
           model: Customer,
-          as: "customer",
+          as: "billCustomer", // Changed from "customer" to "billCustomer"
           attributes: ["id", "fullname", "phoneNumber", "address"],
         },
         {
           model: Sells,
-          as: "items",
+          as: "billSells", // Changed from "items" to "billSells" (based on your association)
           include: [
             {
               model: StockExist,
-              as: "product",
+              as: "sellStockExist", // Changed from "product" to "sellStockExist"
               attributes: ["id", "name", "departmentId", "unit_price", "sell_price"],
             },
           ],
@@ -46,7 +45,7 @@ export const getAllBills = async (req, res) => {
       success: true,
       bills: rows,
       pagination: {
-        totalItems: count,        // now correctly counts bills, not joined rows
+        totalItems: count, // now correctly counts bills, not joined rows
         totalPages,
         currentPage: page,
         itemsPerPage: limit,

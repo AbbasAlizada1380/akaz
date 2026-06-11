@@ -1,6 +1,6 @@
-import { Department, Sells, Benefit, DepartmentTransaction, sequelize, StockExist, Pay, User, Seller,Bill } from "../Models/index.js";
+import { Department, Sells, Benefit, DepartmentTransaction, sequelize, StockExist, Pay, User, Seller, Bill } from "../Models/index.js";
 import { Op } from "sequelize";
-import {Attendance,Staff,Expense} from "../Models/index.js";
+import { Attendance, Staff, Expense } from "../Models/index.js";
 
 // ✅ Helper: safely get holding object
 const getHoldingObject = (holding) => {
@@ -106,7 +106,7 @@ export const getDepartmentById = async (req, res) => {
 // ✅ NEW: Get Departments by User Holding
 export const getDepartmentsByUserHolding = async (req, res) => {
   try {
-    const { userId } = req.params;  // or req.query
+    const { userId } = req.params;
 
     if (!userId) {
       return res.status(400).json({
@@ -114,17 +114,13 @@ export const getDepartmentsByUserHolding = async (req, res) => {
       });
     }
 
-    // Convert userId to string because JSON keys are strings
     const userIdStr = String(userId);
 
-    // Fetch all departments (or you could filter with a raw SQL query, but this is simpler)
     const allDepartments = await Department.findAll();
 
-    // Filter departments where holding[userIdStr] exists and is > 0 (or just exists)
     const userDepartments = allDepartments.filter(dept => {
       const holding = getHoldingObject(dept.holding);
       const userShare = holding[userIdStr];
-      // We consider a holding if the value is a positive number (or any truthy value)
       return userShare !== undefined && userShare !== null && userShare !== 0;
     });
 
@@ -141,7 +137,7 @@ export const getDepartmentsByUserHolding = async (req, res) => {
   }
 };
 
-// ✅ Update Department – unchanged (with improved holding validation)
+// ✅ Update Department – unchanged
 export const updateDepartment = async (req, res) => {
   try {
     const { id } = req.params;
@@ -199,24 +195,19 @@ export const deleteDepartment = async (req, res) => {
   }
 };
 
-
-
+// ✅ FIXED: Get Benefits by Department and Date - using correct alias
 export const getBenefitsByDepartmentAndDate = async (req, res) => {
   try {
-    // Support both: departmentId from params (old route) or from query (new route)
     let departmentId = req.params.departmentId || req.query.departmentId;
     const { startDate, endDate, page = 1, limit = 10 } = req.query;
 
-    // Build where clause
     const whereClause = {};
 
-    // If departmentId is provided and is NOT 'all' or empty string, validate and add filter
     if (departmentId && departmentId !== 'all' && departmentId !== '') {
       const deptIdNum = parseInt(departmentId);
       if (isNaN(deptIdNum)) {
         return res.status(400).json({ message: "Invalid department ID" });
       }
-      // Check department exists
       const department = await Department.findByPk(deptIdNum);
       if (!department) {
         return res.status(404).json({ message: "Department not found" });
@@ -224,7 +215,6 @@ export const getBenefitsByDepartmentAndDate = async (req, res) => {
       whereClause.departmentId = deptIdNum;
     }
 
-    // Date range filter
     if (startDate || endDate) {
       whereClause.createdAt = {};
       if (startDate) {
@@ -237,7 +227,6 @@ export const getBenefitsByDepartmentAndDate = async (req, res) => {
       }
     }
 
-    // Pagination
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const parsedLimit = parseInt(limit);
 
@@ -246,17 +235,30 @@ export const getBenefitsByDepartmentAndDate = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
-          attributes: ["name"],
+          as: "benefitDepartment", // FIXED: changed from "department" to "benefitDepartment"
+          attributes: ["id", "name"],
+        },
+        {
+          model: Sells,
+          as: "benefitSell",
+          attributes: ["id", "total", "receipt", "remaind"],
         },
       ],
+      distinct: true,
       offset,
       limit: parsedLimit,
       order: [["createdAt", "DESC"]],
     });
 
+    // Transform data to include department name
+    const transformedBenefits = benefits.map(benefit => ({
+      ...benefit.toJSON(),
+      departmentName: benefit.benefitDepartment?.name,
+    }));
+
     res.status(200).json({
-      data: benefits,
+      success: true,
+      data: transformedBenefits,
       meta: {
         totalItems: count,
         totalPages: Math.ceil(count / parsedLimit),
@@ -266,11 +268,15 @@ export const getBenefitsByDepartmentAndDate = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getBenefitsByDepartmentAndDate:", error);
-    res.status(500).json({ message: "Failed to fetch benefits", error: error.message });
+    res.status(500).json({ 
+      success: false,
+      message: "Failed to fetch benefits", 
+      error: error.message 
+    });
   }
 };
 
-
+// ✅ FIXED: Get Benefits with Filters - using correct alias
 export const getBenefitsWithFilters = async (req, res) => {
   try {
     const { departmentId, startDate, endDate, page = 1, limit = 10 } = req.query;
@@ -290,14 +296,33 @@ export const getBenefitsWithFilters = async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const { count, rows } = await Benefit.findAndCountAll({
       where: whereClause,
-      include: [{ model: Department, as: "department", attributes: ["name"] }],
+      include: [
+        { 
+          model: Department, 
+          as: "benefitDepartment", // FIXED: changed from "department" to "benefitDepartment"
+          attributes: ["id", "name"] 
+        },
+        {
+          model: Sells,
+          as: "benefitSell",
+          attributes: ["id", "total", "receipt", "remaind"],
+        },
+      ],
+      distinct: true,
       offset,
       limit: parseInt(limit),
       order: [["createdAt", "DESC"]],
     });
 
+    // Transform data to include department name
+    const transformedBenefits = rows.map(benefit => ({
+      ...benefit.toJSON(),
+      departmentName: benefit.benefitDepartment?.name,
+    }));
+
     res.status(200).json({
-      data: rows,
+      success: true,
+      data: transformedBenefits,
       meta: {
         totalItems: count,
         totalPages: Math.ceil(count / parseInt(limit)),
@@ -307,23 +332,14 @@ export const getBenefitsWithFilters = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ message: "Failed to fetch benefits", error: error.message });
+    res.status(500).json({ 
+      success: false,
+      message: "Failed to fetch benefits", 
+      error: error.message 
+    });
   }
 };
-// Helper to safely parse JSON arrays
-const parseJSONArray = (value) => {
-  if (!value) return [];
-  if (Array.isArray(value)) return value;
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-};
+
 // Get amounts (and counts) for withdraw, deposit, realizedBenefit, exist, pays, and expenses for a department
 export const getDepartmentCounts = async (req, res) => {
   try {
@@ -335,14 +351,12 @@ export const getDepartmentCounts = async (req, res) => {
       return res.status(404).json({ message: "Department not found" });
     }
 
-    // Parse stored ID arrays
     const withdrawIds = parseJSONArray(department.withdraw);
     const depositIds = parseJSONArray(department.deposit);
     const realizedBenefitIds = parseJSONArray(department.realizedBenefit);
     const existIds = parseJSONArray(department.exist);
     const paysIds = parseJSONArray(department.pays);
 
-    // Date filter for transactions & benefits
     const dateFilter = {};
     if (startDate || endDate) {
       dateFilter.createdAt = {};
@@ -417,7 +431,7 @@ export const getDepartmentCounts = async (req, res) => {
       paysCount = parseInt(result[0]?.count || 0);
     }
 
-    // EXPENSES: Find directly from Expense table based on departmentId
+    // EXPENSES
     let expensesTotal = 0, expensesCount = 0;
     const expenseWhere = { departmentId: parseInt(departmentId) };
     
@@ -443,7 +457,7 @@ export const getDepartmentCounts = async (req, res) => {
     expensesTotal = parseFloat(expensesResult[0]?.totalAmount || 0);
     expensesCount = parseInt(expensesResult[0]?.count || 0);
 
-    // SELLS: Get sells related to this department
+    // SELLS
     const sellsWhere = { departmentId: parseInt(departmentId) };
     
     if (startDate || endDate) {
@@ -456,7 +470,6 @@ export const getDepartmentCounts = async (req, res) => {
       }
     }
 
-    // Get sells summary (receipt and remaind sums)
     const sellsResult = await Sells.findAll({
       where: sellsWhere,
       attributes: [
@@ -473,7 +486,6 @@ export const getDepartmentCounts = async (req, res) => {
     const totalSales = parseFloat(sellsResult[0]?.totalSales || 0);
     const sellsCount = parseInt(sellsResult[0]?.count || 0);
 
-    // Get detailed sells data for reference (optional - can be removed if not needed)
     let sellsList = [];
     if (sellsCount > 0) {
       sellsList = await Sells.findAll({
@@ -482,24 +494,17 @@ export const getDepartmentCounts = async (req, res) => {
         include: [
           {
             model: StockExist,
-            as: 'product',
+            as: 'sellStockExist',
             attributes: ['id', 'name']
           }
         ],
         order: [['createdAt', 'DESC']],
-        raw: true,
-        nest: true
       });
     }
 
-    // Calculate total incoming and outgoing
     const totalIncoming = depositTotal + realizedBenefitTotal + paysTotal + totalReceipt;
     const totalOutgoing = withdrawTotal + expensesTotal;
-    
-    // Grand total calculation including sells
     const grandTotal = depositTotal - withdrawTotal + realizedBenefitTotal + existTotal - paysTotal - expensesTotal + totalReceipt;
-    
-    // Net cash flow (excluding stock value)
     const netCashFlow = totalIncoming - totalOutgoing;
 
     res.status(200).json({
@@ -531,7 +536,7 @@ export const getDepartmentCounts = async (req, res) => {
           expenses: expensesCount,
           sells: sellsCount,
         },
-        sellsList: sellsList, // Detailed sells data (optional)
+        sellsList: sellsList,
         dateRange: startDate || endDate
           ? { startDate: startDate || null, endDate: endDate || null }
           : "all",
@@ -556,14 +561,12 @@ export const getDepartmentDetails = async (req, res) => {
       return res.status(404).json({ message: "Department not found" });
     }
 
-    // Parse stored ID arrays
     const withdrawIds = parseJSONArray(department.withdraw);
     const depositIds = parseJSONArray(department.deposit);
     const realizedBenefitIds = parseJSONArray(department.realizedBenefit);
     const existIds = parseJSONArray(department.exist);
     const paysIds = parseJSONArray(department.pays);
 
-    // Date filter
     const dateFilter = {};
     if (startDate || endDate) {
       dateFilter.createdAt = {};
@@ -575,7 +578,6 @@ export const getDepartmentDetails = async (req, res) => {
       }
     }
 
-    // Fetch all data with details - ADD ATTENDANCE HERE
     const [withdraws, deposits, realizedBenefits, existingStocks, pays, expenses, sells, attendances] = await Promise.all([
       withdrawIds.length > 0 
         ? DepartmentTransaction.findAll({ 
@@ -599,7 +601,7 @@ export const getDepartmentDetails = async (req, res) => {
       existIds.length > 0 
         ? StockExist.findAll({ 
             where: { id: { [Op.in]: existIds } },
-            include: [{ model: Department, as: "stockDepartment" }]
+            include: [{ model: Department, as: "stockExistDepartment" }]
           })
         : [],
       paysIds.length > 0 
@@ -614,7 +616,7 @@ export const getDepartmentDetails = async (req, res) => {
           departmentId: parseInt(departmentId),
           ...dateFilter
         },
-        include: [{ model: Department, as: "department" }],
+        include: [{ model: Department, as: "expenseDepartment" }],
         order: [['createdAt', 'DESC']]
       }),
       Sells.findAll({
@@ -625,8 +627,8 @@ export const getDepartmentDetails = async (req, res) => {
         include: [
           { 
             model: StockExist, 
-            as: "sellProduct",
-            attributes: ['id', 'name']
+            as: "sellStockExist",
+            attributes: ['id', 'name', 'amount', 'unit_price']
           },
           {
             model: Bill,
@@ -636,7 +638,6 @@ export const getDepartmentDetails = async (req, res) => {
         ],
         order: [['createdAt', 'DESC']]
       }),
-      // Add Attendance records for this department
       Attendance.findAll({
         where: {
           departmentId: parseInt(departmentId),
@@ -653,7 +654,6 @@ export const getDepartmentDetails = async (req, res) => {
       })
     ]);
 
-    // Calculate totals
     const totalWithdraws = withdraws.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
     const totalDeposits = deposits.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0);
     const totalBenefits = realizedBenefits.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
@@ -664,138 +664,227 @@ export const getDepartmentDetails = async (req, res) => {
     const totalRemaind = sells.reduce((sum, s) => sum + (parseFloat(s.remaind) || 0), 0);
     const totalSales = sells.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
     
-    // Calculate Attendance totals
     const totalAttendanceSalary = attendances.reduce((sum, a) => sum + (parseFloat(a.salary) || 0), 0);
     const totalAttendanceOvertime = attendances.reduce((sum, a) => sum + (parseFloat(a.overtime) || 0), 0);
     const totalAttendanceAmount = attendances.reduce((sum, a) => sum + (parseFloat(a.total) || 0), 0);
     const totalAttendanceReceipt = attendances.reduce((sum, a) => sum + (parseFloat(a.receipt) || 0), 0);
     const totalAttendanceRemaind = attendances.reduce((sum, a) => sum + ((parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0)), 0);
-    const totalAttendanceRecords = attendances.length;
 
-    // Calculate financial metrics (including attendance)
+    const withdrawCount = withdraws.length;
+    const depositCount = deposits.length;
+    const realizedBenefitsCount = realizedBenefits.length;
+    const existingStocksCount = existingStocks.length;
+    const paysCount = pays.length;
+    const expensesCount = expenses.length;
+    const sellsCount = sells.length;
+    const attendanceCount = attendances.length;
+
     const totalIncoming = totalDeposits + totalBenefits + totalPays + totalReceipt + totalAttendanceReceipt;
     const totalOutgoing = totalWithdraws + totalExpenses + totalAttendanceAmount;
     const netCashFlow = totalIncoming - totalOutgoing;
     
-    // Calculate Grand Total (Balance)
-    const totalAssets = totalDeposits + totalBenefits + totalPays + totalReceipt + totalStockValue + totalAttendanceReceipt;
-    const totalLiabilities = totalWithdraws + totalExpenses + totalRemaind + totalAttendanceRemaind;
+    const totalAssets = totalDeposits + totalReceipt + totalRemaind + totalStockValue;
+    const totalLiabilities = totalWithdraws + totalExpenses + totalPays + totalAttendanceRemaind + totalAttendanceReceipt;
     const grandTotal = totalAssets - totalLiabilities;
 
+    const formatCurrency = (amount) => {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(amount);
+    };
+
     res.status(200).json({
+      success: true,
       message: "Department details fetched successfully",
       data: {
-        departmentId: department.id,
-        departmentName: department.name,
-        dateRange: startDate || endDate ? { startDate: startDate || null, endDate: endDate || null } : "all",
-        totals: {
-          withdraws: totalWithdraws,
-          deposits: totalDeposits,
-          realizedBenefits: totalBenefits,
-          existingStock: totalStockValue,
-          pays: totalPays,
-          expenses: totalExpenses,
-          sellsReceipt: totalReceipt,
-          sellsRemaind: totalRemaind,
-          totalSales: totalSales,
-          attendance: {
-            totalSalary: totalAttendanceSalary,
-            totalOvertime: totalAttendanceOvertime,
-            totalAmount: totalAttendanceAmount,
-            totalReceipt: totalAttendanceReceipt,
-            totalRemaind: totalAttendanceRemaind,
-            totalRecords: totalAttendanceRecords
-          },
-          totalIncoming: totalIncoming,
-          totalOutgoing: totalOutgoing,
-          netCashFlow: netCashFlow,
-          grandTotal: grandTotal
+        department: {
+          id: department.id,
+          name: department.name,
+          createdAt: department.createdAt
         },
-        withdraws: withdraws.map(w => ({
-          id: w.id,
-          amount: parseFloat(w.amount) || 0,
-          userName: w.userName,
-          createdAt: w.createdAt
-        })),
-        deposits: deposits.map(d => ({
-          id: d.id,
-          amount: parseFloat(d.amount) || 0,
-          userName: d.userName,
-          createdAt: d.createdAt
-        })),
-        realizedBenefits: realizedBenefits.map(b => ({
-          id: b.id,
-          amount: parseFloat(b.amount) || 0,
-          sellId: b.sellId,
-          createdAt: b.createdAt
-        })),
-        existingStocks: existingStocks.map(s => ({
-          id: s.id,
-          name: s.name,
-          amount: parseFloat(s.amount) || 0,
-          unit_price: parseFloat(s.unit_price) || 0,
-          total_value: (parseFloat(s.amount) || 0) * (parseFloat(s.unit_price) || 0)
-        })),
-        pays: pays.map(p => ({
-          id: p.id,
-          amount: parseFloat(p.amount) || 0,
-          sellerName: p.paySeller?.fullname || "Unknown",
-          description: p.description,
-          createdAt: p.createdAt
-        })),
-        expenses: expenses.map(e => ({
-          id: e.id,
-          amount: parseFloat(e.amount) || 0,
-          purpose: e.purpose,
-          by: e.by,
-          description: e.description,
-          createdAt: e.createdAt
-        })),
-        sells: sells.map(s => ({
-          id: s.id,
-          amount: parseFloat(s.amount) || 0,
-          total: parseFloat(s.total) || 0,
-          receipt: parseFloat(s.receipt) || 0,
-          remaind: parseFloat(s.remaind) || 0,
-          productName: s.sellProduct?.name || "Unknown",
-          billNumber: s.sellBill?.billNumber || "N/A",
-          createdAt: s.createdAt
-        })),
-        attendances: attendances.map(a => ({
-          id: a.id,
-          staffId: a.staffId,
-          staffName: a.attendanceStaff?.name || "Unknown",
-          staffFatherName: a.attendanceStaff?.fatherName || "",
-          attendance: a.attendance,
-          salary: parseFloat(a.salary) || 0,
-          overtime: parseFloat(a.overtime) || 0,
-          total: parseFloat(a.total) || 0,
-          receipt: parseFloat(a.receipt) || 0,
-          remaind: (parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0),
-          calculated: a.calculated,
-          weekStartDate: a.weekStartDate,
-          month: a.month,
-          year: a.year,
-          createdAt: a.createdAt
-        }))
+        dateRange: startDate || endDate ? { 
+          startDate: startDate || null, 
+          endDate: endDate || null 
+        } : "all",
+        summary: {
+          withdrawals: {
+            total: formatCurrency(totalWithdraws),
+            totalRaw: totalWithdraws,
+            count: withdrawCount
+          },
+          deposits: {
+            total: formatCurrency(totalDeposits),
+            totalRaw: totalDeposits,
+            count: depositCount
+          },
+          realizedBenefits: {
+            total: formatCurrency(totalBenefits),
+            totalRaw: totalBenefits,
+            count: realizedBenefitsCount
+          },
+          inventoryValue: {
+            total: formatCurrency(totalStockValue),
+            totalRaw: totalStockValue,
+            count: existingStocksCount
+          },
+          pays: {
+            total: formatCurrency(totalPays),
+            totalRaw: totalPays,
+            count: paysCount
+          },
+          expenses: {
+            total: formatCurrency(totalExpenses),
+            totalRaw: totalExpenses,
+            count: expensesCount
+          },
+          salesRevenue: {
+            total: formatCurrency(totalSales),
+            totalRaw: totalSales,
+            count: sellsCount
+          },
+          salesReceipt: {
+            total: formatCurrency(totalReceipt),
+            totalRaw: totalReceipt
+          },
+          salesRemaind: {
+            total: formatCurrency(totalRemaind),
+            totalRaw: totalRemaind
+          },
+          staffSalaries: {
+            total: formatCurrency(totalAttendanceAmount),
+            totalRaw: totalAttendanceAmount,
+            count: attendanceCount,
+            salaryPaid: formatCurrency(totalAttendanceReceipt),
+            salaryPaidRaw: totalAttendanceReceipt,
+            salaryRemaind: formatCurrency(totalAttendanceRemaind),
+            salaryRemaindRaw: totalAttendanceRemaind
+          },
+          totalIncoming: {
+            total: formatCurrency(totalIncoming),
+            totalRaw: totalIncoming
+          },
+          totalOutgoing: {
+            total: formatCurrency(totalOutgoing),
+            totalRaw: totalOutgoing
+          },
+          netCashFlow: {
+            total: formatCurrency(netCashFlow),
+            totalRaw: netCashFlow
+          },
+          grandTotal: {
+            total: formatCurrency(grandTotal),
+            totalRaw: grandTotal
+          }
+        },
+        details: {
+          withdrawals: withdraws.map(w => ({
+            id: w.id,
+            amount: parseFloat(w.amount) || 0,
+            amountFormatted: formatCurrency(parseFloat(w.amount) || 0),
+            createdAt: w.createdAt
+          })),
+          deposits: deposits.map(d => ({
+            id: d.id,
+            amount: parseFloat(d.amount) || 0,
+            amountFormatted: formatCurrency(parseFloat(d.amount) || 0),
+            createdAt: d.createdAt
+          })),
+          realizedBenefits: realizedBenefits.map(b => ({
+            id: b.id,
+            amount: parseFloat(b.amount) || 0,
+            amountFormatted: formatCurrency(parseFloat(b.amount) || 0),
+            sellId: b.sellId,
+            createdAt: b.createdAt
+          })),
+          existingStocks: existingStocks.map(s => ({
+            id: s.id,
+            name: s.name,
+            amount: parseFloat(s.amount) || 0,
+            unit_price: parseFloat(s.unit_price) || 0,
+            total_value: formatCurrency((parseFloat(s.amount) || 0) * (parseFloat(s.unit_price) || 0)),
+            total_value_raw: (parseFloat(s.amount) || 0) * (parseFloat(s.unit_price) || 0)
+          })),
+          pays: pays.map(p => ({
+            id: p.id,
+            amount: parseFloat(p.amount) || 0,
+            amountFormatted: formatCurrency(parseFloat(p.amount) || 0),
+            sellerName: p.paySeller?.fullname || "Unknown",
+            description: p.description,
+            createdAt: p.createdAt
+          })),
+          expenses: expenses.map(e => ({
+            id: e.id,
+            amount: parseFloat(e.amount) || 0,
+            amountFormatted: formatCurrency(parseFloat(e.amount) || 0),
+            purpose: e.purpose,
+            by: e.by,
+            description: e.description,
+            createdAt: e.createdAt
+          })),
+          sells: sells.map(s => ({
+            id: s.id,
+            amount: parseFloat(s.amount) || 0,
+            total: parseFloat(s.total) || 0,
+            totalFormatted: formatCurrency(parseFloat(s.total) || 0),
+            receipt: parseFloat(s.receipt) || 0,
+            receiptFormatted: formatCurrency(parseFloat(s.receipt) || 0),
+            remaind: parseFloat(s.remaind) || 0,
+            remaindFormatted: formatCurrency(parseFloat(s.remaind) || 0),
+            productName: s.sellStockExist?.name || "Unknown",
+            billNumber: s.sellBill?.billNumber || "N/A",
+            createdAt: s.createdAt
+          })),
+          attendances: attendances.map(a => ({
+            id: a.id,
+            staffId: a.staffId,
+            staffName: a.attendanceStaff?.name || "Unknown",
+            staffFatherName: a.attendanceStaff?.fatherName || "",
+            attendance: a.attendance,
+            salary: parseFloat(a.salary) || 0,
+            salaryFormatted: formatCurrency(parseFloat(a.salary) || 0),
+            overtime: parseFloat(a.overtime) || 0,
+            overtimeFormatted: formatCurrency(parseFloat(a.overtime) || 0),
+            total: parseFloat(a.total) || 0,
+            totalFormatted: formatCurrency(parseFloat(a.total) || 0),
+            receipt: parseFloat(a.receipt) || 0,
+            receiptFormatted: formatCurrency(parseFloat(a.receipt) || 0),
+            remaind: (parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0),
+            remaindFormatted: formatCurrency((parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0)),
+            calculated: a.calculated,
+            createdAt: a.createdAt
+          }))
+        }
       }
     });
   } catch (error) {
     console.error("Error in getDepartmentDetails:", error);
     res.status(500).json({
+      success: false,
       message: "Failed to fetch department details",
       error: error.message
     });
   }
 };
 
-
+// Helper function to parse JSON arrays
+function parseJSONArray(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
 
 // NEW: Get departments for a specific user with their holding percentage
 export const getUserDepartmentsWithShare = async (req, res) => {
   try {
-    const { userId } = req.params;   // e.g., /api/departments/user/:userId
-    // Alternative: if userId comes from query: const userId = req.query.userId;
+    const { userId } = req.params;
 
     if (!userId) {
       return res.status(400).json({ message: "userId is required" });
@@ -803,12 +892,10 @@ export const getUserDepartmentsWithShare = async (req, res) => {
 
     const userIdStr = String(userId);
 
-    // Fetch all departments (you can add pagination if needed)
     const allDepartments = await Department.findAll({
       order: [["name", "ASC"]],
     });
 
-    // Filter and enrich with user's share
     const userDepartments = [];
     for (const dept of allDepartments) {
       const holding = getHoldingObject(dept.holding);
@@ -818,8 +905,8 @@ export const getUserDepartmentsWithShare = async (req, res) => {
           id: dept.id,
           name: dept.name,
           isActive: dept.isActive,
-          holding: dept.holding,          // full holding object
-          userShare: parseFloat(userShare), // user's percentage (e.g., 20)
+          holding: dept.holding,
+          userShare: parseFloat(userShare),
           createdAt: dept.createdAt,
           updatedAt: dept.updatedAt,
         });

@@ -52,8 +52,6 @@ async function updateSellerAccountWithFactor(sellerId, factorId, status, transac
   return sellerAccount;
 }
 
-// (The old updateSellerAccountPaid function can be deleted or commented out)
-
 export const createBatchStockIncome = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
@@ -304,16 +302,22 @@ export const getAllStockIncome = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
+          as: "stockIncomeDepartment", // Fixed: changed from "department" to "stockIncomeDepartment"
           attributes: ['id', 'name', 'holding', 'isActive']
         },
         {
           model: Seller,
-          as: "seller",
+          as: "stockIncomeSeller", // Fixed: changed from "seller" to "stockIncomeSeller"
           attributes: ['id', 'fullname', 'phoneNumber', 'address']
         },
+        {
+          model: StockExist,
+          as: "stockIncomeStockExist", // Added StockExist association
+          attributes: ['id', 'name', 'amount', 'unit_price']
+        }
       ],
       order: [["createdAt", "DESC"]],
+      distinct: true,
       limit: limit,
       offset: offset,
     });
@@ -321,8 +325,9 @@ export const getAllStockIncome = async (req, res) => {
     // Transform the data
     const transformedIncomes = rows.map(income => ({
       ...income.toJSON(),
-      departmentName: income.department?.name,
-      sellerName: income.seller?.fullname
+      departmentName: income.stockIncomeDepartment?.name,
+      sellerName: income.stockIncomeSeller?.fullname,
+      productName: income.stockIncomeStockExist?.name
     }));
 
     // Calculate total pages
@@ -330,6 +335,7 @@ export const getAllStockIncome = async (req, res) => {
 
     // Send paginated response
     res.json({
+      success: true,
       stockIncomes: transformedIncomes,
       pagination: {
         totalItems: count,
@@ -388,12 +394,16 @@ export const getStockIncomeById = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department"
+          as: "stockIncomeDepartment" // Fixed: changed from "department" to "stockIncomeDepartment"
         },
         {
           model: Seller,
-          as: "seller"
+          as: "stockIncomeSeller" // Fixed: changed from "seller" to "stockIncomeSeller"
         },
+        {
+          model: StockExist,
+          as: "stockIncomeStockExist" // Added StockExist association
+        }
       ],
     });
 
@@ -401,16 +411,18 @@ export const getStockIncomeById = async (req, res) => {
       return res.status(404).json({ message: "Stock income not found" });
     }
 
-    res.json(income);
+    res.json({
+      success: true,
+      data: income
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: error.message });
   }
 };
 
-
 export const undoCreateStockIncome = async (req, res) => {
-  const { id } = req.params; // expects the stock income ID in the URL, e.g. /api/stock-income/:id/undo
+  const { id } = req.params;
   const transaction = await sequelize.transaction();
 
   try {
@@ -432,7 +444,6 @@ export const undoCreateStockIncome = async (req, res) => {
     }
 
     // 3. Delete the associated Pay record(s)
-    // The original controller creates a Pay with description containing "stock income #{id}"
     const payRecords = await Pay.findAll({
       where: {
         amount: received,
@@ -485,12 +496,16 @@ export const updateStockIncome = async (req, res) => {
     // Fetch updated record with associations
     const updatedIncome = await StockIncome.findByPk(id, {
       include: [
-        { model: Department, as: "department" },
-        { model: Seller, as: "seller" },
+        { model: Department, as: "stockIncomeDepartment" }, // Fixed alias
+        { model: Seller, as: "stockIncomeSeller" }, // Fixed alias
+        { model: StockExist, as: "stockIncomeStockExist" }
       ],
     });
 
-    res.json(updatedIncome);
+    res.json({
+      success: true,
+      data: updatedIncome
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: error.message });
@@ -548,6 +563,7 @@ export const toggleSellerStatus = async (req, res) => {
     });
   }
 };
+
 // ==============================
 // Get Stock Incomes by Date Range (with optional department/seller filters)
 // ==============================
@@ -590,14 +606,19 @@ export const getStockIncomeByDateRange = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
+          as: "stockIncomeDepartment", // Fixed alias
           attributes: ["id", "name", "holding", "isActive"],
         },
         {
           model: Seller,
-          as: "seller",
+          as: "stockIncomeSeller", // Fixed alias
           attributes: ["id", "fullname", "phoneNumber", "address", "isActive"],
         },
+        {
+          model: StockExist,
+          as: "stockIncomeStockExist", // Added StockExist association
+          attributes: ["id", "name", "amount", "unit_price"]
+        }
       ],
       order: [["createdAt", "DESC"]],
     });
@@ -608,7 +629,7 @@ export const getStockIncomeByDateRange = async (req, res) => {
       0
     );
     const totalReceived = stockIncomes.reduce(
-      (sum, income) => sum + parseFloat(income.received || 0),
+      (sum, income) => sum + parseFloat(income.receipt || 0),
       0
     );
 
@@ -620,7 +641,7 @@ export const getStockIncomeByDateRange = async (req, res) => {
         stockIncomes,
         totalCount: stockIncomes.length,
         totalAmount,        // Sum of 'total' field (full value)
-        totalReceived,      // Sum of 'received' field (amount paid so far)
+        totalReceived,      // Sum of 'receipt' field (amount paid so far)
         filters: {
           from,
           to,
@@ -638,5 +659,3 @@ export const getStockIncomeByDateRange = async (req, res) => {
     });
   }
 };
-
-

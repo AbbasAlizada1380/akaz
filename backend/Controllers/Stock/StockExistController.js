@@ -36,7 +36,7 @@ export const getAllStockExist = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
+          as: "stockExistDepartment", // Changed from "department" to "stockExistDepartment"
           attributes: ["id", "name"],
         },
       ],

@@ -64,13 +64,16 @@ export const getCustomerAccounts = async (req, res) => {
             include: [
                 {
                     model: Customer,
-                    as: 'customer', // ensure this alias matches the index
+                    as: 'customerAccountCustomer', // Fixed alias
                     attributes: ['id', 'fullname', 'phoneNumber', 'address'],
                 },
             ],
             order: [['createdAt', 'DESC']],
         });
-        res.status(200).json(accounts);
+        res.status(200).json({
+            success: true,
+            data: accounts
+        });
     } catch (error) {
         console.error('Get CustomerAccounts Error:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
@@ -87,7 +90,7 @@ export const getCustomerAccountById = async (req, res) => {
             include: [
                 {
                     model: Customer,
-                    as: 'customer',
+                    as: 'customerAccountCustomer', // Fixed alias
                     attributes: ['id', 'fullname', 'phoneNumber', 'address'],
                 },
             ],
@@ -97,7 +100,10 @@ export const getCustomerAccountById = async (req, res) => {
             return res.status(404).json({ message: 'Customer account not found' });
         }
 
-        res.status(200).json(account);
+        res.status(200).json({
+            success: true,
+            data: account
+        });
     } catch (error) {
         console.error('Get CustomerAccount By ID Error:', error);
         res.status(500).json({ message: 'Server error', error: error.message });
@@ -173,8 +179,6 @@ export const deleteCustomerAccount = async (req, res) => {
     }
 };
 
-
-
 export const getCustomersWithUnpaid = async (req, res) => {
     try {
         // 1. Find CustomerAccount records where unpaid object has at least one department with non‑empty array
@@ -228,7 +232,7 @@ export const getCustomersWithUnpaid = async (req, res) => {
             });
         }
 
-        // 3. Query Sells with Bill and StockExist (alias 'product') to get customerId and departmentId
+        // 3. Query Sells with Bill and StockExist using correct aliases
         const unpaidSells = await Sells.findAll({
             where: {
                 id: allUnpaidSellIds,
@@ -237,13 +241,13 @@ export const getCustomersWithUnpaid = async (req, res) => {
             include: [
                 {
                     model: Bill,
-                    as: 'bill',
+                    as: 'sellBill', // Fixed: changed from 'bill' to 'sellBill'
                     attributes: ['customerId'],
                     required: true,
                 },
                 {
                     model: StockExist,
-                    as: 'product',
+                    as: 'sellStockExist', // Fixed: changed from 'product' to 'sellStockExist'
                     attributes: ['departmentId'],
                     required: true,
                 },
@@ -251,8 +255,8 @@ export const getCustomersWithUnpaid = async (req, res) => {
             attributes: [
                 'id',
                 'remaind',
-                [sequelize.col('product.departmentId'), 'departmentId'],
-                [sequelize.col('bill.customerId'), 'customerId'],
+                [sequelize.col('sellStockExist.departmentId'), 'departmentId'], // Fixed alias
+                [sequelize.col('sellBill.customerId'), 'customerId'], // Fixed alias
             ],
             raw: true,
         });
@@ -369,13 +373,13 @@ export const getCustomerSellsFromTotal = async (req, res) => {
             });
         }
 
-        // ✅ Fixed: use alias 'stock'
-        const sells = await Sell.findAll({
+        // Fixed: use correct alias 'stockExist' or appropriate alias
+        const sells = await Sells.findAll({
             where: { id: sellIds },
             include: [
                 {
-                    model: StockIncome,
-                    as: 'stock',
+                    model: StockExist,
+                    as: 'sellStockExist', // Fixed alias
                     attributes: ['name'],
                     required: false,
                 },
@@ -387,8 +391,8 @@ export const getCustomerSellsFromTotal = async (req, res) => {
 
         const sellsWithName = sells.map(sell => {
             const sellData = sell.toJSON();
-            sellData.name = sellData.stock ? sellData.stock.name : null;
-            delete sellData.stock;
+            sellData.name = sellData.sellStockExist ? sellData.sellStockExist.name : null;
+            delete sellData.sellStockExist;
             return sellData;
         });
 
@@ -408,15 +412,15 @@ const formatSellForFrontend = (sell) => {
     const sellData = sell.toJSON();
     return {
         id: sellData.id,
-        fileName: sellData.stock?.name || null,       // product name from StockIncome
-        size: null,                                    // not available in current schema
+        fileName: sellData.sellStockExist?.name || null, // Fixed alias
+        size: null,
         qnty: sellData.amount,
-        price: parseFloat(sellData.unitPrice) || 0,
+        price: parseFloat(sellData.unit_price) || 0,
         money: parseFloat(sellData.total) || 0,
-        receipt: parseFloat(sellData.received) || 0,
-        remaining: parseFloat(sellData.remained) || 0,
+        receipt: parseFloat(sellData.receipt) || 0,
+        remaining: parseFloat(sellData.remaind) || 0,
         createdAt: sellData.createdAt,
-        name: sellData.stock?.name || null,            // for consistency
+        name: sellData.sellStockExist?.name || null,
     };
 };
 
@@ -462,13 +466,13 @@ export const getCustomerOrderItemsByType = async (req, res) => {
             });
         }
 
-        // Fetch sells with associated StockIncome (for product name)
-        const sells = await Sell.findAll({
+        // Fetch sells with associated StockExist (for product name)
+        const sells = await Sells.findAll({
             where: { id: sellIds },
             include: [
                 {
-                    model: StockIncome,
-                    as: 'stock',
+                    model: StockExist,
+                    as: 'sellStockExist', // Fixed alias
                     attributes: ['name'],
                     required: false,
                 },
@@ -490,12 +494,15 @@ export const getCustomerOrderItemsByType = async (req, res) => {
         const customerName = customer ? customer.fullname : null;
 
         res.status(200).json({
-            items,
-            totalCount,
-            totalMoney,
-            totalReceipt,
-            totalRemaining,
-            customerName,
+            success: true,
+            data: {
+                items,
+                totalCount,
+                totalMoney,
+                totalReceipt,
+                totalRemaining,
+                customerName,
+            }
         });
     } catch (error) {
         console.error('Error in getCustomerOrderItemsByType:', error);
@@ -526,7 +533,7 @@ export const getCustomerOrderItemsByDateRange = async (req, res) => {
         endDate.setHours(23, 59, 59, 999);
 
         // Find all sells for this customer within date range
-        const sells = await Sell.findAll({
+        const sells = await Sells.findAll({
             where: {
                 customer: customerId,
                 createdAt: {
@@ -535,8 +542,8 @@ export const getCustomerOrderItemsByDateRange = async (req, res) => {
             },
             include: [
                 {
-                    model: StockIncome,
-                    as: 'stock',
+                    model: StockExist,
+                    as: 'sellStockExist', // Fixed alias
                     attributes: ['name'],
                     required: false,
                 },

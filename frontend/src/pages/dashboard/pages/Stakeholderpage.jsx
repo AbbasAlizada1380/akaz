@@ -5,7 +5,6 @@ import autoTable from "jspdf-autotable";
 import moment from "moment";
 import * as XLSX from "xlsx";
 import { saveAs } from "file-saver";
-import DepartmentDetailsDownload from "./report/DepartmentDetailsDownload";
 import { useSelector } from "react-redux";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL || "http://localhost:5000/api";
@@ -67,7 +66,7 @@ const Stakeholderpage = () => {
         if (endDate) params.endDate = endDate;
 
         const res = await axios.get(`${BASE_URL}/department/${selectedDept}/details`, { params });
-        if (res.status === 200) {
+        if (res.status === 200 && res.data.success) {
           setStats(res.data.data);
         } else {
           setError("Unexpected response from server.");
@@ -104,7 +103,7 @@ const Stakeholderpage = () => {
     try {
       const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
 
-      const deptName = stats.departmentName;
+      const deptName = stats.department?.name || "Unknown";
       let dateRangeText = "All time";
       if (stats.dateRange !== "all") {
         const from = stats.dateRange.startDate || "Any";
@@ -121,22 +120,22 @@ const Stakeholderpage = () => {
 
       const tableData = [
         ["Category", "Total Amount", "Number of Records"],
-        ["💰 Withdrawals", formatCurrency(stats.totals.withdraws || 0), stats.withdraws?.length || 0],
-        ["💵 Deposits", formatCurrency(stats.totals.deposits || 0), stats.deposits?.length || 0],
-        ["📈 Realized Benefits", formatCurrency(stats.totals.realizedBenefits || 0), stats.realizedBenefits?.length || 0],
-        ["📦 Inventory Value", formatCurrency(stats.totals.existingStock || 0), stats.existingStocks?.length || 0],
-        ["💳 Pays (Incoming)", formatCurrency(stats.totals.pays || 0), stats.pays?.length || 0],
-        ["📊 Expenses", formatCurrency(stats.totals.expenses || 0), stats.expenses?.length || 0],
-        ["🛒 Sales Revenue", formatCurrency(stats.totals.totalSales || 0), stats.sells?.length || 0],
-        ["💰 Sales Receipt (Collected)", formatCurrency(stats.totals.sellsReceipt || 0), "-"],
-        ["💸 Sales Remaind (Pending)", formatCurrency(stats.totals.sellsRemaind || 0), "-"],
-        ["👥 Staff Salaries", formatCurrency(stats.totals.attendance?.totalAmount || 0), stats.totals.attendance?.totalRecords || 0],
-        ["💰 Salary Paid", formatCurrency(stats.totals.attendance?.totalReceipt || 0), "-"],
-        ["💸 Salary Remaind", formatCurrency(stats.totals.attendance?.totalRemaind || 0), "-"],
-        ["📥 Total Incoming", formatCurrency(stats.totals.totalIncoming || 0), "-"],
-        ["📤 Total Outgoing", formatCurrency(stats.totals.totalOutgoing || 0), "-"],
-        ["💹 Net Cash Flow", formatCurrency(stats.totals.netCashFlow || 0), "-"],
-        ["⚖️ GRAND TOTAL (Balance)", formatCurrency(stats.totals.grandTotal || 0), "-"],
+        ["Withdrawals", stats.summary.withdrawals.total, stats.summary.withdrawals.count],
+        ["Deposits", stats.summary.deposits.total, stats.summary.deposits.count],
+        ["Realized Benefits", stats.summary.realizedBenefits.total, stats.summary.realizedBenefits.count],
+        ["Inventory Value", stats.summary.inventoryValue.total, stats.summary.inventoryValue.count],
+        ["Pays (Incoming)", stats.summary.pays.total, stats.summary.pays.count],
+        ["Expenses", stats.summary.expenses.total, stats.summary.expenses.count],
+        ["Sales Revenue", stats.summary.salesRevenue.total, stats.summary.salesRevenue.count],
+        ["Sales Receipt (Collected)", stats.summary.salesReceipt.total, "-"],
+        ["Sales Remaind (Pending)", stats.summary.salesRemaind.total, "-"],
+        ["Staff Salaries", stats.summary.staffSalaries.total, stats.summary.staffSalaries.count],
+        ["Salary Paid", stats.summary.staffSalaries.salaryPaid, "-"],
+        ["Salary Remaind", stats.summary.staffSalaries.salaryRemaind, "-"],
+        ["Total Incoming", stats.summary.totalIncoming.total, "-"],
+        ["Total Outgoing", stats.summary.totalOutgoing.total, "-"],
+        ["Net Cash Flow", stats.summary.netCashFlow.total, "-"],
+        ["GRAND TOTAL (Balance)", stats.summary.grandTotal.total, "-"],
       ];
 
       autoTable(doc, {
@@ -147,31 +146,24 @@ const Stakeholderpage = () => {
         styles: { fontSize: 9, cellPadding: 5, halign: "center" },
         headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
         alternateRowStyles: { fillColor: [240, 240, 240] },
-        didDrawCell: (data) => {
-          if (data.row.index === tableData.length - 2) {
-            data.cell.styles.fillColor = [255, 215, 0];
-            data.cell.styles.textColor = [0, 0, 0];
-            data.cell.styles.fontStyle = "bold";
-          }
-        }
       });
 
       // Attendance Details
-      if (stats.attendances && stats.attendances.length > 0) {
+      if (stats.details.attendances && stats.details.attendances.length > 0) {
         doc.addPage();
         doc.setFontSize(14);
         doc.text("Staff Attendance & Salary Details", 40, 50, { align: "left" });
         
         const attendanceHeaders = [["ID", "Staff Name", "Father Name", "Salary", "Overtime", "Total", "Paid", "Remaind", "Date"]];
-        const attendanceBody = stats.attendances.map(a => [
+        const attendanceBody = stats.details.attendances.map(a => [
           a.id,
           a.staffName || "Unknown",
           a.staffFatherName || "",
-          formatCurrency(a.salary),
-          formatCurrency(a.overtime),
-          formatCurrency(a.total),
-          formatCurrency(a.receipt),
-          formatCurrency(a.remaind),
+          a.salaryFormatted,
+          a.overtimeFormatted,
+          a.totalFormatted,
+          a.receiptFormatted,
+          a.remaindFormatted,
           moment(a.createdAt).format("YYYY-MM-DD")
         ]);
         
@@ -186,15 +178,15 @@ const Stakeholderpage = () => {
       }
 
       // Deposits Details
-      if (stats.deposits && stats.deposits.length > 0) {
+      if (stats.details.deposits && stats.details.deposits.length > 0) {
         doc.addPage();
         doc.setFontSize(14);
         doc.text("Deposits Details", 40, 50, { align: "left" });
         
         const depositsHeaders = [["ID", "Amount", "Date"]];
-        const depositsBody = stats.deposits.map(d => [
+        const depositsBody = stats.details.deposits.map(d => [
           d.id,
-          formatCurrency(d.amount),
+          d.amountFormatted,
           moment(d.createdAt).format("YYYY-MM-DD HH:mm")
         ]);
         
@@ -209,15 +201,15 @@ const Stakeholderpage = () => {
       }
 
       // Pays Details
-      if (stats.pays && stats.pays.length > 0) {
+      if (stats.details.pays && stats.details.pays.length > 0) {
         doc.addPage();
         doc.setFontSize(14);
         doc.text("Pays Details (Incoming Payments)", 40, 50, { align: "left" });
         
         const paysHeaders = [["ID", "Amount", "Seller Name", "Description", "Date"]];
-        const paysBody = stats.pays.map(p => [
+        const paysBody = stats.details.pays.map(p => [
           p.id,
-          formatCurrency(p.amount),
+          p.amountFormatted,
           p.sellerName || "Unknown",
           p.description || "-",
           moment(p.createdAt).format("YYYY-MM-DD HH:mm")
@@ -234,19 +226,19 @@ const Stakeholderpage = () => {
       }
 
       // Sells Details
-      if (stats.sells && stats.sells.length > 0) {
+      if (stats.details.sells && stats.details.sells.length > 0) {
         doc.addPage();
         doc.setFontSize(14);
         doc.text("Sells Details", 40, 50, { align: "left" });
         
         const sellsHeaders = [["ID", "Product", "Quantity", "Total", "Receipt", "Remaind", "Bill Number", "Date"]];
-        const sellsBody = stats.sells.map(s => [
+        const sellsBody = stats.details.sells.map(s => [
           s.id,
           s.productName || "Unknown",
           s.amount,
-          formatCurrency(parseFloat(s.total)),
-          formatCurrency(parseFloat(s.receipt)),
-          formatCurrency(parseFloat(s.remaind)),
+          s.totalFormatted,
+          s.receiptFormatted,
+          s.remaindFormatted,
           s.billNumber || "N/A",
           moment(s.createdAt).format("YYYY-MM-DD")
         ]);
@@ -262,15 +254,15 @@ const Stakeholderpage = () => {
       }
 
       // Expenses Details
-      if (stats.expenses && stats.expenses.length > 0) {
+      if (stats.details.expenses && stats.details.expenses.length > 0) {
         doc.addPage();
         doc.setFontSize(14);
         doc.text("Expenses Details", 40, 50, { align: "left" });
         
         const expensesHeaders = [["ID", "Amount", "Purpose", "Created By", "Description", "Date"]];
-        const expensesBody = stats.expenses.map(e => [
+        const expensesBody = stats.details.expenses.map(e => [
           e.id,
-          formatCurrency(parseFloat(e.amount)),
+          e.amountFormatted,
           e.purpose || "-",
           e.by || "Unknown",
           e.description || "-",
@@ -287,30 +279,6 @@ const Stakeholderpage = () => {
         });
       }
 
-      // Benefits Details
-      if (stats.realizedBenefits && stats.realizedBenefits.length > 0) {
-        doc.addPage();
-        doc.setFontSize(14);
-        doc.text("Realized Benefits Details", 40, 50, { align: "left" });
-        
-        const benefitsHeaders = [["ID", "Amount", "Sell ID", "Date"]];
-        const benefitsBody = stats.realizedBenefits.map(b => [
-          b.id,
-          formatCurrency(parseFloat(b.amount)),
-          b.sellId,
-          moment(b.createdAt).format("YYYY-MM-DD HH:mm")
-        ]);
-        
-        autoTable(doc, {
-          startY: 70,
-          head: benefitsHeaders,
-          body: benefitsBody,
-          theme: "grid",
-          styles: { fontSize: 9, cellPadding: 4, halign: "center" },
-          headStyles: { fillColor: [41, 128, 185], textColor: 255, fontStyle: "bold" },
-        });
-      }
-
       const pageCount = doc.internal.getNumberOfPages();
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
@@ -319,7 +287,7 @@ const Stakeholderpage = () => {
         doc.text(`${i}/${pageCount}`, pageWidth - 40, pageHeight - 30, { align: "right" });
       }
 
-      const fileName = `department_${stats.departmentId}_details_${moment().format("YYYY-MM-DD")}.pdf`;
+      const fileName = `department_${stats.department.id}_details_${moment().format("YYYY-MM-DD")}.pdf`;
       doc.save(fileName);
     } catch (err) {
       console.error("PDF generation error:", err);
@@ -343,28 +311,28 @@ const Stakeholderpage = () => {
       // Summary Sheet
       const summaryData = [
         ["Department Financial Details"],
-        ["Department Name", stats.departmentName],
-        ["Department ID", stats.departmentId],
+        ["Department Name", stats.department.name],
+        ["Department ID", stats.department.id],
         ["Date Range", stats.dateRange === "all" ? "All time" : `${stats.dateRange.startDate || "Any"} → ${stats.dateRange.endDate || "Any"}`],
         ["Generated On", moment().format("YYYY-MM-DD HH:mm:ss")],
         [],
         ["Category", "Total Amount (USD)", "Number of Records"],
-        ["Withdrawals", stats.totals.withdraws || 0, stats.withdraws?.length || 0],
-        ["Deposits", stats.totals.deposits || 0, stats.deposits?.length || 0],
-        ["Realized Benefits", stats.totals.realizedBenefits || 0, stats.realizedBenefits?.length || 0],
-        ["Inventory Value", stats.totals.existingStock || 0, stats.existingStocks?.length || 0],
-        ["Pays (Incoming)", stats.totals.pays || 0, stats.pays?.length || 0],
-        ["Expenses", stats.totals.expenses || 0, stats.expenses?.length || 0],
-        ["Sales Revenue", stats.totals.totalSales || 0, stats.sells?.length || 0],
-        ["Sales Receipt", stats.totals.sellsReceipt || 0, "-"],
-        ["Sales Remaind", stats.totals.sellsRemaind || 0, "-"],
-        ["Staff Salaries", stats.totals.attendance?.totalAmount || 0, stats.totals.attendance?.totalRecords || 0],
-        ["Salary Paid", stats.totals.attendance?.totalReceipt || 0, "-"],
-        ["Salary Remaind", stats.totals.attendance?.totalRemaind || 0, "-"],
-        ["Total Incoming", stats.totals.totalIncoming || 0, "-"],
-        ["Total Outgoing", stats.totals.totalOutgoing || 0, "-"],
-        ["Net Cash Flow", stats.totals.netCashFlow || 0, "-"],
-        ["GRAND TOTAL (Balance)", stats.totals.grandTotal || 0, "-"],
+        ["Withdrawals", stats.summary.withdrawals.totalRaw, stats.summary.withdrawals.count],
+        ["Deposits", stats.summary.deposits.totalRaw, stats.summary.deposits.count],
+        ["Realized Benefits", stats.summary.realizedBenefits.totalRaw, stats.summary.realizedBenefits.count],
+        ["Inventory Value", stats.summary.inventoryValue.totalRaw, stats.summary.inventoryValue.count],
+        ["Pays (Incoming)", stats.summary.pays.totalRaw, stats.summary.pays.count],
+        ["Expenses", stats.summary.expenses.totalRaw, stats.summary.expenses.count],
+        ["Sales Revenue", stats.summary.salesRevenue.totalRaw, stats.summary.salesRevenue.count],
+        ["Sales Receipt", stats.summary.salesReceipt.totalRaw, "-"],
+        ["Sales Remaind", stats.summary.salesRemaind.totalRaw, "-"],
+        ["Staff Salaries", stats.summary.staffSalaries.totalRaw, stats.summary.staffSalaries.count],
+        ["Salary Paid", stats.summary.staffSalaries.salaryPaidRaw, "-"],
+        ["Salary Remaind", stats.summary.staffSalaries.salaryRemaindRaw, "-"],
+        ["Total Incoming", stats.summary.totalIncoming.totalRaw, "-"],
+        ["Total Outgoing", stats.summary.totalOutgoing.totalRaw, "-"],
+        ["Net Cash Flow", stats.summary.netCashFlow.totalRaw, "-"],
+        ["GRAND TOTAL (Balance)", stats.summary.grandTotal.totalRaw, "-"],
       ];
 
       const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
@@ -372,10 +340,10 @@ const Stakeholderpage = () => {
       XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
 
       // Attendance Sheet
-      if (stats.attendances && stats.attendances.length > 0) {
+      if (stats.details.attendances && stats.details.attendances.length > 0) {
         const attendanceData = [
           ["ID", "Staff Name", "Father Name", "Salary", "Overtime", "Total", "Paid", "Remaind", "Date"],
-          ...stats.attendances.map(a => [
+          ...stats.details.attendances.map(a => [
             a.id,
             a.staffName || "Unknown",
             a.staffFatherName || "",
@@ -392,36 +360,36 @@ const Stakeholderpage = () => {
       }
 
       // Deposits Sheet
-      if (stats.deposits && stats.deposits.length > 0) {
+      if (stats.details.deposits && stats.details.deposits.length > 0) {
         const depositsData = [
           ["ID", "Amount", "Date"],
-          ...stats.deposits.map(d => [d.id, d.amount, moment(d.createdAt).format("YYYY-MM-DD HH:mm")])
+          ...stats.details.deposits.map(d => [d.id, d.amount, moment(d.createdAt).format("YYYY-MM-DD HH:mm")])
         ];
         const depositsSheet = XLSX.utils.aoa_to_sheet(depositsData);
         XLSX.utils.book_append_sheet(workbook, depositsSheet, "Deposits");
       }
 
       // Pays Sheet
-      if (stats.pays && stats.pays.length > 0) {
+      if (stats.details.pays && stats.details.pays.length > 0) {
         const paysData = [
           ["ID", "Amount", "Seller Name", "Description", "Date"],
-          ...stats.pays.map(p => [p.id, p.amount, p.sellerName || "Unknown", p.description || "-", moment(p.createdAt).format("YYYY-MM-DD HH:mm")])
+          ...stats.details.pays.map(p => [p.id, p.amount, p.sellerName || "Unknown", p.description || "-", moment(p.createdAt).format("YYYY-MM-DD HH:mm")])
         ];
         const paysSheet = XLSX.utils.aoa_to_sheet(paysData);
         XLSX.utils.book_append_sheet(workbook, paysSheet, "Pays");
       }
 
       // Sells Sheet
-      if (stats.sells && stats.sells.length > 0) {
+      if (stats.details.sells && stats.details.sells.length > 0) {
         const sellsData = [
           ["ID", "Product", "Quantity", "Total", "Receipt", "Remaind", "Bill Number", "Date"],
-          ...stats.sells.map(s => [
+          ...stats.details.sells.map(s => [
             s.id,
             s.productName || "Unknown",
             s.amount,
-            parseFloat(s.total),
-            parseFloat(s.receipt),
-            parseFloat(s.remaind),
+            s.total,
+            s.receipt,
+            s.remaind,
             s.billNumber || "N/A",
             moment(s.createdAt).format("YYYY-MM-DD")
           ])
@@ -432,12 +400,12 @@ const Stakeholderpage = () => {
       }
 
       // Expenses Sheet
-      if (stats.expenses && stats.expenses.length > 0) {
+      if (stats.details.expenses && stats.details.expenses.length > 0) {
         const expensesData = [
           ["ID", "Amount", "Purpose", "Created By", "Description", "Date"],
-          ...stats.expenses.map(e => [
+          ...stats.details.expenses.map(e => [
             e.id,
-            parseFloat(e.amount),
+            e.amount,
             e.purpose || "-",
             e.by || "Unknown",
             e.description || "-",
@@ -448,31 +416,16 @@ const Stakeholderpage = () => {
         XLSX.utils.book_append_sheet(workbook, expensesSheet, "Expenses");
       }
 
-      // Benefits Sheet
-      if (stats.realizedBenefits && stats.realizedBenefits.length > 0) {
-        const benefitsData = [
-          ["ID", "Amount", "Sell ID", "Date"],
-          ...stats.realizedBenefits.map(b => [
-            b.id,
-            parseFloat(b.amount),
-            b.sellId,
-            moment(b.createdAt).format("YYYY-MM-DD HH:mm")
-          ])
-        ];
-        const benefitsSheet = XLSX.utils.aoa_to_sheet(benefitsData);
-        XLSX.utils.book_append_sheet(workbook, benefitsSheet, "Benefits");
-      }
-
       // Stock Sheet
-      if (stats.existingStocks && stats.existingStocks.length > 0) {
+      if (stats.details.existingStocks && stats.details.existingStocks.length > 0) {
         const stockData = [
           ["ID", "Name", "Quantity", "Unit Price", "Total Value"],
-          ...stats.existingStocks.map(s => [
+          ...stats.details.existingStocks.map(s => [
             s.id,
             s.name,
             s.amount,
             s.unit_price,
-            s.total_value
+            s.total_value_raw
           ])
         ];
         const stockSheet = XLSX.utils.aoa_to_sheet(stockData);
@@ -481,7 +434,7 @@ const Stakeholderpage = () => {
 
       const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
       const blob = new Blob([excelBuffer], { type: "application/octet-stream" });
-      saveAs(blob, `department_${stats.departmentId}_details_${moment().format("YYYY-MM-DD")}.xlsx`);
+      saveAs(blob, `department_${stats.department.id}_details_${moment().format("YYYY-MM-DD")}.xlsx`);
     } catch (err) {
       console.error("Excel generation error:", err);
       alert("Failed to generate Excel");
@@ -587,7 +540,7 @@ const Stakeholderpage = () => {
         <div className="mt-6">
           <div className="bg-gray-50 p-4 rounded-lg mb-4">
             <p className="text-sm text-gray-600">
-              <span className="font-semibold">Department:</span> {stats.departmentName} (ID: {stats.departmentId})
+              <span className="font-semibold">Department:</span> {stats.department.name} (ID: {stats.department.id})
             </p>
             <p className="text-sm text-gray-600">
               <span className="font-semibold">Date Range:</span>{" "}
@@ -601,22 +554,22 @@ const Stakeholderpage = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-green-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-green-600">Total Deposits</p>
-              <p className="text-2xl font-bold text-green-700">{formatCurrency(stats.totals.deposits || 0)}</p>
-              <p className="text-xs text-green-500">{stats.deposits?.length || 0} transactions</p>
+              <p className="text-2xl font-bold text-green-700">{stats.summary.deposits.total}</p>
+              <p className="text-xs text-green-500">{stats.summary.deposits.count} transactions</p>
             </div>
             <div className="bg-blue-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-blue-600">Total Pays Received</p>
-              <p className="text-2xl font-bold text-blue-700">{formatCurrency(stats.totals.pays || 0)}</p>
-              <p className="text-xs text-blue-500">{stats.pays?.length || 0} payments</p>
+              <p className="text-2xl font-bold text-blue-700">{stats.summary.pays.total}</p>
+              <p className="text-xs text-blue-500">{stats.summary.pays.count} payments</p>
             </div>
             <div className="bg-emerald-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-emerald-600">Sales Receipts</p>
-              <p className="text-2xl font-bold text-emerald-700">{formatCurrency(stats.totals.sellsReceipt || 0)}</p>
+              <p className="text-2xl font-bold text-emerald-700">{stats.summary.salesReceipt.total}</p>
               <p className="text-xs text-emerald-500">From customer payments</p>
             </div>
             <div className="bg-orange-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-orange-600">Outstanding Remaind</p>
-              <p className="text-2xl font-bold text-orange-700">{formatCurrency(stats.totals.sellsRemaind || 0)}</p>
+              <p className="text-2xl font-bold text-orange-700">{stats.summary.salesRemaind.total}</p>
               <p className="text-xs text-orange-500">To be collected</p>
             </div>
           </div>
@@ -636,16 +589,16 @@ const Stakeholderpage = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <p className="text-xs text-purple-600">Total Salary Amount</p>
-                <p className="text-xl font-bold text-purple-700">{formatCurrency(stats.totals.attendance?.totalAmount || 0)}</p>
-                <p className="text-xs text-purple-500">{stats.totals.attendance?.totalRecords || 0} records</p>
+                <p className="text-xl font-bold text-purple-700">{stats.summary.staffSalaries.total}</p>
+                <p className="text-xs text-purple-500">{stats.summary.staffSalaries.count} records</p>
               </div>
               <div>
                 <p className="text-xs text-green-600">Paid Amount</p>
-                <p className="text-xl font-bold text-green-700">{formatCurrency(stats.totals.attendance?.totalReceipt || 0)}</p>
+                <p className="text-xl font-bold text-green-700">{stats.summary.staffSalaries.salaryPaid}</p>
               </div>
               <div>
                 <p className="text-xs text-orange-600">Remaining (Unpaid)</p>
-                <p className="text-xl font-bold text-orange-700">{formatCurrency(stats.totals.attendance?.totalRemaind || 0)}</p>
+                <p className="text-xl font-bold text-orange-700">{stats.summary.staffSalaries.salaryRemaind}</p>
               </div>
             </div>
           </div>
@@ -665,7 +618,7 @@ const Stakeholderpage = () => {
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-3xl font-bold text-white">{formatCurrency(stats.totals.grandTotal || 0)}</div>
+                <div className="text-3xl font-bold text-white">{stats.summary.grandTotal.total}</div>
                 <div className="text-sm text-white/80">Net Department Value</div>
               </div>
             </div>
@@ -675,31 +628,31 @@ const Stakeholderpage = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <div className="bg-gray-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-gray-600">Total Incoming</p>
-              <p className="text-2xl font-bold text-green-600">{formatCurrency(stats.totals.totalIncoming || 0)}</p>
+              <p className="text-2xl font-bold text-green-600">{stats.summary.totalIncoming.total}</p>
               <p className="text-xs text-gray-500">Deposits + Benefits + Pays + Receipts + Salary Paid</p>
             </div>
             <div className="bg-gray-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-gray-600">Total Outgoing</p>
-              <p className="text-2xl font-bold text-red-600">{formatCurrency(stats.totals.totalOutgoing || 0)}</p>
+              <p className="text-2xl font-bold text-red-600">{stats.summary.totalOutgoing.total}</p>
               <p className="text-xs text-gray-500">Withdrawals + Expenses + Salaries</p>
             </div>
             <div className="bg-gray-50 rounded-xl p-4 shadow-sm">
               <p className="text-sm text-gray-600">Net Cash Flow</p>
-              <p className={`text-2xl font-bold ${(stats.totals.netCashFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(stats.totals.netCashFlow || 0)}
+              <p className={`text-2xl font-bold ${stats.summary.netCashFlow.totalRaw >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {stats.summary.netCashFlow.total}
               </p>
               <p className="text-xs text-gray-500">Incoming - Outgoing</p>
             </div>
           </div>
 
           {/* Attendance Details Section */}
-          {stats.attendances && stats.attendances.length > 0 && (
+          {stats.details.attendances && stats.details.attendances.length > 0 && (
             <div className="mb-6">
               <button
                 onClick={() => setShowAttendanceDetails(!showAttendanceDetails)}
                 className="w-full bg-purple-50 hover:bg-purple-100 text-purple-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
               >
-                <span>👥 Staff Attendance & Salary Details ({stats.attendances.length} records, Total: {formatCurrency(stats.totals.attendance?.totalAmount || 0)})</span>
+                <span>👥 Staff Attendance & Salary Details ({stats.details.attendances.length} records, Total: {stats.summary.staffSalaries.total})</span>
                 <span>{showAttendanceDetails ? "▲" : "▼"}</span>
               </button>
               {showAttendanceDetails && (
@@ -719,16 +672,16 @@ const Stakeholderpage = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {stats.attendances.map((a) => (
+                      {stats.details.attendances.map((a) => (
                         <tr key={a.id} className="border-t border-gray-200 hover:bg-gray-50">
                           <td className="px-4 py-2 text-sm">{a.id}</td>
                           <td className="px-4 py-2 text-sm font-medium">{a.staffName || "Unknown"}</td>
                           <td className="px-4 py-2 text-sm">{a.staffFatherName || ""}</td>
-                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(a.salary)}</td>
-                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(a.overtime)}</td>
-                          <td className="px-4 py-2 text-sm text-right font-semibold">{formatCurrency(a.total)}</td>
-                          <td className="px-4 py-2 text-sm text-right bg-emerald-50">{formatCurrency(a.receipt)}</td>
-                          <td className="px-4 py-2 text-sm text-right bg-orange-50">{formatCurrency(a.remaind)}</td>
+                          <td className="px-4 py-2 text-sm text-right">{a.salaryFormatted}</td>
+                          <td className="px-4 py-2 text-sm text-right">{a.overtimeFormatted}</td>
+                          <td className="px-4 py-2 text-sm text-right font-semibold">{a.totalFormatted}</td>
+                          <td className="px-4 py-2 text-sm text-right bg-emerald-50">{a.receiptFormatted}</td>
+                          <td className="px-4 py-2 text-sm text-right bg-orange-50">{a.remaindFormatted}</td>
                           <td className="px-4 py-2 text-sm">{moment(a.createdAt).format("YYYY-MM-DD")}</td>
                         </tr>
                       ))}
@@ -736,9 +689,9 @@ const Stakeholderpage = () => {
                     <tfoot className="bg-gray-100">
                       <tr>
                         <td colSpan="5" className="px-4 py-2 text-right font-semibold">Totals:</td>
-                        <td className="px-4 py-2 text-right font-semibold">{formatCurrency(stats.totals.attendance?.totalAmount || 0)}</td>
-                        <td className="px-4 py-2 text-right font-semibold bg-emerald-100">{formatCurrency(stats.totals.attendance?.totalReceipt || 0)}</td>
-                        <td className="px-4 py-2 text-right font-semibold bg-orange-100">{formatCurrency(stats.totals.attendance?.totalRemaind || 0)}</td>
+                        <td className="px-4 py-2 text-right font-semibold">{stats.summary.staffSalaries.total}</td>
+                        <td className="px-4 py-2 text-right font-semibold bg-emerald-100">{stats.summary.staffSalaries.salaryPaid}</td>
+                        <td className="px-4 py-2 text-right font-semibold bg-orange-100">{stats.summary.staffSalaries.salaryRemaind}</td>
                         <td></td>
                       </tr>
                     </tfoot>
@@ -749,13 +702,13 @@ const Stakeholderpage = () => {
           )}
 
           {/* Deposits Details Section */}
-          {stats.deposits && stats.deposits.length > 0 && (
+          {stats.details.deposits && stats.details.deposits.length > 0 && (
             <div className="mb-6">
               <button
                 onClick={() => setShowDepositsDetails(!showDepositsDetails)}
                 className="w-full bg-blue-50 hover:bg-blue-100 text-blue-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
               >
-                <span>💰 Deposits ({stats.deposits.length} transactions, {formatCurrency(stats.totals.deposits)})</span>
+                <span>💰 Deposits ({stats.details.deposits.length} transactions, {stats.summary.deposits.total})</span>
                 <span>{showDepositsDetails ? "▲" : "▼"}</span>
               </button>
               {showDepositsDetails && (
@@ -769,10 +722,10 @@ const Stakeholderpage = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {stats.deposits.map((d) => (
+                      {stats.details.deposits.map((d) => (
                         <tr key={d.id} className="border-t border-gray-200 hover:bg-gray-50">
                           <td className="px-4 py-2 text-sm">{d.id}</td>
-                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(d.amount)}</td>
+                          <td className="px-4 py-2 text-sm text-right">{d.amountFormatted}</td>
                           <td className="px-4 py-2 text-sm">{moment(d.createdAt).format("YYYY-MM-DD HH:mm")}</td>
                         </tr>
                       ))}
@@ -783,15 +736,14 @@ const Stakeholderpage = () => {
             </div>
           )}
 
-          {/* Rest of your sections remain the same... */}
           {/* Pays Details Section */}
-          {stats.pays && stats.pays.length > 0 && (
+          {stats.details.pays && stats.details.pays.length > 0 && (
             <div className="mb-6">
               <button
                 onClick={() => setShowPaysDetails(!showPaysDetails)}
                 className="w-full bg-indigo-50 hover:bg-indigo-100 text-indigo-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
               >
-                <span>💳 Pays Received ({stats.pays.length} payments, {formatCurrency(stats.totals.pays)})</span>
+                <span>💳 Pays Received ({stats.details.pays.length} payments, {stats.summary.pays.total})</span>
                 <span>{showPaysDetails ? "▲" : "▼"}</span>
               </button>
               {showPaysDetails && (
@@ -807,10 +759,10 @@ const Stakeholderpage = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {stats.pays.map((p) => (
+                      {stats.details.pays.map((p) => (
                         <tr key={p.id} className="border-t border-gray-200 hover:bg-gray-50">
                           <td className="px-4 py-2 text-sm">{p.id}</td>
-                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(p.amount)}</td>
+                          <td className="px-4 py-2 text-sm text-right">{p.amountFormatted}</td>
                           <td className="px-4 py-2 text-sm">{p.sellerName || "Unknown"}</td>
                           <td className="px-4 py-2 text-sm">{p.description || "-"}</td>
                           <td className="px-4 py-2 text-sm">{moment(p.createdAt).format("YYYY-MM-DD HH:mm")}</td>
@@ -824,13 +776,13 @@ const Stakeholderpage = () => {
           )}
 
           {/* Sells Details Section */}
-          {stats.sells && stats.sells.length > 0 && (
+          {stats.details.sells && stats.details.sells.length > 0 && (
             <div className="mb-6">
               <button
                 onClick={() => setShowSellsDetails(!showSellsDetails)}
                 className="w-full bg-teal-50 hover:bg-teal-100 text-teal-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
               >
-                <span>🛒 Sells ({stats.sells.length} sales, Receipt: {formatCurrency(stats.totals.sellsReceipt)}, Remaind: {formatCurrency(stats.totals.sellsRemaind)})</span>
+                <span>🛒 Sells ({stats.details.sells.length} sales, Receipt: {stats.summary.salesReceipt.total}, Remaind: {stats.summary.salesRemaind.total})</span>
                 <span>{showSellsDetails ? "▲" : "▼"}</span>
               </button>
               {showSellsDetails && (
@@ -849,14 +801,14 @@ const Stakeholderpage = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {stats.sells.map((s) => (
+                      {stats.details.sells.map((s) => (
                         <tr key={s.id} className="border-t border-gray-200 hover:bg-gray-50">
                           <td className="px-4 py-2 text-sm">{s.id}</td>
                           <td className="px-4 py-2 text-sm">{s.productName || "Unknown"}</td>
                           <td className="px-4 py-2 text-sm text-right">{formatNumber(s.amount)}</td>
-                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(parseFloat(s.total))}</td>
-                          <td className="px-4 py-2 text-sm text-right bg-emerald-50">{formatCurrency(parseFloat(s.receipt))}</td>
-                          <td className="px-4 py-2 text-sm text-right bg-orange-50">{formatCurrency(parseFloat(s.remaind))}</td>
+                          <td className="px-4 py-2 text-sm text-right">{s.totalFormatted}</td>
+                          <td className="px-4 py-2 text-sm text-right bg-emerald-50">{s.receiptFormatted}</td>
+                          <td className="px-4 py-2 text-sm text-right bg-orange-50">{s.remaindFormatted}</td>
                           <td className="px-4 py-2 text-sm">{s.billNumber || "N/A"}</td>
                           <td className="px-4 py-2 text-sm">{moment(s.createdAt).format("YYYY-MM-DD")}</td>
                         </tr>
@@ -865,9 +817,9 @@ const Stakeholderpage = () => {
                     <tfoot className="bg-gray-100">
                       <tr>
                         <td colSpan="3" className="px-4 py-2 text-right font-semibold">Totals:</td>
-                        <td className="px-4 py-2 text-right font-semibold">{formatCurrency(stats.totals.totalSales)}</td>
-                        <td className="px-4 py-2 text-right font-semibold bg-emerald-100">{formatCurrency(stats.totals.sellsReceipt)}</td>
-                        <td className="px-4 py-2 text-right font-semibold bg-orange-100">{formatCurrency(stats.totals.sellsRemaind)}</td>
+                        <td className="px-4 py-2 text-right font-semibold">{stats.summary.salesRevenue.total}</td>
+                        <td className="px-4 py-2 text-right font-semibold bg-emerald-100">{stats.summary.salesReceipt.total}</td>
+                        <td className="px-4 py-2 text-right font-semibold bg-orange-100">{stats.summary.salesRemaind.total}</td>
                         <td colSpan="2"></td>
                       </tr>
                     </tfoot>
@@ -878,13 +830,13 @@ const Stakeholderpage = () => {
           )}
 
           {/* Expenses Details Section */}
-          {stats.expenses && stats.expenses.length > 0 && (
+          {stats.details.expenses && stats.details.expenses.length > 0 && (
             <div className="mb-6">
               <button
                 onClick={() => setShowExpensesDetails(!showExpensesDetails)}
                 className="w-full bg-red-50 hover:bg-red-100 text-red-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
               >
-                <span>📊 Expenses ({stats.expenses.length} records, {formatCurrency(stats.totals.expenses)})</span>
+                <span>📊 Expenses ({stats.details.expenses.length} records, {stats.summary.expenses.total})</span>
                 <span>{showExpensesDetails ? "▲" : "▼"}</span>
               </button>
               {showExpensesDetails && (
@@ -901,10 +853,10 @@ const Stakeholderpage = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {stats.expenses.map((e) => (
+                      {stats.details.expenses.map((e) => (
                         <tr key={e.id} className="border-t border-gray-200 hover:bg-gray-50">
                           <td className="px-4 py-2 text-sm">{e.id}</td>
-                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(parseFloat(e.amount))}</td>
+                          <td className="px-4 py-2 text-sm text-right">{e.amountFormatted}</td>
                           <td className="px-4 py-2 text-sm">{e.purpose || "-"}</td>
                           <td className="px-4 py-2 text-sm">{e.by || "Unknown"}</td>
                           <td className="px-4 py-2 text-sm">{e.description || "-"}</td>
@@ -918,45 +870,8 @@ const Stakeholderpage = () => {
             </div>
           )}
 
-          {/* Benefits Details Section */}
-          {stats.realizedBenefits && stats.realizedBenefits.length > 0 && (
-            <div className="mb-6">
-              <button
-                onClick={() => setShowBenefitsDetails(!showBenefitsDetails)}
-                className="w-full bg-purple-50 hover:bg-purple-100 text-purple-800 font-semibold py-2 px-4 rounded-lg transition flex justify-between items-center"
-              >
-                <span>📈 Realized Benefits ({stats.realizedBenefits.length} records, {formatCurrency(stats.totals.realizedBenefits)})</span>
-                <span>{showBenefitsDetails ? "▲" : "▼"}</span>
-              </button>
-              {showBenefitsDetails && (
-                <div className="mt-3 overflow-x-auto">
-                  <table className="min-w-full bg-white border border-gray-200 rounded-lg">
-                    <thead className="bg-gray-100">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-sm font-semibold">ID</th>
-                        <th className="px-4 py-2 text-right text-sm font-semibold">Amount</th>
-                        <th className="px-4 py-2 text-right text-sm font-semibold">Sell ID</th>
-                        <th className="px-4 py-2 text-left text-sm font-semibold">Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {stats.realizedBenefits.map((b) => (
-                        <tr key={b.id} className="border-t border-gray-200 hover:bg-gray-50">
-                          <td className="px-4 py-2 text-sm">{b.id}</td>
-                          <td className="px-4 py-2 text-sm text-right">{formatCurrency(parseFloat(b.amount))}</td>
-                          <td className="px-4 py-2 text-sm text-right">{b.sellId}</td>
-                          <td className="px-4 py-2 text-sm">{moment(b.createdAt).format("YYYY-MM-DD HH:mm")}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Stock Details Section */}
-          {stats.existingStocks && stats.existingStocks.length > 0 && (
+          {stats.details.existingStocks && stats.details.existingStocks.length > 0 && (
             <div className="mb-6">
               <div className="bg-yellow-50 rounded-lg p-4">
                 <h3 className="font-semibold text-yellow-800 mb-2">📦 Current Stock Inventory</h3>
@@ -971,19 +886,19 @@ const Stakeholderpage = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {stats.existingStocks.map((s) => (
+                      {stats.details.existingStocks.map((s) => (
                         <tr key={s.id} className="border-t border-gray-200">
                           <td className="px-4 py-2 text-sm">{s.name}</td>
                           <td className="px-4 py-2 text-sm text-right">{formatNumber(s.amount)}</td>
                           <td className="px-4 py-2 text-sm text-right">{formatCurrency(s.unit_price)}</td>
-                          <td className="px-4 py-2 text-sm text-right font-semibold">{formatCurrency(s.total_value)}</td>
+                          <td className="px-4 py-2 text-sm text-right font-semibold">{s.total_value}</td>
                         </tr>
                       ))}
                     </tbody>
                     <tfoot className="bg-gray-100">
                       <tr>
                         <td colSpan="3" className="px-4 py-2 text-right font-semibold">Total Stock Value:</td>
-                        <td className="px-4 py-2 text-right font-semibold">{formatCurrency(stats.totals.existingStock)}</td>
+                        <td className="px-4 py-2 text-right font-semibold">{stats.summary.inventoryValue.total}</td>
                       </tr>
                     </tfoot>
                   </table>

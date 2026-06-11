@@ -48,7 +48,7 @@ export const createExpense = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
+          as: "expenseDepartment", // Fixed: changed from "department" to "expenseDepartment"
           attributes: ["id", "name", "isActive"]
         }
       ]
@@ -132,7 +132,7 @@ export const getExpenses = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
+          as: "expenseDepartment", // Fixed: changed from "department" to "expenseDepartment"
           attributes: ["id", "name", "isActive"]
         }
       ]
@@ -142,6 +142,7 @@ export const getExpenses = async (req, res) => {
     const totalAmount = rows.reduce((sum, expense) => sum + parseFloat(expense.amount), 0);
 
     res.json({
+      success: true,
       data: rows,
       totalRecords: count,
       totalPages: Math.ceil(count / limit),
@@ -168,7 +169,7 @@ export const getExpenseById = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
+          as: "expenseDepartment", // Fixed: changed from "department" to "expenseDepartment"
           attributes: ["id", "name", "isActive"]
         }
       ]
@@ -178,7 +179,10 @@ export const getExpenseById = async (req, res) => {
       return res.status(404).json({ message: "Expense not found" });
     }
 
-    res.json(expense);
+    res.json({
+      success: true,
+      data: expense
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -236,13 +240,17 @@ export const updateExpense = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
+          as: "expenseDepartment", // Fixed: changed from "department" to "expenseDepartment"
           attributes: ["id", "name", "isActive"]
         }
       ]
     });
 
-    res.json({ message: "Expense updated successfully", expense: updatedExpense });
+    res.json({ 
+      success: true,
+      message: "Expense updated successfully", 
+      data: updatedExpense 
+    });
   } catch (error) {
     await transaction.rollback();
     console.error(error);
@@ -270,7 +278,10 @@ export const deleteExpense = async (req, res) => {
     await expense.destroy({ transaction });
     await transaction.commit();
 
-    res.json({ message: "Expense deleted successfully" });
+    res.json({ 
+      success: true,
+      message: "Expense deleted successfully" 
+    });
   } catch (error) {
     await transaction.rollback();
     console.error(error);
@@ -332,7 +343,7 @@ export const getExpensesByDateRange = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
+          as: "expenseDepartment", // Fixed: changed from "department" to "expenseDepartment"
           attributes: ["id", "name", "isActive"]
         }
       ],
@@ -357,8 +368,8 @@ export const getExpensesByDateRange = async (req, res) => {
     // Group by department if multiple departments
     const byDepartment = {};
     expenses.forEach(expense => {
-      const deptName = expense.department?.name || "Unknown";
-      const deptId = expense.department?.id || "unknown";
+      const deptName = expense.expenseDepartment?.name || "Unknown";
+      const deptId = expense.expenseDepartment?.id || "unknown";
       const key = `${deptId}-${deptName}`;
       
       if (!byDepartment[key]) {
@@ -398,7 +409,7 @@ export const getExpensesByDateRange = async (req, res) => {
 };
 
 /* ==============================
-   Get Expenses by Month (New Function)
+   Get Expenses by Month
 ================================ */
 export const getExpensesByMonth = async (req, res) => {
   try {
@@ -430,7 +441,7 @@ export const getExpensesByMonth = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "department",
+          as: "expenseDepartment", // Fixed: changed from "department" to "expenseDepartment"
           attributes: ["id", "name"]
         }
       ],
@@ -490,6 +501,13 @@ export const getDepartmentExpenseSummary = async (req, res) => {
 
     const expenses = await Expense.findAll({
       where,
+      include: [
+        {
+          model: Department,
+          as: "expenseDepartment",
+          attributes: ["id", "name"]
+        }
+      ],
       order: [["createdAt", "DESC"]],
     });
 
@@ -508,7 +526,10 @@ export const getDepartmentExpenseSummary = async (req, res) => {
       byMonth: groupByMonth(expenses),
     };
 
-    res.json(summary);
+    res.json({
+      success: true,
+      data: summary
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -542,6 +563,7 @@ export const bulkUpdateCalculated = async (req, res) => {
     await transaction.commit();
 
     res.json({
+      success: true,
       message: `${updatedCount} expenses updated successfully`,
       updatedCount
     });
