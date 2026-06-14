@@ -18,6 +18,11 @@ import Expense from './Expense.js';
 import Staff from './Staff/staff.js';
 import Attendance from './Staff/Attendence.js';
 
+// ----- New models -----
+import Debt from './Debt/Debt.js';
+import Payment from './Debt/Payment.js';
+import NonStaff from './Debt/NonStaff.js';
+
 const models = {
   Department,
   Seller,
@@ -36,7 +41,10 @@ const models = {
   User,
   Expense,
   Staff,
-  Attendance
+  Attendance,
+  Debt,
+  Payment,
+  NonStaff
 };
 
 /* ===============================
@@ -65,6 +73,10 @@ Department.associate = (models) => {
   Department.hasMany(models.Sells, { foreignKey: "departmentId", as: "departmentSells" });
   Department.hasMany(models.Staff, { foreignKey: "departmentId", as: "departmentStaffs" });
   Department.hasMany(models.Attendance, { foreignKey: "departmentId", as: "departmentAttendances" });
+  // New: Department can have many Debts
+  Department.hasMany(models.Debt, { foreignKey: "departmentId", as: "departmentDebts" });
+  // New: Department can have many Payments (denormalized)
+  Department.hasMany(models.Payment, { foreignKey: "departmentId", as: "departmentPayments" });
 };
 
 // ---------- Seller ----------
@@ -127,6 +139,8 @@ Pay.associate = (models) => {
 Staff.associate = (models) => {
   Staff.belongsTo(models.Department, { foreignKey: "departmentId", as: "staffDepartment" });
   Staff.hasMany(models.Attendance, { foreignKey: "staffId", as: "staffAttendances" });
+  // New: Staff can have many Debts (if staffId is used)
+  Staff.hasMany(models.Debt, { foreignKey: "staffId", as: "staffDebts" });
 };
 
 // ---------- DepartmentTransaction ----------
@@ -157,6 +171,27 @@ User.associate = (models) => {
   User.hasMany(models.DepartmentTransaction, { foreignKey: "userId", as: "userTransactions" });
 };
 
+// ========== NEW MODEL ASSOCIATIONS ==========
+
+// ---------- Debt ----------
+Debt.associate = (models) => {
+  Debt.belongsTo(models.Department, { foreignKey: "departmentId", as: "debtDepartment" });
+  Debt.belongsTo(models.Staff, { foreignKey: "staffId", as: "debtStaff" });
+  Debt.belongsTo(models.NonStaff, { foreignKey: "nonStaffId", as: "debtNonStaff" });
+  Debt.hasMany(models.Payment, { foreignKey: "debtId", as: "debtPayments" });
+};
+
+// ---------- Payment ----------
+Payment.associate = (models) => {
+  Payment.belongsTo(models.Debt, { foreignKey: "debtId", as: "paymentDebt" });
+  Payment.belongsTo(models.Department, { foreignKey: "departmentId", as: "paymentDepartment" });
+};
+
+// ---------- NonStaff ----------
+NonStaff.associate = (models) => {
+  NonStaff.hasMany(models.Debt, { foreignKey: "nonStaffId", as: "nonStaffDebts" });
+};
+
 /* ===============================
    Apply all associations
 ================================ */
@@ -185,5 +220,8 @@ export {
   User,
   Expense,
   Staff,
-  Attendance
+  Attendance,
+  Debt,
+  Payment,
+  NonStaff
 };

@@ -61,6 +61,7 @@ const Sidebar = ({ setActiveComponent }) => {
     { name: "Stake Holders", value: "stakeHolders", icon: <FaHandshake /> },
     { name: "Staff Management", value: "staff", icon: <FaUserTie /> },
     { name: "Salary", value: "salary", icon: <FaMoneyCheckAlt /> },
+    { name: "Debt", value: "debt", icon: <FaMoneyCheckAlt /> },
     { name: "User Management", value: "AddUser", icon: <LucideUserRoundPlus /> },
     { name: "Sign out", value: "signout", icon: <FaSignOutAlt /> },
   ];
