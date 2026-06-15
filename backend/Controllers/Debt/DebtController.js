@@ -1,4 +1,5 @@
-import { Debt, Staff, NonStaff, Department } from '../../Models/index.js';
+import { Debt, Staff, NonStaff, Department,Payment } from '../../Models/index.js';
+
 import { Op } from 'sequelize';
 
 // Helper to get receiver details (optional)
@@ -227,6 +228,102 @@ export const deleteDebt = async (req, res) => {
     res.status(200).json({ success: true, message: 'Debt deleted successfully' });
   } catch (error) {
     console.error('Error deleting debt:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// GET debt report with optional department and date range filters (includes payments)
+export const getDebtReport = async (req, res) => {
+  try {
+    const { departmentId, startDate, endDate, page = 1, limit = 20 } = req.query;
+    const where = {};
+
+    // Department filter
+    if (departmentId) where.departmentId = parseInt(departmentId);
+
+    // Date range filter (based on debt creation date) – corrected to include full days
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      // Set start to beginning of the day
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      // Set end to the end of the day (23:59:59.999) or use exclusive next day
+      end.setHours(23, 59, 59, 999);
+      where.createdAt = {
+        [Op.between]: [start, end],
+      };
+    } else if (startDate || endDate) {
+      return res.status(400).json({
+        error: "Both startDate and endDate are required for date range filtering, or omit both to get all debts",
+      });
+    }
+
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const { count, rows: debts } = await Debt.findAndCountAll({
+      where,
+      include: [
+        { model: Department, as: "debtDepartment", attributes: ["id", "name"] },
+        { model: Staff, as: "debtStaff", attributes: ["id", "name"] },
+        { model: NonStaff, as: "debtNonStaff", attributes: ["id", "name", "address"] },
+        {
+          model: Payment,
+          as: "debtPayments",
+          attributes: ["id", "amount", "paymentDate", "description", "departmentId"],
+          include: [
+            { model: Department, as: "paymentDepartment", attributes: ["id", "name"] },
+          ],
+          order: [["paymentDate", "DESC"]],
+        },
+      ],
+      offset,
+      limit: parseInt(limit),
+      order: [["createdAt", "DESC"]],
+    });
+    // Calculate summary totals
+    let totalDebtAmount = 0;
+    let totalPaid = 0;
+    let totalRemaining = 0;
+
+    const formattedDebts = debts.map(debt => {
+      const debtPaid = parseFloat(debt.amount) - parseFloat(debt.remainingAmount);
+      totalDebtAmount += parseFloat(debt.amount);
+      totalPaid += debtPaid;
+      totalRemaining += parseFloat(debt.remainingAmount);
+
+      const receiver = debt.debtStaff
+        ? { type: "staff", data: debt.debtStaff }
+        : debt.debtNonStaff
+        ? { type: "nonStaff", data: debt.debtNonStaff }
+        : null;
+
+      return {
+        ...debt.toJSON(),
+        receiver,
+        paidAmount: debtPaid,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: formattedDebts,
+      summary: {
+        totalDebts: count,
+        totalDebtAmount,
+        totalPaid,
+        totalRemaining,
+      },
+      meta: {
+        totalItems: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: parseInt(page),
+        itemsPerPage: parseInt(limit),
+        ...(startDate && endDate && { startDate, endDate }),
+        ...(departmentId && { departmentId: parseInt(departmentId) }),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching debt report:", error);
     res.status(500).json({ error: error.message });
   }
 };

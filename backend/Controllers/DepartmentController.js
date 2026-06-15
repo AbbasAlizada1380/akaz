@@ -1,4 +1,4 @@
-import { Department, Sells, Benefit, DepartmentTransaction, sequelize, StockExist, Pay, User, Seller, Bill } from "../Models/index.js";
+import { Department, Sells, Benefit, DepartmentTransaction, sequelize, StockExist, Pay, User, Seller, Bill, Debt, NonStaff, Payment } from "../Models/index.js";
 import { Op } from "sequelize";
 import { Attendance, Staff, Expense } from "../Models/index.js";
 
@@ -268,10 +268,10 @@ export const getBenefitsByDepartmentAndDate = async (req, res) => {
     });
   } catch (error) {
     console.error("Error in getBenefitsByDepartmentAndDate:", error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: "Failed to fetch benefits", 
-      error: error.message 
+      message: "Failed to fetch benefits",
+      error: error.message
     });
   }
 };
@@ -297,10 +297,10 @@ export const getBenefitsWithFilters = async (req, res) => {
     const { count, rows } = await Benefit.findAndCountAll({
       where: whereClause,
       include: [
-        { 
-          model: Department, 
+        {
+          model: Department,
           as: "benefitDepartment", // FIXED: changed from "department" to "benefitDepartment"
-          attributes: ["id", "name"] 
+          attributes: ["id", "name"]
         },
         {
           model: Sells,
@@ -332,10 +332,10 @@ export const getBenefitsWithFilters = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: "Failed to fetch benefits", 
-      error: error.message 
+      message: "Failed to fetch benefits",
+      error: error.message
     });
   }
 };
@@ -434,7 +434,7 @@ export const getDepartmentCounts = async (req, res) => {
     // EXPENSES
     let expensesTotal = 0, expensesCount = 0;
     const expenseWhere = { departmentId: parseInt(departmentId) };
-    
+
     if (startDate || endDate) {
       expenseWhere.createdAt = {};
       if (startDate) expenseWhere.createdAt[Op.gte] = new Date(startDate);
@@ -444,7 +444,7 @@ export const getDepartmentCounts = async (req, res) => {
         expenseWhere.createdAt[Op.lte] = endDateTime;
       }
     }
-    
+
     const expensesResult = await Expense.findAll({
       where: expenseWhere,
       attributes: [
@@ -453,13 +453,13 @@ export const getDepartmentCounts = async (req, res) => {
       ],
       raw: true,
     });
-    
+
     expensesTotal = parseFloat(expensesResult[0]?.totalAmount || 0);
     expensesCount = parseInt(expensesResult[0]?.count || 0);
 
     // SELLS
     const sellsWhere = { departmentId: parseInt(departmentId) };
-    
+
     if (startDate || endDate) {
       sellsWhere.createdAt = {};
       if (startDate) sellsWhere.createdAt[Op.gte] = new Date(startDate);
@@ -561,6 +561,7 @@ export const getDepartmentDetails = async (req, res) => {
       return res.status(404).json({ message: "Department not found" });
     }
 
+    // --- Existing data fetching (withdraws, deposits, etc.) ---
     const withdrawIds = parseJSONArray(department.withdraw);
     const depositIds = parseJSONArray(department.deposit);
     const realizedBenefitIds = parseJSONArray(department.realizedBenefit);
@@ -578,82 +579,78 @@ export const getDepartmentDetails = async (req, res) => {
       }
     }
 
-    const [withdraws, deposits, realizedBenefits, existingStocks, pays, expenses, sells, attendances] = await Promise.all([
-      withdrawIds.length > 0 
-        ? DepartmentTransaction.findAll({ 
-            where: { id: { [Op.in]: withdrawIds }, is_deposit: false, ...dateFilter },
-            order: [['createdAt', 'DESC']]
-          })
+    // Prepare date range for debt/payment queries (same as existing)
+    const debtDateFilter = {};
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      debtDateFilter.createdAt = { [Op.between]: [start, end] };
+    } else if (startDate || endDate) {
+      // If only one date provided, ignore date filter for debts (or handle as needed)
+      if (startDate) debtDateFilter.createdAt = { [Op.gte]: new Date(startDate) };
+      if (endDate) {
+        const endDateTime = new Date(endDate);
+        endDateTime.setHours(23, 59, 59, 999);
+        debtDateFilter.createdAt = { ...debtDateFilter.createdAt, [Op.lte]: endDateTime };
+      }
+    }
+
+    const paymentDateFilter = {};
+    if (startDate && endDate) {
+      paymentDateFilter.paymentDate = { [Op.between]: [startDate, endDate] };
+    } else if (startDate || endDate) {
+      if (startDate) paymentDateFilter.paymentDate = { [Op.gte]: startDate };
+      if (endDate) paymentDateFilter.paymentDate = { [Op.lte]: endDate };
+    }
+
+    // Execute all queries in parallel
+    const [
+      withdraws, deposits, realizedBenefits, existingStocks, pays, expenses, sells, attendances,
+      debts, debtPayments
+    ] = await Promise.all([
+      withdrawIds.length > 0
+        ? DepartmentTransaction.findAll({ where: { id: { [Op.in]: withdrawIds }, is_deposit: false, ...dateFilter }, order: [['createdAt', 'DESC']] })
         : [],
-      depositIds.length > 0 
-        ? DepartmentTransaction.findAll({ 
-            where: { id: { [Op.in]: depositIds }, is_deposit: true, ...dateFilter },
-            order: [['createdAt', 'DESC']]
-          })
+      depositIds.length > 0
+        ? DepartmentTransaction.findAll({ where: { id: { [Op.in]: depositIds }, is_deposit: true, ...dateFilter }, order: [['createdAt', 'DESC']] })
         : [],
-      realizedBenefitIds.length > 0 
-        ? Benefit.findAll({ 
-            where: { id: { [Op.in]: realizedBenefitIds }, ...dateFilter },
-            include: [{ model: Sells, as: "benefitSell" }],
-            order: [['createdAt', 'DESC']]
-          })
+      realizedBenefitIds.length > 0
+        ? Benefit.findAll({ where: { id: { [Op.in]: realizedBenefitIds }, ...dateFilter }, include: [{ model: Sells, as: "benefitSell" }], order: [['createdAt', 'DESC']] })
         : [],
-      existIds.length > 0 
-        ? StockExist.findAll({ 
-            where: { id: { [Op.in]: existIds } },
-            include: [{ model: Department, as: "stockExistDepartment" }]
-          })
+      existIds.length > 0
+        ? StockExist.findAll({ where: { id: { [Op.in]: existIds } }, include: [{ model: Department, as: "stockExistDepartment" }] })
         : [],
-      paysIds.length > 0 
-        ? Pay.findAll({ 
-            where: { id: { [Op.in]: paysIds }, ...dateFilter },
-            include: [{ model: Seller, as: "paySeller" }],
-            order: [['createdAt', 'DESC']]
-          })
+      paysIds.length > 0
+        ? Pay.findAll({ where: { id: { [Op.in]: paysIds }, ...dateFilter }, include: [{ model: Seller, as: "paySeller" }], order: [['createdAt', 'DESC']] })
         : [],
-      Expense.findAll({
-        where: { 
-          departmentId: parseInt(departmentId),
-          ...dateFilter
-        },
-        include: [{ model: Department, as: "expenseDepartment" }],
-        order: [['createdAt', 'DESC']]
-      }),
-      Sells.findAll({
-        where: {
-          departmentId: parseInt(departmentId),
-          ...dateFilter
-        },
+      Expense.findAll({ where: { departmentId: parseInt(departmentId), ...dateFilter }, include: [{ model: Department, as: "expenseDepartment" }], order: [['createdAt', 'DESC']] }),
+      Sells.findAll({ where: { departmentId: parseInt(departmentId), ...dateFilter }, include: [{ model: StockExist, as: "sellStockExist" }, { model: Bill, as: "sellBill" }], order: [['createdAt', 'DESC']] }),
+      Attendance.findAll({ where: { departmentId: parseInt(departmentId), ...dateFilter }, include: [{ model: Staff, as: "attendanceStaff" }], order: [['createdAt', 'DESC']] }),
+      // Debts (created within date range for this department)
+      Debt.findAll({
+        where: { departmentId: parseInt(departmentId), ...debtDateFilter },
         include: [
-          { 
-            model: StockExist, 
-            as: "sellStockExist",
-            attributes: ['id', 'name', 'amount', 'unit_price']
-          },
-          {
-            model: Bill,
-            as: "sellBill",
-            attributes: ['id', 'billNumber']
-          }
+          { model: Department, as: "debtDepartment", attributes: ["id", "name"] },
+          { model: Staff, as: "debtStaff", attributes: ["id", "name"] },
+          { model: NonStaff, as: "debtNonStaff", attributes: ["id", "name", "address"] },
+          { model: Payment, as: "debtPayments", attributes: ["id", "amount", "paymentDate", "description", "departmentId"], include: [{ model: Department, as: "paymentDepartment", attributes: ["id", "name"] }], order: [["paymentDate", "DESC"]] },
         ],
-        order: [['createdAt', 'DESC']]
+        order: [["createdAt", "DESC"]],
       }),
-      Attendance.findAll({
-        where: {
-          departmentId: parseInt(departmentId),
-          ...dateFilter
-        },
+      // Debt Payments (paymentDate within range, optionally filter by department)
+      Payment.findAll({
+        where: { departmentId: parseInt(departmentId), ...paymentDateFilter },
         include: [
-          {
-            model: Staff,
-            as: "attendanceStaff",
-            attributes: ["id", "name", "fatherName", "salary", "overTimePerHour", "workingDaysPerWeek"]
-          }
+          { model: Debt, as: "paymentDebt", attributes: ["id", "purpose", "amount", "remainingAmount", "staffId", "nonStaffId"], include: [{ model: Staff, as: "debtStaff", attributes: ["id", "name"] }, { model: NonStaff, as: "debtNonStaff", attributes: ["id", "name"] }] },
+          { model: Department, as: "paymentDepartment", attributes: ["id", "name"] },
         ],
-        order: [['createdAt', 'DESC']]
-      })
+        order: [["paymentDate", "DESC"]],
+      }),
     ]);
 
+    // --- Totals and summaries (existing) ---
     const totalWithdraws = withdraws.reduce((sum, w) => sum + (parseFloat(w.amount) || 0), 0);
     const totalDeposits = deposits.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0);
     const totalBenefits = realizedBenefits.reduce((sum, b) => sum + (parseFloat(b.amount) || 0), 0);
@@ -663,12 +660,18 @@ export const getDepartmentDetails = async (req, res) => {
     const totalReceipt = sells.reduce((sum, s) => sum + (parseFloat(s.receipt) || 0), 0);
     const totalRemaind = sells.reduce((sum, s) => sum + (parseFloat(s.remaind) || 0), 0);
     const totalSales = sells.reduce((sum, s) => sum + (parseFloat(s.total) || 0), 0);
-    
+
     const totalAttendanceSalary = attendances.reduce((sum, a) => sum + (parseFloat(a.salary) || 0), 0);
     const totalAttendanceOvertime = attendances.reduce((sum, a) => sum + (parseFloat(a.overtime) || 0), 0);
     const totalAttendanceAmount = attendances.reduce((sum, a) => sum + (parseFloat(a.total) || 0), 0);
     const totalAttendanceReceipt = attendances.reduce((sum, a) => sum + (parseFloat(a.receipt) || 0), 0);
     const totalAttendanceRemaind = attendances.reduce((sum, a) => sum + ((parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0)), 0);
+
+    // --- Debt & Payment summaries ---
+    const totalDebtAmount = debts.reduce((sum, d) => sum + (parseFloat(d.amount) || 0), 0);
+    const totalDebtPaid = debts.reduce((sum, d) => sum + (parseFloat(d.amount) - parseFloat(d.remainingAmount)), 0);
+    const totalDebtRemaining = debts.reduce((sum, d) => sum + (parseFloat(d.remainingAmount) || 0), 0);
+    const totalDebtPayments = debtPayments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
 
     const withdrawCount = withdraws.length;
     const depositCount = deposits.length;
@@ -678,22 +681,24 @@ export const getDepartmentDetails = async (req, res) => {
     const expensesCount = expenses.length;
     const sellsCount = sells.length;
     const attendanceCount = attendances.length;
+    const debtsCount = debts.length;
+    const debtPaymentsCount = debtPayments.length;
 
     const totalIncoming = totalDeposits + totalBenefits + totalPays + totalReceipt + totalAttendanceReceipt;
     const totalOutgoing = totalWithdraws + totalExpenses + totalAttendanceAmount;
     const netCashFlow = totalIncoming - totalOutgoing;
-    
+
     const totalAssets = totalDeposits + totalReceipt + totalRemaind + totalStockValue;
     const totalLiabilities = totalWithdraws + totalExpenses + totalPays + totalAttendanceRemaind + totalAttendanceReceipt;
     const grandTotal = totalAssets - totalLiabilities;
 
-    const formatCurrency = (amount) => {
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2
-      }).format(amount);
+
+
+    // Helper to get debtor name
+    const getDebtorName = (debt) => {
+      if (debt.debtStaff?.name) return debt.debtStaff.name;
+      if (debt.debtNonStaff?.name) return debt.debtNonStaff.name;
+      return "Unknown";
     };
 
     res.status(200).json({
@@ -705,156 +710,81 @@ export const getDepartmentDetails = async (req, res) => {
           name: department.name,
           createdAt: department.createdAt
         },
-        dateRange: startDate || endDate ? { 
-          startDate: startDate || null, 
-          endDate: endDate || null 
-        } : "all",
+        dateRange: startDate || endDate ? { startDate: startDate || null, endDate: endDate || null } : "all",
         summary: {
-          withdrawals: {
-            total: formatCurrency(totalWithdraws),
-            totalRaw: totalWithdraws,
-            count: withdrawCount
-          },
-          deposits: {
-            total: formatCurrency(totalDeposits),
-            totalRaw: totalDeposits,
-            count: depositCount
-          },
-          realizedBenefits: {
-            total: formatCurrency(totalBenefits),
-            totalRaw: totalBenefits,
-            count: realizedBenefitsCount
-          },
-          inventoryValue: {
-            total: formatCurrency(totalStockValue),
-            totalRaw: totalStockValue,
-            count: existingStocksCount
-          },
-          pays: {
-            total: formatCurrency(totalPays),
-            totalRaw: totalPays,
-            count: paysCount
-          },
-          expenses: {
-            total: formatCurrency(totalExpenses),
-            totalRaw: totalExpenses,
-            count: expensesCount
-          },
-          salesRevenue: {
-            total: formatCurrency(totalSales),
-            totalRaw: totalSales,
-            count: sellsCount
-          },
-          salesReceipt: {
-            total: formatCurrency(totalReceipt),
-            totalRaw: totalReceipt
-          },
-          salesRemaind: {
-            total: formatCurrency(totalRemaind),
-            totalRaw: totalRemaind
-          },
+          withdrawals: { total:  (totalWithdraws), totalRaw: totalWithdraws, count: withdrawCount },
+          deposits: { total:  (totalDeposits), totalRaw: totalDeposits, count: depositCount },
+          realizedBenefits: { total:  (totalBenefits), totalRaw: totalBenefits, count: realizedBenefitsCount },
+          inventoryValue: { total:  (totalStockValue), totalRaw: totalStockValue, count: existingStocksCount },
+          pays: { total:  (totalPays), totalRaw: totalPays, count: paysCount },
+          expenses: { total:  (totalExpenses), totalRaw: totalExpenses, count: expensesCount },
+          salesRevenue: { total:  (totalSales), totalRaw: totalSales, count: sellsCount },
+          salesReceipt: { total:  (totalReceipt), totalRaw: totalReceipt },
+          salesRemaind: { total:  (totalRemaind), totalRaw: totalRemaind },
           staffSalaries: {
-            total: formatCurrency(totalAttendanceAmount),
-            totalRaw: totalAttendanceAmount,
-            count: attendanceCount,
-            salaryPaid: formatCurrency(totalAttendanceReceipt),
-            salaryPaidRaw: totalAttendanceReceipt,
-            salaryRemaind: formatCurrency(totalAttendanceRemaind),
-            salaryRemaindRaw: totalAttendanceRemaind
+            total:  (totalAttendanceAmount), totalRaw: totalAttendanceAmount, count: attendanceCount,
+            salaryPaid:  (totalAttendanceReceipt), salaryPaidRaw: totalAttendanceReceipt,
+            salaryRemaind:  (totalAttendanceRemaind), salaryRemaindRaw: totalAttendanceRemaind
           },
-          totalIncoming: {
-            total: formatCurrency(totalIncoming),
-            totalRaw: totalIncoming
+          debts: {
+            total:  (totalDebtAmount), totalRaw: totalDebtAmount, count: debtsCount,
+            totalPaid:  (totalDebtPaid), totalPaidRaw: totalDebtPaid,
+            totalRemaining:  (totalDebtRemaining), totalRemainingRaw: totalDebtRemaining
           },
-          totalOutgoing: {
-            total: formatCurrency(totalOutgoing),
-            totalRaw: totalOutgoing
+          debtPayments: {
+            total:  (totalDebtPayments), totalRaw: totalDebtPayments, count: debtPaymentsCount
           },
-          netCashFlow: {
-            total: formatCurrency(netCashFlow),
-            totalRaw: netCashFlow
-          },
-          grandTotal: {
-            total: formatCurrency(grandTotal),
-            totalRaw: grandTotal
-          }
+          totalIncoming: { total:  (totalIncoming), totalRaw: totalIncoming },
+          totalOutgoing: { total:  (totalOutgoing), totalRaw: totalOutgoing },
+          netCashFlow: { total:  (netCashFlow), totalRaw: netCashFlow },
+          grandTotal: { total:  (grandTotal), totalRaw: grandTotal }
         },
         details: {
-          withdrawals: withdraws.map(w => ({
-            id: w.id,
-            amount: parseFloat(w.amount) || 0,
-            amountFormatted: formatCurrency(parseFloat(w.amount) || 0),
-            createdAt: w.createdAt
-          })),
-          deposits: deposits.map(d => ({
-            id: d.id,
-            amount: parseFloat(d.amount) || 0,
-            amountFormatted: formatCurrency(parseFloat(d.amount) || 0),
-            createdAt: d.createdAt
-          })),
-          realizedBenefits: realizedBenefits.map(b => ({
-            id: b.id,
-            amount: parseFloat(b.amount) || 0,
-            amountFormatted: formatCurrency(parseFloat(b.amount) || 0),
-            sellId: b.sellId,
-            createdAt: b.createdAt
-          })),
-          existingStocks: existingStocks.map(s => ({
-            id: s.id,
-            name: s.name,
-            amount: parseFloat(s.amount) || 0,
-            unit_price: parseFloat(s.unit_price) || 0,
-            total_value: formatCurrency((parseFloat(s.amount) || 0) * (parseFloat(s.unit_price) || 0)),
-            total_value_raw: (parseFloat(s.amount) || 0) * (parseFloat(s.unit_price) || 0)
-          })),
-          pays: pays.map(p => ({
+          withdrawals: withdraws.map(w => ({ id: w.id, amount: parseFloat(w.amount) || 0, amountFormatted:  (parseFloat(w.amount) || 0), createdAt: w.createdAt })),
+          deposits: deposits.map(d => ({ id: d.id, amount: parseFloat(d.amount) || 0, amountFormatted:  (parseFloat(d.amount) || 0), createdAt: d.createdAt })),
+          realizedBenefits: realizedBenefits.map(b => ({ id: b.id, amount: parseFloat(b.amount) || 0, amountFormatted:  (parseFloat(b.amount) || 0), sellId: b.sellId, createdAt: b.createdAt })),
+          existingStocks: existingStocks.map(s => ({ id: s.id, name: s.name, amount: parseFloat(s.amount) || 0, unit_price: parseFloat(s.unit_price) || 0, total_value:  ((parseFloat(s.amount) || 0) * (parseFloat(s.unit_price) || 0)), total_value_raw: (parseFloat(s.amount) || 0) * (parseFloat(s.unit_price) || 0) })),
+          pays: pays.map(p => ({ id: p.id, amount: parseFloat(p.amount) || 0, amountFormatted:  (parseFloat(p.amount) || 0), sellerName: p.paySeller?.fullname || "Unknown", description: p.description, createdAt: p.createdAt })),
+          expenses: expenses.map(e => ({ id: e.id, amount: parseFloat(e.amount) || 0, amountFormatted:  (parseFloat(e.amount) || 0), purpose: e.purpose, by: e.by, description: e.description, createdAt: e.createdAt })),
+          sells: sells.map(s => ({ id: s.id, amount: parseFloat(s.amount) || 0, total: parseFloat(s.total) || 0, totalFormatted:  (parseFloat(s.total) || 0), receipt: parseFloat(s.receipt) || 0, receiptFormatted:  (parseFloat(s.receipt) || 0), remaind: parseFloat(s.remaind) || 0, remaindFormatted:  (parseFloat(s.remaind) || 0), productName: s.sellStockExist?.name || "Unknown", billNumber: s.sellBill?.billNumber || "N/A", createdAt: s.createdAt })),
+          attendances: attendances.map(a => ({ id: a.id, staffId: a.staffId, staffName: a.attendanceStaff?.name || "Unknown", staffFatherName: a.attendanceStaff?.fatherName || "", attendance: a.attendance, salary: parseFloat(a.salary) || 0, salaryFormatted:  (parseFloat(a.salary) || 0), overtime: parseFloat(a.overtime) || 0, overtimeFormatted:  (parseFloat(a.overtime) || 0), total: parseFloat(a.total) || 0, totalFormatted:  (parseFloat(a.total) || 0), receipt: parseFloat(a.receipt) || 0, receiptFormatted:  (parseFloat(a.receipt) || 0), remaind: (parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0), remaindFormatted:  ((parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0)), calculated: a.calculated, createdAt: a.createdAt })),
+          // NEW: Debts list (with payments nested)
+          debts: debts.map(debt => {
+            const debtPaid = parseFloat(debt.amount) - parseFloat(debt.remainingAmount);
+            return {
+              id: debt.id,
+              debtor: getDebtorName(debt),
+              purpose: debt.purpose,
+              amount: parseFloat(debt.amount),
+              amountFormatted:  (parseFloat(debt.amount)),
+              paid: debtPaid,
+              paidFormatted:  (debtPaid),
+              remaining: parseFloat(debt.remainingAmount),
+              remainingFormatted:  (parseFloat(debt.remainingAmount)),
+              isActive: debt.isActive,
+              createdAt: debt.createdAt,
+              payments: debt.debtPayments.map(p => ({
+                id: p.id,
+                amount: parseFloat(p.amount),
+                amountFormatted:  (parseFloat(p.amount)),
+                paymentDate: p.paymentDate,
+                description: p.description,
+                department: p.paymentDepartment?.name || null
+              }))
+            };
+          }),
+          // NEW: Debt payments list (flat, for reporting)
+          debtPayments: debtPayments.map(p => ({
             id: p.id,
-            amount: parseFloat(p.amount) || 0,
-            amountFormatted: formatCurrency(parseFloat(p.amount) || 0),
-            sellerName: p.paySeller?.fullname || "Unknown",
+            debtId: p.debtId,
+            debtor: p.paymentDebt?.debtStaff?.name || p.paymentDebt?.debtNonStaff?.name || "Unknown",
+            debtPurpose: p.paymentDebt?.purpose || "-",
+            amount: parseFloat(p.amount),
+            amountFormatted:  (parseFloat(p.amount)),
+            paymentDate: p.paymentDate,
             description: p.description,
+            department: p.paymentDepartment?.name || "-",
             createdAt: p.createdAt
-          })),
-          expenses: expenses.map(e => ({
-            id: e.id,
-            amount: parseFloat(e.amount) || 0,
-            amountFormatted: formatCurrency(parseFloat(e.amount) || 0),
-            purpose: e.purpose,
-            by: e.by,
-            description: e.description,
-            createdAt: e.createdAt
-          })),
-          sells: sells.map(s => ({
-            id: s.id,
-            amount: parseFloat(s.amount) || 0,
-            total: parseFloat(s.total) || 0,
-            totalFormatted: formatCurrency(parseFloat(s.total) || 0),
-            receipt: parseFloat(s.receipt) || 0,
-            receiptFormatted: formatCurrency(parseFloat(s.receipt) || 0),
-            remaind: parseFloat(s.remaind) || 0,
-            remaindFormatted: formatCurrency(parseFloat(s.remaind) || 0),
-            productName: s.sellStockExist?.name || "Unknown",
-            billNumber: s.sellBill?.billNumber || "N/A",
-            createdAt: s.createdAt
-          })),
-          attendances: attendances.map(a => ({
-            id: a.id,
-            staffId: a.staffId,
-            staffName: a.attendanceStaff?.name || "Unknown",
-            staffFatherName: a.attendanceStaff?.fatherName || "",
-            attendance: a.attendance,
-            salary: parseFloat(a.salary) || 0,
-            salaryFormatted: formatCurrency(parseFloat(a.salary) || 0),
-            overtime: parseFloat(a.overtime) || 0,
-            overtimeFormatted: formatCurrency(parseFloat(a.overtime) || 0),
-            total: parseFloat(a.total) || 0,
-            totalFormatted: formatCurrency(parseFloat(a.total) || 0),
-            receipt: parseFloat(a.receipt) || 0,
-            receiptFormatted: formatCurrency(parseFloat(a.receipt) || 0),
-            remaind: (parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0),
-            remaindFormatted: formatCurrency((parseFloat(a.total) || 0) - (parseFloat(a.receipt) || 0)),
-            calculated: a.calculated,
-            createdAt: a.createdAt
           }))
         }
       }
@@ -869,7 +799,7 @@ export const getDepartmentDetails = async (req, res) => {
   }
 };
 
-// Helper function to parse JSON arrays
+// Helper function to parse JSON arrays (unchanged)
 function parseJSONArray(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value;

@@ -201,7 +201,7 @@ const StaffAndNonStaffTabs = () => {
             )}
             {activeTab === "salary" && (
               <div className="animate-fadeIn">
-                <DebtManager/>
+                <SalaryManagement/>
               </div>
             )}
             {activeTab === "nonstaff" && (

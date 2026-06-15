@@ -4,6 +4,7 @@ import PaymentForm from "./PaymentForm";
 import { LuPlus, LuTrash2, LuCreditCard, LuDollarSign, LuX, LuHistory } from "react-icons/lu";
 import PaymentHistoryModal from './PaymentHistoryModal';
 import PaymentsManager from "../pages/finance/PaymentsManager"; // adjust path as needed
+import DebtReport from "../pages/report/DebtReport";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -393,6 +394,7 @@ const DebtManager = () => {
           {!loading && (
             <div className="bg-white rounded-xl shadow-md overflow-hidden">
               <div className="overflow-x-auto">
+                <DebtReport/>
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
