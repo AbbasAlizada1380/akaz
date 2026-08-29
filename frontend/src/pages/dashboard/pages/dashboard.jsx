@@ -1,6 +1,7 @@
 import React from "react";
 import Stakeholderpage from "./stakeholderpage";
 import CombinedReport from "./report/CombinedReport";
+import DatabaseSync from "./DatabaseSync"
 
 const Dashboard = () => {
   return (
@@ -13,6 +14,7 @@ const Dashboard = () => {
       {/* Render the FinancialReports component */}
       <div className="mt-6">
         <CombinedReport/>
+        <DatabaseSync/>
         <Stakeholderpage />
         {/* <AnalyticsDashboard /> */}
       </div>
