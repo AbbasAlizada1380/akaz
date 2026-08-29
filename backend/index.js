@@ -25,6 +25,7 @@ import BenifitRoute from "./Routes/Finance/BenifitRotute.js";
 import debtRouter from "./Routes/Debt/debtRouter.js";
 import paymentRouter from "./Routes/Debt/paymentRouter.js";
 import nonstaffRouter from "./Routes/Debt/nonstaffRouter.js";
+import databaseRoute from "./Routes/databaseRoute.js";
 const FRONT_URL = process.env.FRONT_URL
 const port = 8038;
 const app = express();
@@ -87,6 +88,7 @@ app.use("/Bill", BillRouter);
 app.use("/Factor", FactorRouter);
 app.use("/benifit", BenifitRoute);
 
+app.use("/database", databaseRoute);
 //debt
 app.use("/debts", debtRouter);
 app.use("/payment", paymentRouter);
@@ -94,7 +96,7 @@ app.use("/nonstaff", nonstaffRouter);
 
 // Sync database and start server
 sequelize
-  .sync({ alter: true })
+  .sync({ alter: false })
   .then(() => {
     app.listen(port, () => {
       console.log(`✅ Server is running on port ${port}`);

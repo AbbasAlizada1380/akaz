@@ -13,7 +13,7 @@ import DepartmentTransaction from './Finance/DepartmentTransaction.js';
 import Bill from './Finance/Bill.js';
 import Factor from './Finance/Factor.js';
 import Benefit from './Benefit.js';
-import User from './User.js';
+import User from './user.js';
 import Expense from './Expense.js';
 import Staff from './Staff/staff.js';
 import Attendance from './Staff/Attendence.js';
@@ -52,11 +52,21 @@ const models = {
 ================================ */
 
 // ---------- StockIncome ----------
-StockIncome.associate = (models) => {
-  StockIncome.belongsTo(models.Department, { foreignKey: "departmentId", as: "stockIncomeDepartment" });
-  StockIncome.belongsTo(models.Seller, { foreignKey: "sellerId", as: "stockIncomeSeller" });
-  StockIncome.belongsTo(models.StockExist, { foreignKey: "existId", as: "stockIncomeStockExist" });
-};
+StockIncome.belongsTo(models.Department, {
+  foreignKey: "departmentId",
+  as: "stockIncomeDepartment",
+  constraints: false           // ← add this
+});
+StockIncome.belongsTo(models.Seller, {
+  foreignKey: "sellerId",
+  as: "stockIncomeSeller",
+  constraints: false
+});
+StockIncome.belongsTo(models.StockExist, {
+  foreignKey: "existId",
+  as: "stockIncomeStockExist",
+  constraints: false
+});
 
 // ---------- Expense ----------
 Expense.associate = (models) => {
@@ -156,8 +166,10 @@ Factor.associate = (models) => {
 
 // ---------- Benefit ----------
 Benefit.associate = (models) => {
-  Benefit.belongsTo(models.Sells, { foreignKey: "sellId", as: "benefitSell" });
-  Benefit.belongsTo(models.Department, { foreignKey: "departmentId", as: "benefitDepartment" });
+  Benefit.belongsTo(models.Sells, { foreignKey: "sellId", as: "benefitSell" });Benefit.belongsTo(models.Department, {
+  foreignKey: "departmentId",
+  as: "department"   // change from 'benefitDepartment' to 'department'
+});
 };
 
 // ---------- Attendance ----------

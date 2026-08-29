@@ -1,4 +1,4 @@
-import { NonStaff, Debt } from "../../models/index.js";
+import { NonStaff, Debt } from "../../Models/index.js";
 import { Op } from "sequelize";
 
 // Create a new non‑staff debtor

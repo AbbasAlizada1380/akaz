@@ -1,4 +1,4 @@
-import { Payment, Debt, Staff, NonStaff, Department } from "../../models/index.js";
+import { Payment, Debt, Staff, NonStaff, Department } from "../../Models/index.js";
 import { Op } from "sequelize";
 
 // Create a new payment for a debt
