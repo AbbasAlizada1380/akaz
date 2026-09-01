@@ -40,7 +40,7 @@ const Staff = sequelize.define(
     },
     overTimePerHour: {
       type: DataTypes.DECIMAL(10, 2),
-      allowNull: false,
+      allowNull: true,
       validate: {
         min: 0,
       },
@@ -48,13 +48,14 @@ const Staff = sequelize.define(
     },
     workingDaysPerWeek: {
       type: DataTypes.INTEGER,
-      allowNull: false,
-      validate: {
-        min: 1,
-        max: 7,
-      },
-      comment: "Number of working days per week",
+      allowNull: true,
+      comment: "Number of working days per month",
     },
+    isActive:{
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      comment: "indicating if the staff is currently working or is fired",
+    }
   },
   {
     timestamps: true,

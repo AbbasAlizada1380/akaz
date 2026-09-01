@@ -12,6 +12,7 @@ const Factor = sequelize.define(
     dep_Number: {
       type: DataTypes.INTEGER,
       allowNull: true,
+      index:true,
     },
     sellerId: {
       type: DataTypes.INTEGER,
@@ -46,6 +47,11 @@ const Factor = sequelize.define(
       type: DataTypes.JSON,
       allowNull: false,
       defaultValue: [],
+    },
+    mode: {
+      type: DataTypes.ENUM("stock", "pending"),
+      defaultValue: "stock",
+      allowNull: false,
     },
   },
   {

@@ -55,7 +55,7 @@ const models = {
 StockIncome.belongsTo(models.Department, {
   foreignKey: "departmentId",
   as: "stockIncomeDepartment",
-  constraints: false           // ← add this
+  constraints: false
 });
 StockIncome.belongsTo(models.Seller, {
   foreignKey: "sellerId",
@@ -83,10 +83,10 @@ Department.associate = (models) => {
   Department.hasMany(models.Sells, { foreignKey: "departmentId", as: "departmentSells" });
   Department.hasMany(models.Staff, { foreignKey: "departmentId", as: "departmentStaffs" });
   Department.hasMany(models.Attendance, { foreignKey: "departmentId", as: "departmentAttendances" });
-  // New: Department can have many Debts
   Department.hasMany(models.Debt, { foreignKey: "departmentId", as: "departmentDebts" });
-  // New: Department can have many Payments (denormalized)
   Department.hasMany(models.Payment, { foreignKey: "departmentId", as: "departmentPayments" });
+  Department.hasMany(models.Pay, { foreignKey: "departmentId", as: "departmentPays" });  
+  Department.hasMany(models.Factor, { foreignKey: "dep_Number", as: "departmentFactors" });
 };
 
 // ---------- Seller ----------
@@ -100,6 +100,9 @@ Seller.associate = (models) => {
 // ---------- Receive ----------
 Receive.associate = (models) => {
   Receive.belongsTo(models.Customer, { foreignKey: "customer", as: "receiveCustomer" });
+  Receive.belongsTo(models.Bill, { foreignKey: "billId", as: "receiveBill" });
+  Receive.belongsTo(models.Sells, { foreignKey: "sellId", as: "receiveSell" });
+  Receive.belongsTo(models.Department, { foreignKey: "departmentId", as: "receiveDepartment" });
 };
 
 // ---------- Customer ----------
@@ -123,6 +126,8 @@ SellerAccount.associate = (models) => {
 Bill.associate = (models) => {
   Bill.belongsTo(models.Customer, { foreignKey: "customerId", as: "billCustomer" });
   Bill.hasMany(models.Sells, { foreignKey: "billId", as: "billSells" });
+  Bill.hasMany(models.Receive, { foreignKey: "billId", as: "billReceives" });
+
 };
 
 // ---------- Sells ----------
@@ -143,6 +148,8 @@ StockExist.associate = (models) => {
 // ---------- Pay ----------
 Pay.associate = (models) => {
   Pay.belongsTo(models.Seller, { foreignKey: "seller", as: "paySeller" });
+  // ✅ Add Department association
+  Pay.belongsTo(models.Department, { foreignKey: "departmentId", as: "payDepartment" });
 };
 
 // ---------- Staff ----------
@@ -162,14 +169,16 @@ DepartmentTransaction.associate = (models) => {
 // ---------- Factor ----------
 Factor.associate = (models) => {
   Factor.belongsTo(models.Seller, { foreignKey: "sellerId", as: "factorSeller" });
+  Factor.belongsTo(models.Department, { foreignKey: "dep_Number", as: "factorDepartment" });
 };
 
 // ---------- Benefit ----------
 Benefit.associate = (models) => {
-  Benefit.belongsTo(models.Sells, { foreignKey: "sellId", as: "benefitSell" });Benefit.belongsTo(models.Department, {
-  foreignKey: "departmentId",
-  as: "department"   // change from 'benefitDepartment' to 'department'
-});
+  Benefit.belongsTo(models.Sells, { foreignKey: "sellId", as: "benefitSell" });
+  Benefit.belongsTo(models.Department, {
+    foreignKey: "departmentId",
+    as: "department"
+  });
 };
 
 // ---------- Attendance ----------
