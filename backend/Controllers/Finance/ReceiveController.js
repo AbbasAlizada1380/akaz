@@ -73,9 +73,6 @@ export const getReceiveById = async (req, res) => {
 /**
  * When a sell becomes fully paid, move its associated Benefit ID
  * from Department.benifit (pending) to Department.realizedBenefit (realized).
- * 
- * @param {number[]} sellIds - Array of Sells.id that just became fully paid
- * @param {Transaction} transaction - Sequelize transaction
  */
 const updateDepartmentBenefitsOnFullPayment = async (sellIds, transaction) => {
   const benefits = await Benefit.findAll({
@@ -129,41 +126,44 @@ const updateDepartmentBenefitsOnFullPayment = async (sellIds, transaction) => {
 export const createReceive = async (req, res) => {
   const { customer, date, description, ...deptAmounts } = req.body;
 
-  // Basic validation
+  // --- Validation ---
   if (!customer) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       success: false,
-      message: 'مشتری الزامی است' 
+      message: 'مشتری الزامی است'
     });
   }
 
   const deptKeys = Object.keys(deptAmounts).filter(k => k.startsWith('department'));
   let totalPayment = 0;
+  const deptPayments = {};
 
   if (deptKeys.length > 0) {
     for (const key of deptKeys) {
+      const deptId = parseInt(key.replace('department', ''));
       const val = parseFloat(deptAmounts[key]);
       if (isNaN(val) || val < 0) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           success: false,
-          message: `مبلغ نامعتبر برای ${key}` 
+          message: `مبلغ نامعتبر برای ${key}`
         });
       }
+      deptPayments[deptId] = val;
       totalPayment += val;
     }
   } else {
     const { amount } = req.body;
     if (!amount) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'مبلغ الزامی است' 
+        message: 'مبلغ الزامی است'
       });
     }
     totalPayment = parseFloat(amount);
     if (isNaN(totalPayment) || totalPayment < 0) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'مبلغ نامعتبر است' 
+        message: 'مبلغ نامعتبر است'
       });
     }
   }
@@ -171,25 +171,17 @@ export const createReceive = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
+    // --- Customer exists ---
     const customerExists = await Customer.findByPk(customer, { transaction });
     if (!customerExists) {
       await transaction.rollback();
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: 'مشتری مشخص‌شده وجود ندارد' 
+        message: 'مشتری مشخص‌شده وجود ندارد'
       });
     }
 
-    const newReceive = await Receive.create(
-      {
-        customer,
-        amount: totalPayment,
-        date: date || new Date(),
-        description: description || null,
-      },
-      { transaction }
-    );
-
+    // --- Get or create CustomerAccount ---
     let customerAccount = await CustomerAccount.findOne({
       where: { customerId: customer },
       transaction,
@@ -197,41 +189,89 @@ export const createReceive = async (req, res) => {
     });
 
     if (!customerAccount) {
+      // No account – just create receives and return
+      const createdReceives = [];
+      if (deptKeys.length > 0) {
+        for (const [deptId, amount] of Object.entries(deptPayments)) {
+          if (amount > 0) {
+            const rec = await Receive.create({
+              customer,
+              amount,
+              date: date || new Date(),
+              description: description || `پرداخت برای دپارتمان ${deptId}`,
+              departmentId: parseInt(deptId, 10),
+              billId: null,
+              sellId: null,
+            }, { transaction });
+            createdReceives.push(rec);
+          }
+        }
+      } else {
+        const rec = await Receive.create({
+          customer,
+          amount: totalPayment,
+          date: date || new Date(),
+          description: description || 'پرداخت',
+          departmentId: null,
+          billId: null,
+          sellId: null,
+        }, { transaction });
+        createdReceives.push(rec);
+      }
+
       await transaction.commit();
-      const createdReceive = await Receive.findByPk(newReceive.id, {
-        include: [{ 
-          model: Customer, 
-          as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
-          attributes: ['id', 'fullname', 'phoneNumber'] 
-        }],
-      });
       return res.status(201).json({
         success: true,
         message: "دریافت با موفقیت ایجاد شد",
-        data: createdReceive
+        data: createdReceives.map(r => r.toJSON())
       });
     }
 
+    // --- Parse unpaid structure ---
     let unpaidByDept = customerAccount.unpaid;
     if (typeof unpaidByDept === 'string') unpaidByDept = JSON.parse(unpaidByDept);
     if (!unpaidByDept || typeof unpaidByDept !== 'object') unpaidByDept = {};
 
+    // No debt – create receives and return
     if (Object.keys(unpaidByDept).length === 0) {
+      const createdReceives = [];
+      if (deptKeys.length > 0) {
+        for (const [deptId, amount] of Object.entries(deptPayments)) {
+          if (amount > 0) {
+            const rec = await Receive.create({
+              customer,
+              amount,
+              date: date || new Date(),
+              description: description || `پرداخت برای دپارتمان ${deptId}`,
+              departmentId: parseInt(deptId, 10),
+              billId: null,
+              sellId: null,
+            }, { transaction });
+            createdReceives.push(rec);
+          }
+        }
+      } else {
+        const rec = await Receive.create({
+          customer,
+          amount: totalPayment,
+          date: date || new Date(),
+          description: description || 'پرداخت',
+          departmentId: null,
+          billId: null,
+          sellId: null,
+        }, { transaction });
+        createdReceives.push(rec);
+      }
+
       await transaction.commit();
-      const createdReceive = await Receive.findByPk(newReceive.id, {
-        include: [{ 
-          model: Customer, 
-          as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
-          attributes: ['id', 'fullname', 'phoneNumber'] 
-        }],
-      });
       return res.status(201).json({
         success: true,
         message: "دریافت با موفقیت ایجاد شد",
-        data: createdReceive
+        data: createdReceives.map(r => r.toJSON())
       });
     }
 
+    // --- Helper to fetch sells ---
     const fetchSells = async (ids) => {
       return await Sells.findAll({
         where: { id: ids },
@@ -245,18 +285,18 @@ export const createReceive = async (req, res) => {
     const remainingUnpaidByDept = JSON.parse(JSON.stringify(unpaidByDept));
     const affectedSellIds = [];
 
+    // --- Payment allocation ---
     if (deptKeys.length > 0) {
-      for (const deptKey of deptKeys) {
-        const deptId = parseInt(deptKey.replace('department', ''));
-        const paymentForDept = parseFloat(deptAmounts[deptKey]);
+      for (const deptId of Object.keys(deptPayments)) {
+        const paymentForDept = deptPayments[deptId];
         if (paymentForDept === 0) continue;
 
         const unpaidIdsInDept = unpaidByDept[deptId] || [];
         if (unpaidIdsInDept.length === 0) {
           await transaction.rollback();
-          return res.status(400).json({ 
+          return res.status(400).json({
             success: false,
-            message: `بدهی برای دپارتمان ${deptId} وجود ندارد` 
+            message: `بدهی برای دپارتمان ${deptId} وجود ندارد`
           });
         }
 
@@ -297,6 +337,7 @@ export const createReceive = async (req, res) => {
         }
       }
     } else {
+      // Global fallback
       const allUnpaidIds = Object.values(unpaidByDept).flat();
       const allSells = await fetchSells(allUnpaidIds);
       const totalOwed = allSells.reduce((sum, s) => sum + parseFloat(s.remaind), 0);
@@ -346,7 +387,39 @@ export const createReceive = async (req, res) => {
       }
     }
 
-    // 6. Update CustomerAccount paid/unpaid structures
+    // --- Create Receive records (one per department) ---
+    const createdReceives = [];
+    if (deptKeys.length > 0) {
+      for (const [deptId, amount] of Object.entries(deptPayments)) {
+        if (amount > 0) {
+          const rec = await Receive.create({
+            customer,
+            amount,
+            date: date || new Date(),
+            description: description || `پرداخت برای دپارتمان ${deptId}`,
+            departmentId: parseInt(deptId, 10),
+            billId: null,
+            sellId: null,
+          }, { transaction });
+          createdReceives.push(rec);
+        }
+      }
+    } else {
+      const rec = await Receive.create({
+        customer,
+        amount: totalPayment,
+        date: date || new Date(),
+        description: description || 'پرداخت',
+        departmentId: null,
+        billId: null,
+        sellId: null,
+      }, { transaction });
+      createdReceives.push(rec);
+    }
+
+    const receiveIds = createdReceives.map(r => r.id);
+
+    // --- Update CustomerAccount ---
     let currentPaidByDept = customerAccount.paid;
     if (typeof currentPaidByDept === 'string') currentPaidByDept = JSON.parse(currentPaidByDept);
     if (!currentPaidByDept || typeof currentPaidByDept !== 'object') currentPaidByDept = {};
@@ -360,7 +433,7 @@ export const createReceive = async (req, res) => {
     let receiveArray = customerAccount.receive;
     if (typeof receiveArray === 'string') receiveArray = JSON.parse(receiveArray);
     if (!Array.isArray(receiveArray)) receiveArray = [];
-    receiveArray.push(newReceive.id);
+    receiveArray.push(...receiveIds);
 
     await customerAccount.update(
       {
@@ -371,7 +444,7 @@ export const createReceive = async (req, res) => {
       { transaction }
     );
 
-    // 7. Update Bills
+    // --- Update Bills ---
     if (affectedSellIds.length > 0) {
       const affectedSells = await Sells.findAll({
         where: { id: affectedSellIds },
@@ -410,36 +483,45 @@ export const createReceive = async (req, res) => {
       }
     }
 
-    // ========== ADDED: Realize benefits for fully paid sells ==========
+    // --- Realize benefits ---
     const allFullyPaidSellIds = Object.values(fullyPaidByDept).flat();
     if (allFullyPaidSellIds.length > 0) {
       await updateDepartmentBenefitsOnFullPayment(allFullyPaidSellIds, transaction);
     }
-    // =================================================================
 
+    // --- Commit transaction ---
     await transaction.commit();
 
-    const createdReceive = await Receive.findByPk(newReceive.id, {
-      include: [{ 
-        model: Customer, 
-        as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
-        attributes: ['id', 'fullname', 'phoneNumber'] 
+    // --- Fetch created receives for response ---
+    const receivesWithCustomer = await Receive.findAll({
+      where: { id: receiveIds },
+      include: [{
+        model: Customer,
+        as: 'receiveCustomer',
+        attributes: ['id', 'fullname', 'phoneNumber']
       }],
     });
-    
+
     res.status(201).json({
       success: true,
       message: "دریافت با موفقیت ایجاد شد",
-      data: createdReceive
+      data: receivesWithCustomer
     });
 
   } catch (error) {
-    await transaction.rollback();
+    // Only rollback if transaction is still active (i.e., not committed)
+    // Sequelize doesn't expose a "finished" flag, so we catch and rollback
+    // If it's already committed, rollback throws, but we ignore that.
+    try {
+      await transaction.rollback();
+    } catch (rollbackError) {
+      // Ignore if rollback fails (already committed)
+    }
     console.error('خطا در ایجاد دریافت:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'خطای سرور', 
-      error: error.message 
+      message: 'خطای سرور',
+      error: error.message
     });
   }
 };

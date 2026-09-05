@@ -1,12 +1,11 @@
-import { Pay, SellerAccount, sequelize, Factor } from "../../Models/index.js";
-import { Seller } from "../../Models/index.js";
+import { Pay, SellerAccount, sequelize, Factor, Seller, Department } from "../../Models/index.js";
 import { Op } from "sequelize";
 
 export const createPay = async (req, res) => {
   const transaction = await sequelize.transaction();
 
   try {
-    const { seller, amount, description } = req.body;
+    const { seller, amount, description, departmentId } = req.body;
 
     // Validate input
     if (!seller) {
@@ -25,10 +24,11 @@ export const createPay = async (req, res) => {
       });
     }
 
-    // 1. Create the pay record (initial, will be updated with factor info later if needed)
+    // 1. Create the pay record
     const pay = await Pay.create(
       {
         seller,
+        departmentId: departmentId || null,
         amount,
         description: description || `Payment of ${amount} for seller #${seller}`,
       },
@@ -42,7 +42,6 @@ export const createPay = async (req, res) => {
     });
 
     if (!sellerAccount) {
-      // No account at all: just create with empty arrays and commit
       sellerAccount = await SellerAccount.create(
         {
           sellerId: seller,
@@ -60,9 +59,9 @@ export const createPay = async (req, res) => {
       });
     }
 
-    // 3. Get unpaid factor IDs and sort them (oldest first: by id or createdAt)
-    let unpaidFactorIds = Array.isArray(sellerAccount.unpaid) ? [...sellerAccount.unpaid] : [];
-    if (unpaidFactorIds.length === 0) {
+    // 3. Get all unpaid factor IDs from seller account
+    let allUnpaidFactorIds = Array.isArray(sellerAccount.unpaid) ? [...sellerAccount.unpaid] : [];
+    if (allUnpaidFactorIds.length === 0) {
       await transaction.commit();
       return res.status(201).json({
         success: true,
@@ -71,46 +70,48 @@ export const createPay = async (req, res) => {
       });
     }
 
-    // Fetch unpaid factors ordered by id (ascending = oldest first)
-    const unpaidFactors = await Factor.findAll({
-      where: {
-        id: unpaidFactorIds,
-        sellerId: seller,
-        remainingAmount: { [Op.gt]: 0 }, // only those with remaining balance
-      },
-      order: [['id', 'ASC']], // oldest factor first
+    // 4. Build filter for factors to process
+    const whereCondition = {
+      id: allUnpaidFactorIds,
+      sellerId: seller,
+      remainingAmount: { [Op.gt]: 0 },
+    };
+    if (departmentId) {
+      whereCondition.dep_Number = departmentId; // only factors of this department
+    }
+
+    // Fetch factors to process (those matching filter)
+    const factorsToProcess = await Factor.findAll({
+      where: whereCondition,
+      order: [['id', 'ASC']],
       transaction,
     });
 
-    if (unpaidFactors.length === 0) {
-      // All unpaid factors have zero remaining (inconsistent, fix by cleaning sellerAccount)
-      await sellerAccount.update({ unpaid: [], paid: [...(sellerAccount.paid || []), ...unpaidFactorIds] }, { transaction });
+    if (factorsToProcess.length === 0) {
+      // No matching factors, just record payment and keep unpaid list unchanged
       await transaction.commit();
       return res.status(201).json({
         success: true,
-        message: "Payment created but no factors with positive remaining (seller account cleaned)",
+        message: departmentId
+          ? "Payment created but no unpaid factors found for the specified department"
+          : "Payment created but no factors with positive remaining",
         data: { pay, sellerAccount },
       });
     }
 
+    // 5. Process payments against factors (oldest first)
     let remainingPayment = parseFloat(amount);
-    const processedFactorIds = [];      // fully paid
-    const remainingUnpaidFactorIds = []; // still unpaid (partial or untouched)
+    const fullyPaidIds = [];    // factors completely paid (will move to paid)
+    const partiallyPaidIds = []; // factors partially paid (stay in unpaid)
 
-    // 4. Process factors one by one (oldest first)
-    for (const factor of unpaidFactors) {
+    for (const factor of factorsToProcess) {
       if (remainingPayment <= 0) {
-        // No more money left, keep this factor as unpaid
-        remainingUnpaidFactorIds.push(factor.id);
-        continue;
+        // No more money, factor remains unpaid (not processed)
+        break; // since we process oldest first, we stop; other factors after this will stay unpaid
       }
 
       const factorRemaining = parseFloat(factor.remainingAmount) || 0;
-      if (factorRemaining <= 0) {
-        // Should not happen because of filter, but skip if zero
-        processedFactorIds.push(factor.id);
-        continue;
-      }
+      if (factorRemaining <= 0) continue; // should not happen but safe
 
       if (remainingPayment >= factorRemaining) {
         // Fully pay this factor
@@ -124,9 +125,9 @@ export const createPay = async (req, res) => {
           { transaction }
         );
         remainingPayment -= factorRemaining;
-        processedFactorIds.push(factor.id);
+        fullyPaidIds.push(factor.id);
       } else {
-        // Partial payment: reduce factor's remaining amount
+        // Partial payment
         const paymentUsed = remainingPayment;
         const newPaidAmount = (parseFloat(factor.paidAmount) || 0) + paymentUsed;
         const newRemaining = factorRemaining - paymentUsed;
@@ -135,77 +136,83 @@ export const createPay = async (req, res) => {
           {
             paidAmount: newPaidAmount,
             remainingAmount: newRemaining,
-            status: newRemaining === 0 ? "paid" : "partial", // partial -> remain >0
+            status: newRemaining === 0 ? "paid" : "partial",
           },
           { transaction }
         );
-        // This factor still has unpaid balance, keep it in unpaid array
-        remainingUnpaidFactorIds.push(factor.id);
+        partiallyPaidIds.push(factor.id);
         remainingPayment = 0;
       }
     }
 
-    // After the loop, any remaining unpaid factors that were not processed (e.g., due to filter)
-    // are already in remainingUnpaidFactorIds? Actually we added all unpaidFactors either fully paid or kept.
-    // Also need to add any factor IDs that existed in sellerAccount.unpaid but were not fetched because
-    // they had remainingAmount=0 (should be moved to paid)
-    const fetchedIds = unpaidFactors.map(f => f.id);
-    const zeroRemainingIds = unpaidFactorIds.filter(id => !fetchedIds.includes(id));
-    if (zeroRemainingIds.length > 0) {
-      processedFactorIds.push(...zeroRemainingIds);
-    }
+    // 6. Update seller account arrays
+    // Start with the original unpaid set and remove fully paid ones
+    const unpaidSet = new Set(allUnpaidFactorIds);
+    fullyPaidIds.forEach(id => unpaidSet.delete(id));
+    // Note: partially paid factors remain in unpaidSet because they are still unpaid
+    // Also any factors from other departments (if department filter was used) remain in the set
 
-    // 5. Update seller account arrays
+    // Convert set back to array for final unpaid list
+    const finalUnpaid = Array.from(unpaidSet);
+
+    // Update paid array: add fully paid factor IDs (avoid duplicates)
     const currentPaid = Array.isArray(sellerAccount.paid) ? [...sellerAccount.paid] : [];
-    const currentTotal = Array.isArray(sellerAccount.total) ? [...sellerAccount.total] : [];
-
-    // Add newly fully paid factors to paid array (avoid duplicates)
-    processedFactorIds.forEach(id => {
+    fullyPaidIds.forEach(id => {
       if (!currentPaid.includes(id)) currentPaid.push(id);
     });
 
-    // New unpaid array = partially paid factors + any untouched factors that we didn't reach
-    // (remainingUnpaidFactorIds already contains partially paid factors, and any factors we didn't touch because payment ran out)
-    // But we also need to include factors from unpaidFactors that were never processed (if payment exhausted earlier)
-    // Actually we added all unpaidFactors: either into processedFactorIds or remainingUnpaidFactorIds.
-    // So final unpaid = remainingUnpaidFactorIds.
-    const newUnpaid = remainingUnpaidFactorIds;
-
-    // Remove from paid if somehow appears in newUnpaid (should not happen)
-    const finalPaid = currentPaid.filter(id => !newUnpaid.includes(id));
-
     await sellerAccount.update(
       {
-        paid: finalPaid,
-        unpaid: newUnpaid,
-        // total remains unchanged
+        paid: currentPaid,
+        unpaid: finalUnpaid,
       },
       { transaction }
     );
 
     await transaction.commit();
 
-    // Fetch updated data for response
+    // 7. Fetch updated data for response
     const updatedSellerAccount = await SellerAccount.findOne({ where: { sellerId: seller } });
+    const affectedFactorIds = [...fullyPaidIds, ...partiallyPaidIds];
     const affectedFactors = await Factor.findAll({
-      where: { id: [...processedFactorIds, ...remainingUnpaidFactorIds] },
+      where: { id: affectedFactorIds },
+      include: [
+        {
+          model: Department,
+          as: 'factorDepartment',
+          attributes: ['id', 'name', 'holding']
+        }
+      ]
+    });
+
+    const createdPay = await Pay.findByPk(pay.id, {
+      include: [
+        {
+          model: Seller,
+          as: "paySeller",
+          attributes: ["id", "fullname", "phoneNumber"],
+        },
+        {
+          model: Department,
+          as: "payDepartment",
+          attributes: ["id", "name", "holding"],
+        },
+      ],
     });
 
     res.status(201).json({
       success: true,
       message: "Payment created and applied to unpaid factors successfully",
       data: {
-        pay,
+        pay: createdPay,
         sellerAccount: updatedSellerAccount,
         paymentDistribution: {
           totalAmount: parseFloat(amount),
           appliedAmount: parseFloat(amount) - remainingPayment,
           remainingAmount: remainingPayment,
-          fullyPaidFactorIds: processedFactorIds,
-          partiallyPaidFactorIds: remainingUnpaidFactorIds.filter(id =>
-            affectedFactors.find(f => f.id === id && parseFloat(f.remainingAmount) > 0)
-          ),
-          unpaidFactorIds: remainingUnpaidFactorIds,
+          fullyPaidFactorIds: fullyPaidIds,
+          partiallyPaidFactorIds: partiallyPaidIds,
+          unpaidFactorIds: finalUnpaid, // includes partially paid + untouched
         },
         affectedFactors,
       },
@@ -222,11 +229,11 @@ export const createPay = async (req, res) => {
 };
 
 // ==============================
-// Get All Pays (Pagination)
+// Get All Pays (Pagination) with Department
 // ==============================
 export const getAllPays = async (req, res) => {
   try {
-    const { page = 1, limit = 20, seller } = req.query;
+    const { page = 1, limit = 20, seller, departmentId } = req.query;
 
     const pageNumber = parseInt(page);
     const pageLimit = parseInt(limit);
@@ -234,14 +241,20 @@ export const getAllPays = async (req, res) => {
 
     const where = {};
     if (seller) where.seller = seller;
+    if (departmentId) where.departmentId = departmentId;
 
     const { rows, count } = await Pay.findAndCountAll({
       where,
       include: [
         {
           model: Seller,
-          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
+          as: "paySeller",
           attributes: ["id", "fullname", "phoneNumber"],
+        },
+        {
+          model: Department,
+          as: "payDepartment",
+          attributes: ["id", "name", "holding"],
         },
       ],
       distinct: true,
@@ -269,7 +282,7 @@ export const getAllPays = async (req, res) => {
 };
 
 // ==============================
-// Get Single Pay
+// Get Single Pay with Department
 // ==============================
 export const getSinglePay = async (req, res) => {
   try {
@@ -279,8 +292,13 @@ export const getSinglePay = async (req, res) => {
       include: [
         {
           model: Seller,
-          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
+          as: "paySeller",
           attributes: ["id", "fullname", "phoneNumber"],
+        },
+        {
+          model: Department,
+          as: "payDepartment",
+          attributes: ["id", "name", "holding"],
         },
       ],
     });
@@ -307,14 +325,14 @@ export const getSinglePay = async (req, res) => {
 };
 
 // ==============================
-// Update Pay
+// Update Pay (allow departmentId update)
 // ==============================
 export const updatePay = async (req, res) => {
   const transaction = await sequelize.transaction();
   
   try {
     const { id } = req.params;
-    const { seller, amount, description } = req.body;
+    const { seller, amount, description, departmentId } = req.body;
 
     const pay = await Pay.findByPk(id);
 
@@ -326,29 +344,26 @@ export const updatePay = async (req, res) => {
       });
     }
 
-    // If seller is being changed, we need to update seller account relationships
-    if (seller && seller !== pay.seller) {
-      // Remove payment from old seller's account logic would go here
-      // This is complex and depends on your business rules
-      // For now, we'll just update the payment
-      console.warn(`Payment ${id} seller changed from ${pay.seller} to ${seller}`);
-    }
-
     await pay.update({
       seller: seller || pay.seller,
+      departmentId: departmentId !== undefined ? departmentId : pay.departmentId,
       amount: amount || pay.amount,
       description: description || pay.description,
     }, { transaction });
 
     await transaction.commit();
 
-    // Fetch updated payment with seller info
     const updatedPay = await Pay.findByPk(id, {
       include: [
         {
           model: Seller,
-          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
+          as: "paySeller",
           attributes: ["id", "fullname", "phoneNumber"],
+        },
+        {
+          model: Department,
+          as: "payDepartment",
+          attributes: ["id", "name", "holding"],
         },
       ],
     });
@@ -388,18 +403,6 @@ export const deletePay = async (req, res) => {
       });
     }
 
-    // Remove payment reference from seller account if needed
-    const sellerAccount = await SellerAccount.findOne({
-      where: { sellerId: pay.seller },
-      transaction,
-    });
-
-    if (sellerAccount) {
-      // You might want to reverse the payment allocation to factors here
-      // This is complex and depends on your business rules
-      console.warn(`Payment ${id} deleted, but seller account ${sellerAccount.id} not updated automatically`);
-    }
-
     await pay.destroy({ transaction });
     await transaction.commit();
 
@@ -419,12 +422,11 @@ export const deletePay = async (req, res) => {
 };
 
 // ==============================
-// Get Pays by Date Range (with optional seller filter)
+// Get Pays by Date Range (with department filter)
 // ==============================
 export const getPaysByDateRange = async (req, res) => {
-  const { from, to, sellerId } = req.query;
+  const { from, to, sellerId, departmentId } = req.query;
 
-  // Validate required date parameters
   if (!from || !to) {
     return res.status(400).json({
       success: false,
@@ -433,42 +435,37 @@ export const getPaysByDateRange = async (req, res) => {
   }
 
   try {
-    // Convert to full day range
     const startDate = new Date(`${from}T00:00:00`);
     const endDate = new Date(`${to}T23:59:59`);
 
-    // Build where clause for Pay
     const whereClause = {
       createdAt: {
         [Op.between]: [startDate, endDate],
       },
     };
 
-    // Add seller filter if provided
-    if (sellerId) {
-      whereClause.seller = sellerId;
-    }
+    if (sellerId) whereClause.seller = sellerId;
+    if (departmentId) whereClause.departmentId = departmentId;
 
-    // Fetch pays with associated seller info
     const pays = await Pay.findAll({
       where: whereClause,
       include: [
         {
           model: Seller,
-          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
+          as: "paySeller",
           attributes: ["id", "fullname", "phoneNumber"],
+        },
+        {
+          model: Department,
+          as: "payDepartment",
+          attributes: ["id", "name", "holding"],
         },
       ],
       order: [["createdAt", "DESC"]],
     });
 
-    // Calculate total amount (sum of all pay amounts)
-    const totalAmount = pays.reduce(
-      (sum, p) => sum + parseFloat(p.amount || 0),
-      0
-    );
+    const totalAmount = pays.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
 
-    // Return response
     return res.status(200).json({
       success: true,
       message: "Pays fetched successfully",
@@ -480,6 +477,7 @@ export const getPaysByDateRange = async (req, res) => {
           from,
           to,
           sellerId: sellerId || null,
+          departmentId: departmentId || null,
         },
       },
     });
@@ -494,7 +492,7 @@ export const getPaysByDateRange = async (req, res) => {
 };
 
 // ==============================
-// Get Seller Payment Summary
+// Get Seller Payment Summary (with department breakdown)
 // ==============================
 export const getSellerPaymentSummary = async (req, res) => {
   try {
@@ -507,27 +505,49 @@ export const getSellerPaymentSummary = async (req, res) => {
       });
     }
 
-    // Get all payments for this seller
+    // Get all payments for this seller with department info
     const payments = await Pay.findAll({
       where: { seller: sellerId },
       order: [["createdAt", "DESC"]],
       include: [
         {
           model: Seller,
-          as: "paySeller", // Fixed: changed from "sellerInfo" to "paySeller"
+          as: "paySeller",
           attributes: ["id", "fullname", "phoneNumber"],
+        },
+        {
+          model: Department,
+          as: "payDepartment",
+          attributes: ["id", "name", "holding"],
         },
       ],
     });
 
-    // Calculate summary statistics
+    // Summary statistics
     const totalPaid = payments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
     const paymentCount = payments.length;
     const averagePayment = paymentCount > 0 ? totalPaid / paymentCount : 0;
-
-    // Get latest payment date
     const latestPayment = payments.length > 0 ? payments[0].createdAt : null;
     const firstPayment = payments.length > 0 ? payments[payments.length - 1].createdAt : null;
+
+    // Department breakdown
+    const departmentMap = {};
+    payments.forEach(p => {
+      const deptId = p.departmentId;
+      if (deptId) {
+        if (!departmentMap[deptId]) {
+          departmentMap[deptId] = {
+            departmentId: deptId,
+            departmentName: p.payDepartment?.name || 'Unknown',
+            total: 0,
+            count: 0,
+          };
+        }
+        departmentMap[deptId].total += parseFloat(p.amount || 0);
+        departmentMap[deptId].count += 1;
+      }
+    });
+    const departmentBreakdown = Object.values(departmentMap);
 
     res.json({
       success: true,
@@ -540,6 +560,7 @@ export const getSellerPaymentSummary = async (req, res) => {
           latestPayment,
           firstPayment,
         },
+        departmentBreakdown,
         payments,
       },
     });

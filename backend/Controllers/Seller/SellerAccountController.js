@@ -2,6 +2,7 @@ import SellerAccount from "../../Models/Seller/SellerAccount.js";
 import Seller from "../../Models/Seller/Seller.js"
 import sequelize from '../../dbconnection.js';
 import Sell from "../../Models/Stock/Sells.js";
+import {Department} from "../../Models/index.js";
 import { Op } from "sequelize";
 import { StockIncome,Factor } from "../../Models/index.js";
 
@@ -158,68 +159,154 @@ export const deleteSellerAccount = async (req, res) => {
 // @desc Get sellers with unpaid
 
 export const getSellersWithUnpaid = async (req, res) => {
-    try {
-        // 1. Find all factors that are not fully paid (remainingAmount > 0)
-        const unpaidFactors = await Factor.findAll({
-            where: {
-                remainingAmount: { [Op.gt]: 0 }
-            },
-            attributes: ['sellerId', 'remainingAmount'],
-            raw: true,
-        });
+  try {
+    const { departmentId } = req.query; // optional filter by department (Factor.dep_Number)
 
-        if (unpaidFactors.length === 0) {
-            return res.status(200).json({
-                success: true,
-                data: [],
-                total: 0,
-            });
-        }
-
-        // 2. Aggregate total remaining amount per seller
-        const sellerDueMap = new Map();
-        for (const factor of unpaidFactors) {
-            const sellerId = factor.sellerId;
-            const amount = parseFloat(factor.remainingAmount) || 0;
-            sellerDueMap.set(sellerId, (sellerDueMap.get(sellerId) || 0) + amount);
-        }
-
-        const sellerIds = Array.from(sellerDueMap.keys());
-
-        // 3. Fetch seller details (fullname)
-        const sellers = await Seller.findAll({
-            where: { id: sellerIds },
-            attributes: ['id', 'fullname'],
-            raw: true,
-        });
-
-        // 4. Build response array
-        const data = sellers.map(seller => ({
-            seller: {
-                id: seller.id,
-                fullname: seller.fullname,
-            },
-            totalDue: sellerDueMap.get(seller.id) || 0,
-        }));
-
-        // 5. Grand total of all remaining amounts
-        const total = data.reduce((sum, item) => sum + item.totalDue, 0);
-
-        res.status(200).json({
-            success: true,
-            data,
-            total,
-        });
-    } catch (error) {
-        console.error('Error in getSellersWithUnpaid:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error',
-            error: error.message,
-        });
+    // 1. Build filter for unpaid factors (remainingAmount > 0)
+    const whereCondition = {
+      remainingAmount: { [Op.gt]: 0 },
+    };
+    if (departmentId) {
+      whereCondition.dep_Number = departmentId; // filter by department
     }
-};
 
+    // 2. Fetch all unpaid factors with seller and department details
+    const unpaidFactors = await Factor.findAll({
+      where: whereCondition,
+      attributes: ['id', 'sellerId', 'remainingAmount', 'dep_Number'],
+      include: [
+        {
+          model: Seller,
+          as: 'factorSeller',
+          attributes: ['id', 'fullname', 'phoneNumber', 'department', 'isActive'],
+        },
+        {
+          model: Department,
+          as: 'factorDepartment', // make sure this association exists in Factor model
+          attributes: ['id', 'name', 'holding'],
+        }
+      ],
+      raw: true,
+      nest: true,
+    });
+
+    if (!unpaidFactors.length) {
+      return res.status(200).json({
+        success: true,
+        data: [],
+        total: 0,
+        message: "No sellers with unpaid factors",
+      });
+    }
+
+    // 3. Aggregate remaining amounts per seller and per department
+    const sellerTotalMap = new Map(); // sellerId -> total due
+    const sellerDepartmentMap = new Map(); // sellerId -> Map(departmentId -> { departmentName, total })
+    const departmentTotalMap = new Map(); // departmentId -> total due (overall)
+
+    for (const factor of unpaidFactors) {
+      const sellerId = factor.sellerId;
+      const remaind = parseFloat(factor.remainingAmount) || 0;
+      const depId = factor.dep_Number;
+      const departmentName = factor.factorDepartment?.name || 'Unknown Department';
+      const departmentHolding = factor.factorDepartment?.holding || '';
+
+      // Update seller total
+      sellerTotalMap.set(sellerId, (sellerTotalMap.get(sellerId) || 0) + remaind);
+
+      // Update department total (overall)
+      departmentTotalMap.set(depId, (departmentTotalMap.get(depId) || 0) + remaind);
+
+      // Initialize department breakdown for this seller
+      if (!sellerDepartmentMap.has(sellerId)) {
+        sellerDepartmentMap.set(sellerId, new Map());
+      }
+      const sellerDeptMap = sellerDepartmentMap.get(sellerId);
+      if (!sellerDeptMap.has(depId)) {
+        sellerDeptMap.set(depId, {
+          departmentId: depId,
+          departmentName,
+          departmentHolding,
+          total: 0,
+        });
+      }
+      sellerDeptMap.get(depId).total += remaind;
+    }
+
+    // 4. Build seller info (unique sellers from factors)
+    const sellerMap = new Map();
+    for (const factor of unpaidFactors) {
+      if (!sellerMap.has(factor.sellerId)) {
+        sellerMap.set(factor.sellerId, {
+          id: factor.sellerId,
+          fullname: factor.factorSeller?.fullname || 'Unknown',
+          phoneNumber: factor.factorSeller?.phoneNumber || null,
+          department: factor.factorSeller?.department || null,
+          isActive: factor.factorSeller?.isActive ?? true,
+        });
+      }
+    }
+
+    // 5. Build response data with department breakdown for each seller
+    const responseData = Array.from(sellerMap.values()).map(seller => {
+      const sellerDeptMap = sellerDepartmentMap.get(seller.id) || new Map();
+      const departmentBreakdown = Array.from(sellerDeptMap.values());
+      return {
+        seller,
+        totalDue: sellerTotalMap.get(seller.id) || 0,
+        departmentBreakdown: departmentBreakdown.sort((a, b) => b.total - a.total),
+        departmentsCount: departmentBreakdown.length,
+      };
+    });
+
+    // Sort sellers by total due (highest first)
+    responseData.sort((a, b) => b.totalDue - a.totalDue);
+
+    // Overall totals
+    const totalOverall = responseData.reduce((sum, item) => sum + item.totalDue, 0);
+
+    // Department summary (overall)
+    const departmentSummary = Array.from(departmentTotalMap.entries()).map(([depId, total]) => {
+      let deptName = 'Unknown';
+      let deptHolding = '';
+      for (const seller of responseData) {
+        const found = seller.departmentBreakdown.find(d => d.departmentId === depId);
+        if (found) {
+          deptName = found.departmentName;
+          deptHolding = found.departmentHolding;
+          break;
+        }
+      }
+      return {
+        departmentId: depId,
+        departmentName: deptName,
+        departmentHolding: deptHolding,
+        total: total,
+        sellerCount: responseData.filter(s => s.departmentBreakdown.some(d => d.departmentId === depId)).length,
+      };
+    }).sort((a, b) => b.total - a.total);
+
+    res.status(200).json({
+      success: true,
+      data: responseData,
+      summary: {
+        totalSellers: responseData.length,
+        totalOverall: totalOverall,
+        departmentSummary,
+      },
+      filters: {
+        departmentId: departmentId || null,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getSellersWithUnpaid:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
 
 // @desc Get seller sells from total
 export const getSellerSellsFromTotal = async (req, res) => {
