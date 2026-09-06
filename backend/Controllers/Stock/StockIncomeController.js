@@ -4,44 +4,53 @@ import { Department, Seller, SellerAccount, StockIncome, StockExist, Factor } fr
 import sequelize from "../../dbconnection.js";
 import { Op, Transaction } from "sequelize";
 
-// NEW helper: update SellerAccount using factor (not individual incomes)
 async function updateSellerAccountWithFactor(sellerId, factorId, status, transaction) {
-  let sellerAccount = await SellerAccount.findOne({ where: { sellerId }, transaction });
+  // Ensure IDs are numbers
+  const seller = Number(sellerId);
+  const factor = Number(factorId);
+
+  let sellerAccount = await SellerAccount.findOne({ where: { sellerId: seller }, transaction });
 
   if (!sellerAccount) {
     // Create new account with this factor
-    const totalArr = [factorId];
-    const paidArr = status === 'paid' ? [factorId] : [];
-    const unpaidArr = status !== 'paid' ? [factorId] : [];
+    const totalArr = [factor];
+    const paidArr = status === 'paid' ? [factor] : [];
+    const unpaidArr = status !== 'paid' ? [factor] : [];
 
     sellerAccount = await SellerAccount.create({
-      sellerId,
+      sellerId: seller,
       paid: paidArr,
       unpaid: unpaidArr,
       total: totalArr
     }, { transaction });
   } else {
+    // Get current arrays (already parsed from JSON)
     let currentPaid = sellerAccount.paid || [];
     let currentUnpaid = sellerAccount.unpaid || [];
     let currentTotal = sellerAccount.total || [];
 
+    // Ensure all elements are numbers (in case they were stored as strings)
+    currentPaid = currentPaid.map(Number);
+    currentUnpaid = currentUnpaid.map(Number);
+    currentTotal = currentTotal.map(Number);
+
+    // Build new arrays (use copy to trigger change detection)
     let newTotal = [...currentTotal];
-    if (!newTotal.includes(factorId)) newTotal.push(factorId);
+    if (!newTotal.includes(factor)) newTotal.push(factor);
 
     let newPaid = [...currentPaid];
     let newUnpaid = [...currentUnpaid];
 
     if (status === 'paid') {
-      if (!newPaid.includes(factorId)) newPaid.push(factorId);
-      // Remove from unpaid if present (e.g., if status changed later)
-      newUnpaid = newUnpaid.filter(id => id !== factorId);
+      if (!newPaid.includes(factor)) newPaid.push(factor);
+      newUnpaid = newUnpaid.filter(id => id !== factor);
     } else {
       // unpaid or partial
-      if (!newUnpaid.includes(factorId)) newUnpaid.push(factorId);
-      // Ensure it's NOT in paid (in case of status change)
-      newPaid = newPaid.filter(id => id !== factorId);
+      if (!newUnpaid.includes(factor)) newUnpaid.push(factor);
+      newPaid = newPaid.filter(id => id !== factor);
     }
 
+    // Update with new arrays (this will trigger JSON field update)
     await sellerAccount.update({
       paid: newPaid,
       unpaid: newUnpaid,
@@ -52,10 +61,66 @@ async function updateSellerAccountWithFactor(sellerId, factorId, status, transac
   return sellerAccount;
 }
 
+// UPDATED: Update StockExist with sell_price
+async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, newSellPrice, transaction) {
+  const stockExist = await StockExist.findByPk(existId, { transaction });
+  if (!stockExist) {
+    throw new Error(`StockExist with id ${existId} not found`);
+  }
+
+  // Sum all amounts and total value (amount * unit_price) for this existId
+  const result = await StockIncome.findAll({
+    where: { existId },
+    attributes: [
+      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
+      [sequelize.fn('SUM', sequelize.literal('amount * unit_price')), 'totalValue']
+    ],
+    raw: true,
+    transaction
+  });
+
+  const totalAmount = parseFloat(result[0]?.totalAmount) || 0;
+  const totalValue = parseFloat(result[0]?.totalValue) || 0;
+  const avgUnitPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
+
+  // Calculate weighted average sell_price
+  const sellPriceResult = await StockIncome.findAll({
+    where: { existId },
+    attributes: [
+      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
+      [sequelize.fn('SUM', sequelize.literal('amount * sell_price')), 'totalSellValue']
+    ],
+    raw: true,
+    transaction
+  });
+
+  const totalSellAmount = parseFloat(sellPriceResult[0]?.totalAmount) || 0;
+  const totalSellValue = parseFloat(sellPriceResult[0]?.totalSellValue) || 0;
+  const avgSellPrice = totalSellAmount > 0 ? totalSellValue / totalSellAmount : newSellPrice || 0;
+
+  // Update StockExist with new total amount, average unit price, and average sell price
+  await stockExist.update({
+    amount: totalAmount,
+    unit_price: avgUnitPrice,
+    sell_price: avgSellPrice
+  }, { transaction });
+
+  return stockExist;
+}
+
+// controllers/stockIncomeController.js
+
 export const createBatchStockIncome = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    const { seller, items, paidAmount: userPaidAmount, notes, departmentId } = req.body;
+    const { 
+      seller, 
+      items, 
+      paidAmount: userPaidAmount, 
+      notes, 
+      departmentId,
+      mode = "stock"
+    } = req.body;
 
     if (!seller || !items || !Array.isArray(items) || items.length === 0) {
       await transaction.rollback();
@@ -99,6 +164,10 @@ export const createBatchStockIncome = async (req, res) => {
       if (net_unite_price === undefined || net_unite_price === null) {
         await transaction.rollback();
         return res.status(400).json({ error: 'Each item must have net_unite_price' });
+      }
+      if (sell_price === undefined || sell_price === null) {
+        await transaction.rollback();
+        return res.status(400).json({ error: 'Each item must have sell_price' });
       }
 
       const parsedAmount = parseFloat(amount);
@@ -150,7 +219,8 @@ export const createBatchStockIncome = async (req, res) => {
 
           const newExist = await StockExist.create({
             name: exist.name,
-            departmentId: deptId
+            departmentId: deptId,
+            sell_price: parsedSellPrice
           }, { transaction });
           existId = newExist.id;
           itemDepartmentId = deptId;
@@ -173,10 +243,18 @@ export const createBatchStockIncome = async (req, res) => {
         expense: parsedExpense,
         sell_price: parsedSellPrice,
         total: totalPrice,
-        remaind: totalPrice
+        remaind: totalPrice,
       }, { transaction });
 
-      await updateStockExistFromIncome(existId, parsedAmount, computedUnitPrice, transaction);
+      if (mode === "stock") {
+        await updateStockExistFromIncome(
+          existId, 
+          parsedAmount, 
+          computedUnitPrice, 
+          parsedSellPrice, 
+          transaction
+        );
+      }
 
       createdIncomes.push({ ...income.toJSON(), total_price: totalPrice });
       createdIncomeIds.push(income.id);
@@ -191,9 +269,9 @@ export const createBatchStockIncome = async (req, res) => {
     const remainingAmount = totalAmount - finalPaidAmount;
     const status = remainingAmount === 0 ? "paid" : (finalPaidAmount > 0 ? "partial" : "unpaid");
 
-    // ---------- 4. Create Factor ----------
+    // ---------- 4. Create Factor with mode ----------
     const factor = await Factor.create({
-      factorNumber: null, // temporary
+      factorNumber: null,
       sellerId: sellerId,
       totalAmount: totalAmount,
       paidAmount: finalPaidAmount,
@@ -202,14 +280,14 @@ export const createBatchStockIncome = async (req, res) => {
       notes: notes || null,
       incomes: createdIncomeIds,
       dep_Number: departmentId || null,
+      mode: mode
     }, { transaction });
 
-    // Set factorNumber = FAC-{id with leading zeros}
     await factor.update({
       factorNumber: `FAC-${factor.id.toString().padStart(6, '0')}`
     }, { transaction });
 
-    // ---------- 5. Update SellerAccount using FACTOR (not individual incomes) ----------
+    // ---------- 5. Update SellerAccount using FACTOR ----------
     await updateSellerAccountWithFactor(sellerId, factor.id, status, transaction);
 
     // ---------- 6. Create Pay record (if payment exists) ----------
@@ -217,6 +295,7 @@ export const createBatchStockIncome = async (req, res) => {
     if (finalPaidAmount > 0) {
       const payRecord = await Pay.create({
         seller: sellerId,
+        departmentId: departmentId || null, // ✅ departmentId added here
         amount: finalPaidAmount,
         description: `Payment for factor ${factor.id} (batch number of ${createdIncomeIds})`,
       }, { transaction });
@@ -275,13 +354,15 @@ export const createBatchStockIncome = async (req, res) => {
       sellerId: sellerId,
       factorId: factor.id,
       factorNumber: factor.factorNumber,
+      mode: mode,
       payId: payId,
       totalAmount: totalAmount,
       paidAmount: finalPaidAmount,
       remainingAmount: remainingAmount,
       status: status,
       incomesCount: createdIncomes.length,
-      incomes: createdIncomes
+      incomes: createdIncomes,
+      isPending: mode === "pending"
     });
   } catch (error) {
     if (transaction) await transaction.rollback();
@@ -354,37 +435,6 @@ export const getAllStockIncome = async (req, res) => {
     });
   }
 };
-
-async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, transaction) {
-  const stockExist = await StockExist.findByPk(existId, { transaction });
-  if (!stockExist) {
-    throw new Error(`StockExist with id ${existId} not found`);
-  }
-
-  // Sum all amounts and total value (amount * unit_price) for this existId
-  // This includes the newly created income because the transaction is still open
-  const result = await StockIncome.findAll({
-    where: { existId },
-    attributes: [
-      [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
-      [sequelize.fn('SUM', sequelize.literal('amount * unit_price')), 'totalValue']
-    ],
-    raw: true,
-    transaction
-  });
-
-  const totalAmount = parseFloat(result[0]?.totalAmount) || 0;
-  const totalValue = parseFloat(result[0]?.totalValue) || 0;
-  const avgUnitPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
-
-  // Update StockExist with new total amount and average unit price
-  await stockExist.update({
-    amount: totalAmount,
-    unit_price: avgUnitPrice
-  }, { transaction });
-
-  return stockExist;
-}
 
 // Get single stock income with associations
 export const getStockIncomeById = async (req, res) => {
@@ -656,6 +706,228 @@ export const getStockIncomeByDateRange = async (req, res) => {
       success: false,
       message: "Error fetching stock incomes",
       error: error.message,
+    });
+  }
+};
+// controllers/stockIncomeController.js
+
+
+
+
+// controllers/stockIncomeController.js
+
+/* ===============================
+   APPROVE PENDING FACTOR
+   This approves all pending incomes in a factor and adds them to stock
+================================ */
+export const approvePendingFactor = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const { factorId } = req.params;
+    
+    const factor = await Factor.findByPk(factorId, { transaction });
+    if (!factor) {
+      await transaction.rollback();
+      return res.status(404).json({ 
+        success: false, 
+        message: "Factor not found" 
+      });
+    }
+
+    if (factor.mode !== "pending") {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: "Factor is not in pending mode" 
+      });
+    }
+
+    const incomes = await StockIncome.findAll({
+      where: { FactorId: factorId },
+      transaction
+    });
+
+    if (incomes.length === 0) {
+      await transaction.rollback();
+      return res.status(404).json({ 
+        success: false, 
+        message: "No incomes found for this factor" 
+      });
+    }
+
+    // Update stock for each income with sell_price
+    for (const income of incomes) {
+      await updateStockExistFromIncome(
+        income.existId, 
+        income.amount, 
+        income.unit_price, 
+        income.sell_price, 
+        transaction
+      );
+    }
+
+    await factor.update({ mode: "stock" }, { transaction });
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: `Successfully approved factor ${factor.factorNumber} with ${incomes.length} items`,
+      factorId: factorId,
+      factorNumber: factor.factorNumber,
+      approvedCount: incomes.length
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error approving pending factor:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to approve pending factor", 
+      error: error.message 
+    });
+  }
+};
+
+/* ===============================
+   REJECT PENDING FACTOR
+   This rejects all pending incomes in a factor and deletes them
+================================ */
+export const rejectPendingFactor = async (req, res) => {
+  const transaction = await sequelize.transaction();
+  
+  try {
+    const { factorId } = req.params;
+    
+    // Find the factor
+    const factor = await Factor.findByPk(factorId, { transaction });
+    if (!factor) {
+      await transaction.rollback();
+      return res.status(404).json({ 
+        success: false, 
+        message: "Factor not found" 
+      });
+    }
+
+    // Check if factor is pending
+    if (factor.mode !== "pending") {
+      await transaction.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: "Factor is not in pending mode" 
+      });
+    }
+
+    // Find all stock incomes for this factor
+    const incomes = await StockIncome.findAll({
+      where: { FactorId: factorId },
+      transaction
+    });
+
+    if (incomes.length === 0) {
+      await transaction.rollback();
+      return res.status(404).json({ 
+        success: false, 
+        message: "No incomes found for this factor" 
+      });
+    }
+
+    // Delete all incomes
+    for (const income of incomes) {
+      await income.destroy({ transaction });
+    }
+
+    // Delete the factor
+    await factor.destroy({ transaction });
+
+    await transaction.commit();
+
+    res.json({
+      success: true,
+      message: `Successfully rejected factor ${factor.factorNumber} with ${incomes.length} items`,
+      factorId: factorId,
+      factorNumber: factor.factorNumber,
+      rejectedCount: incomes.length
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('Error rejecting pending factor:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to reject pending factor", 
+      error: error.message 
+    });
+  }
+};
+
+/* ===============================
+   GET PENDING FACTORS
+   Get all factors with pending mode
+================================ */
+export const getPendingFactors = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows } = await Factor.findAndCountAll({
+      where: { mode: "pending" },
+      distinct: true,
+      include: [
+        {
+          model: Seller,
+          as: "factorSeller",
+          attributes: ["id", "fullname", "phoneNumber", "address"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+      limit,
+      offset,
+    });
+
+    const totalPages = Math.ceil(count / limit);
+
+    // Fetch income details for each factor
+    const factorsWithIncomes = await Promise.all(
+      rows.map(async (factor) => {
+        let incomeDetails = [];
+        if (factor.incomes && factor.incomes.length) {
+          incomeDetails = await StockIncome.findAll({
+            where: { id: factor.incomes },
+            include: [
+              {
+                model: StockExist,
+                as: "stockIncomeStockExist",
+                attributes: ["id", "name", "departmentId"],
+              },
+            ],
+            order: [["createdAt", "ASC"]],
+          });
+        }
+        return {
+          ...factor.toJSON(),
+          incomeDetails,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      factors: factorsWithIncomes,
+      pagination: {
+        totalItems: count,
+        totalPages,
+        currentPage: page,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    });
+  } catch (error) {
+    console.error("Error in getPendingFactors:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch pending factors", 
+      error: error.message 
     });
   }
 };

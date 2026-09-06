@@ -18,6 +18,7 @@ export const createStaff = async (req, res) => {
       overTimePerHour,
       workingDaysPerWeek,
       departmentId,
+      isActive = true
     } = req.body;
 
     if (
@@ -52,6 +53,7 @@ export const createStaff = async (req, res) => {
       overTimePerHour: parseFloat(overTimePerHour),
       workingDaysPerWeek: parseInt(workingDaysPerWeek),
       departmentId: parseInt(departmentId),
+      isActive: isActive === undefined ? true : Boolean(isActive)
     }, { transaction });
 
     await transaction.commit();
@@ -95,6 +97,7 @@ export const getStaffs = async (req, res) => {
     if (req.query.departmentId) {
       where.departmentId = parseInt(req.query.departmentId);
     }
+      
     if (req.query.search) {
       where[Op.or] = [
         { name: { [Op.like]: `%${req.query.search}%` } },
@@ -218,7 +221,7 @@ export const updateStaff = async (req, res) => {
     if (overTimePerHour !== undefined) updateData.overTimePerHour = parseFloat(overTimePerHour);
     if (workingDaysPerWeek !== undefined) updateData.workingDaysPerWeek = parseInt(workingDaysPerWeek);
     if (departmentId !== undefined) updateData.departmentId = departmentId ? parseInt(departmentId) : null;
-
+    if (isActive !== undefined) updateData.isActive = Boolean(isActive);
     await staff.update(updateData, { transaction });
 
     await transaction.commit();
