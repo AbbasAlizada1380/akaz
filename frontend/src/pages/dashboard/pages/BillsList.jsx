@@ -1,3 +1,4 @@
+// BillsList.jsx
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import Pagination from "../pagination/Pagination.jsx";
@@ -5,7 +6,7 @@ import BillExport from "./report/BillExport.jsx";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
-const BillsList = () => {
+const BillsList = ({ onEditBill }) => {
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -15,14 +16,16 @@ const BillsList = () => {
     totalItems: 0,
     itemsPerPage: 20,
   });
-  const [selectedBillData, setSelectedBillData] = useState(null); // store full response { bill, sells }
+  const [selectedBillData, setSelectedBillData] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   // Fetch bills with pagination
   const fetchBills = async (page = 1) => {
     setLoading(true);
     try {
-      const res = await axios.get(`${BASE_URL}/Bill/bills?limit=${pagination.itemsPerPage}&page=${page}`);
+      const res = await axios.get(
+        `${BASE_URL}/Bill/bills?limit=${pagination.itemsPerPage}&page=${page}`
+      );
       if (res.data.success) {
         setBills(res.data.bills);
         setPagination({
@@ -57,7 +60,7 @@ const BillsList = () => {
     try {
       const res = await axios.get(`${BASE_URL}/Bill/bills/${billId}`);
       if (res.data.success) {
-        setSelectedBillData(res.data); // store { bill, sells }
+        setSelectedBillData(res.data);
       } else {
         alert("Failed to load bill details");
       }
@@ -104,16 +107,16 @@ const BillsList = () => {
                 {bills.map((bill) => (
                   <tr key={bill.id} className="border-t hover:bg-gray-50">
                     <td className="px-4 py-2 font-mono">{bill.billNumber}</td>
-                    <td className="px-4 py-2">{bill.customer?.fullname || "-"}</td>
+                    <td className="px-4 py-2">{bill.billCustomer?.fullname || "-"}</td>
                     <td className="px-4 py-2">{new Date(bill.date).toLocaleDateString()}</td>
                     <td className="px-4 py-2 text-right">
-                      ${parseFloat(bill.totalAmount).toFixed(2)}
+                      {parseFloat(bill.totalAmount).toFixed(2)}
                     </td>
                     <td className="px-4 py-2 text-right">
-                      ${parseFloat(bill.paidAmount).toFixed(2)}
+                      {parseFloat(bill.paidAmount).toFixed(2)}
                     </td>
                     <td className="px-4 py-2 text-right">
-                      ${parseFloat(bill.remainingAmount).toFixed(2)}
+                      {parseFloat(bill.remainingAmount).toFixed(2)}
                     </td>
                     <td className="px-4 py-2">
                       <span
@@ -135,7 +138,12 @@ const BillsList = () => {
                       >
                         View Items
                       </button>
-{/* <BillExport billId={selectedBillData.bill.id} billData={selectedBillData} /> */}
+                      <button
+                        onClick={() => onEditBill(bill.id)}
+                        className="text-green-600 hover:text-green-800 text-sm"
+                      >
+                        Edit
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -151,22 +159,27 @@ const BillsList = () => {
         </>
       )}
 
-      {/* Bill Detail Modal using the correct "sells" array */}
+      {/* Bill Detail Modal */}
       {selectedBillData && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Bill {selectedBillData.bill.billNumber}</h2>
-              <button onClick={closeModal} className="text-gray-500 hover:text-gray-700">
+              <h2 className="text-xl font-bold">
+                Bill {selectedBillData.bill.billNumber}
+              </h2>
+              <button
+                onClick={closeModal}
+                className="text-gray-500 hover:text-gray-700"
+              >
                 ✕
               </button>
             </div>
             <div className="space-y-2 mb-4">
-              <p><strong>Customer:</strong> {selectedBillData.bill.customer?.fullname || "-"}</p>
+              <p><strong>Customer:</strong> {selectedBillData.bill.billCustomer?.fullname || "-"}</p>
               <p><strong>Date:</strong> {new Date(selectedBillData.bill.date).toLocaleDateString()}</p>
-              <p><strong>Total:</strong> ${parseFloat(selectedBillData.bill.totalAmount).toFixed(2)}</p>
-              <p><strong>Paid:</strong> ${parseFloat(selectedBillData.bill.paidAmount).toFixed(2)}</p>
-              <p><strong>Remaining:</strong> ${parseFloat(selectedBillData.bill.remainingAmount).toFixed(2)}</p>
+              <p><strong>Total:</strong> {parseFloat(selectedBillData.bill.totalAmount).toFixed(2)}</p>
+              <p><strong>Paid:</strong> {parseFloat(selectedBillData.bill.paidAmount).toFixed(2)}</p>
+              <p><strong>Remaining:</strong> {parseFloat(selectedBillData.bill.remainingAmount).toFixed(2)}</p>
               <p><strong>Status:</strong>{" "}
                 <span
                   className={`px-2 py-1 rounded text-xs font-medium ${
@@ -200,17 +213,17 @@ const BillsList = () => {
                   <tbody>
                     {(selectedBillData.sells || []).map((sell) => (
                       <tr key={sell.id} className="border-t">
-                        <td className="px-3 py-1">{sell.product?.name || "-"}</td>
+                        <td className="px-3 py-1">{sell.sellStockExist?.name || "-"}</td>
                         <td className="px-3 py-1 text-right">{sell.amount}</td>
-                        <td className="px-3 py-1 text-right">${parseFloat(sell.unit_price).toFixed(2)}</td>
+                        <td className="px-3 py-1 text-right">{parseFloat(sell.unit_price).toFixed(2)}</td>
                         <td className="px-3 py-1 text-right">{sell.discount_percent}%</td>
-                        <td className="px-3 py-1 text-right">${parseFloat(sell.total).toFixed(2)}</td>
+                        <td className="px-3 py-1 text-right">{parseFloat(sell.total).toFixed(2)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <div className="mt-6 flex justify-end border-t pt-4">
-<BillExport billId={selectedBillData.bill.id} billData={selectedBillData} />
+                  <BillExport billId={selectedBillData.bill.id} billData={selectedBillData} />
                 </div>
               </>
             )}

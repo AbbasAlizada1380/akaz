@@ -499,7 +499,7 @@ const DebtManager = () => {
       )}
 
       {/* Payments Tab Content */}
-      {activeTab === "payments" && <PaymentsManager />}
+      {activeTab == "payments" && <PaymentsManager />}
 
       {/* Payment History Modal */}
       {showPaymentHistoryModal && (

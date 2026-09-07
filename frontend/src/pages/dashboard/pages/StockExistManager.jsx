@@ -249,7 +249,7 @@ const StockExistManager = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-secondary mb-2">Sell Price (₮)</label>
+                    <label className="block text-sm font-medium text-secondary mb-2">Sell Price ( )</label>
                     <input
                       type="number"
                       min="0"
@@ -264,7 +264,7 @@ const StockExistManager = () => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-secondary mb-2">Unit Price (₮)</label>
+                    <label className="block text-sm font-medium text-secondary mb-2">Unit Price ( )</label>
                     <input
                       type="number"
                       min="0"
@@ -363,8 +363,8 @@ const StockExistManager = () => {
                               {getDepartmentName(stock)}
                             </td>
                             <td className="px-6 py-4 text-sm text-secondary">{stock.amount}</td>
-                            <td className="px-6 py-4 text-sm text-secondary">₮{Number(stock.sell_price).toFixed(2)}</td>
-                            <td className="px-6 py-4 text-sm text-secondary">₮{Number(stock.unit_price).toFixed(2)}</td>
+                            <td className="px-6 py-4 text-sm text-secondary"> {Number(stock.sell_price).toFixed(2)}</td>
+                            <td className="px-6 py-4 text-sm text-secondary"> {Number(stock.unit_price).toFixed(2)}</td>
                             <td className="px-6 py-4">
                               <div className="flex gap-3">
                                 <button

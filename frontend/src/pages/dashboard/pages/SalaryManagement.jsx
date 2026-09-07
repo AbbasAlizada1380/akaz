@@ -1,50 +1,84 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { FaEdit, FaTrash, FaCheck, FaTimes, FaSpinner } from "react-icons/fa";
+import { FaEdit, FaTrash, FaCheck, FaSpinner, FaPlus, FaEye, FaSync, FaTimes } from "react-icons/fa";
 import { useSelector } from "react-redux";
 import SalaryDateDownload from "./report/salaryDateDownload";
-import Pagination from "../pagination/Pagination"; // adjust path
+import Pagination from "../pagination/Pagination";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
+
+// --- Solar Hijri helpers ---
+function getSolarHijriYear() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const equinox = new Date(year, 2, 20);
+  const isAfterEquinox = now >= equinox;
+  return year - (isAfterEquinox ? 621 : 622);
+}
+
+function getSolarHijriMonth() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const start = new Date(year, 2, 20);
+  let diff = Math.floor((now - start) / (24 * 60 * 60 * 1000));
+  if (diff < 0) {
+    const prevStart = new Date(year - 1, 2, 20);
+    diff = Math.floor((now - prevStart) / (24 * 60 * 60 * 1000));
+  }
+  const daysInMonth = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 30];
+  let month = 0;
+  let day = diff;
+  for (let i = 0; i < daysInMonth.length; i++) {
+    if (day < daysInMonth[i]) {
+      month = i + 1;
+      break;
+    }
+    day -= daysInMonth[i];
+  }
+  if (month === 0) month = 12;
+  return month;
+}
+
+const monthNames = [
+  "Hamal", "Sawr", "Jawza", "Saratan", "Asad", "Sunbula",
+  "Mizan", "Aqrab", "Qaws", "Jadi", "Dalw", "Hut"
+];
+
 const initialForm = {
-  staffId: "",
-  receipt: 0,
-  attendance: {
-    Saturday: { attendance: false, overtime: 0 },
-    Sunday: { attendance: false, overtime: 0 },
-    Monday: { attendance: false, overtime: 0 },
-    Tuesday: { attendance: false, overtime: 0 },
-    Wednesday: { attendance: false, overtime: 0 },
-    Thursday: { attendance: false, overtime: 0 },
-  },
+  month: getSolarHijriMonth(),
+  year: getSolarHijriYear(),
+  salaries: [],
 };
 
-const SalaryManagement = () => {
+
+const MonthlySalaryManagement = () => {
   const { currentUser } = useSelector((state) => state.user);
   const [staffs, setStaffs] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [records, setRecords] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(initialForm);
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [selectedStaffId, setSelectedStaffId] = useState('');
   const [loading, setLoading] = useState({
     staffs: true,
     records: true,
     initial: true,
   });
 
-  // Pagination state
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
   const limit = 10;
 
-  // Fetch staff (no pagination needed)
   const fetchStaff = async () => {
     setLoading((prev) => ({ ...prev, staffs: true }));
     try {
-      const res = await axios.get(`${BASE_URL}/staff`);
+      const res = await axios.get(`${BASE_URL}/staff`, {
+        params: { active: true }
+      });
       setStaffs(res.data.staffs || []);
     } catch (error) {
       console.error("Error fetching staff:", error);
@@ -54,19 +88,27 @@ const SalaryManagement = () => {
     }
   };
 
-  // Fetch attendance with pagination
-  const fetchAttendance = async (pageNum = page) => {
+  const fetchDepartments = async () => {
+    try {
+      const res = await axios.get(`${BASE_URL}/department`);
+      setDepartments(res.data.data || []);
+    } catch (error) {
+      console.error("Error fetching departments:", error);
+      setDepartments([]);
+    }
+  };
+
+  const fetchRecords = async (pageNum = page) => {
     setLoading((prev) => ({ ...prev, records: true }));
     try {
       const res = await axios.get(`${BASE_URL}/attendance`, {
         params: { page: pageNum, limit },
       });
-      // Expected response: { data: [], totalRecords, totalPages, currentPage }
       setRecords(res.data.data || []);
-      setTotalRecords(res.data.totalRecords || 0);
-      setTotalPages(res.data.totalPages || 1);
+      setTotalRecords(res.data.pagination?.totalRecords || 0);
+      setTotalPages(res.data.pagination?.totalPages || 1);
     } catch (error) {
-      console.error("Error fetching attendance:", error);
+      console.error("Error fetching payroll summaries:", error);
       setRecords([]);
       setTotalRecords(0);
       setTotalPages(1);
@@ -75,54 +117,110 @@ const SalaryManagement = () => {
     }
   };
 
-  // Initial load
   useEffect(() => {
     const init = async () => {
-      await fetchStaff();
-      await fetchAttendance(1);
+      await Promise.all([fetchStaff(), fetchDepartments()]);
+      await fetchRecords(1);
     };
     init();
   }, []);
 
-  // Re-fetch when page changes
   useEffect(() => {
     if (!loading.initial) {
-      fetchAttendance(page);
+      fetchRecords(page);
     }
   }, [page]);
 
-  // Form handlers
-  const handleAttendanceChange = (day, field, value) => {
-    setForm((prev) => ({
-      ...prev,
-      attendance: {
-        ...prev.attendance,
-        [day]: {
-          ...prev.attendance[day],
-          [field]: field === "attendance" ? value : Number(value),
-        },
-      },
+  const prepareNewForm = () => {
+    const salaries = staffs.map((staff) => ({
+      staffId: staff.id,
+      salary: staff.salary || 0,
+      overtime: 0,
+      total: staff.salary || 0,
+      paid: 0,
     }));
+    setForm({
+      month: getSolarHijriMonth(),
+      year: getSolarHijriYear(),
+      salaries,
+    });
+    setSelectedStaffId('');
+  };
+
+  const handleSalaryChange = (index, field, value) => {
+    const updated = [...form.salaries];
+    const numericValue = Number(value) || 0;
+    updated[index][field] = field === "overtime" || field === "paid" ? numericValue : value;
+
+    if (field === "overtime") {
+      const salary = updated[index].salary || 0;
+      updated[index].total = salary + numericValue;
+    }
+
+    setForm({ ...form, salaries: updated });
+  };
+
+  const handleAddStaff = () => {
+    if (!selectedStaffId) return;
+    const staff = staffs.find(s => s.id === Number(selectedStaffId));
+    if (!staff) return;
+    if (form.salaries.some(s => s.staffId === staff.id)) {
+      alert('This staff is already added.');
+      return;
+    }
+    const newEntry = {
+      staffId: staff.id,
+      salary: staff.salary || 0,
+      overtime: 0,
+      total: staff.salary || 0,
+      paid: 0,
+    };
+    setForm({
+      ...form,
+      salaries: [...form.salaries, newEntry],
+    });
+    setSelectedStaffId('');
+  };
+
+  const handleRemoveStaff = (index) => {
+    const updated = [...form.salaries];
+    updated.splice(index, 1);
+    setForm({ ...form, salaries: updated });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
 
+    if (form.salaries.some(s => !s.staffId)) {
+      alert("All staff entries must have a valid staffId.");
+      return;
+    }
+
     try {
       setSubmitting(true);
+      const payload = {
+        month: form.month,
+        year: form.year,
+        salaries: form.salaries.map(s => ({
+          staffId: s.staffId,
+          salary: s.salary,
+          overtime: s.overtime,
+          total: s.total,
+          paid: s.paid,
+        })),
+      };
+
       if (editingId) {
-        await axios.put(`${BASE_URL}/attendance/${editingId}`, {
-          attendance: form.attendance,
-          receipt: form.receipt,
-        });
+        await axios.put(`${BASE_URL}/attendance/${editingId}`, payload);
       } else {
-        await axios.post(`${BASE_URL}/attendance`, form);
+        await axios.post(`${BASE_URL}/attendance`, payload);
       }
-      await fetchAttendance(page); // refresh current page
+      await fetchRecords(page);
       resetForm();
     } catch (error) {
-      console.error("Error saving attendance:", error);
+      console.error("Error saving payroll summary:", error);
+      alert(error.response?.data?.message || "Failed to save");
     } finally {
       setSubmitting(false);
     }
@@ -132,27 +230,35 @@ const SalaryManagement = () => {
     setForm(initialForm);
     setEditingId(null);
     setShowForm(false);
+    setSelectedStaffId('');
   };
 
   const handleEdit = (record) => {
     setEditingId(record.id);
+    const salaries = record.salaries.map(s => ({
+      staffId: s.staffId,
+      salary: s.salary,
+      overtime: s.overtime,
+      total: (s.salary || 0) + (s.overtime || 0),
+      paid: s.paid,
+    }));
     setForm({
-      staffId: record.staffId,
-      receipt: record.receipt || 0,
-      attendance: record.attendance,
+      month: record.month,
+      year: record.year,
+      salaries,
     });
     setShowForm(true);
+    setSelectedStaffId('');
   };
 
   const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this record?")) return;
+    if (!confirm("Are you sure you want to delete this payroll summary?")) return;
     try {
       await axios.delete(`${BASE_URL}/attendance/${id}`);
-      // If current page becomes empty and not first page, go back
       if (records.length === 1 && page > 1) {
         setPage(page - 1);
       } else {
-        await fetchAttendance(page);
+        await fetchRecords(page);
       }
     } catch (error) {
       console.error("Error deleting record:", error);
@@ -165,21 +271,23 @@ const SalaryManagement = () => {
     }
   };
 
-  const daysOrder = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday"];
-  const englishDays = {
-    Saturday: "Saturday",
-    Sunday: "Sunday",
-    Monday: "Monday",
-    Tuesday: "Tuesday",
-    Wednesday: "Wednesday",
-    Thursday: "Thursday",
+  const handleLoadStaff = async () => {
+    await fetchStaff();
+    if (showForm && !editingId) {
+      prepareNewForm();
+    }
+  };
+
+  const getDepartmentName = (deptId) => {
+    const dept = departments.find(d => d.id === deptId);
+    return dept ? dept.name : "Unassigned";
   };
 
   if (loading.initial) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex flex-col items-center justify-center p-6">
         <FaSpinner className="text-5xl text-primary-800 animate-spin mb-6" />
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">Loading Attendance Data</h2>
+        <h2 className="text-2xl font-bold text-gray-800 mb-2">Loading Payroll Data</h2>
         <p className="text-gray-600">Please wait a moment...</p>
       </div>
     );
@@ -189,23 +297,27 @@ const SalaryManagement = () => {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6 space-y-8">
       {/* Header */}
       <div className="text-center mb-6">
-        <h1 className="text-3xl font-bold text-gray-800 mb-2">Attendance Management</h1>
-        <p className="text-gray-600">Record and manage staff attendance and salaries</p>
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">Monthly Payroll Management</h1>
+        <p className="text-gray-600">Create and manage monthly salary summaries</p>
         {editingId && (
           <div className="mt-4 p-4 bg-yellow-100 border border-yellow-400 rounded-xl max-w-md mx-auto">
             <div className="flex items-center justify-center gap-2 text-yellow-800">
               <FaEdit className="h-5 w-5" />
-              <span className="font-semibold">Editing mode – Record #{editingId}</span>
+              <span className="font-semibold">Editing summary #{editingId}</span>
             </div>
           </div>
         )}
       </div>
 
+      {/* Toggle Form Button */}
       <div className="flex justify-center mb-6">
         <button
           onClick={() => {
-            resetForm();
+            if (!showForm) {
+              prepareNewForm();
+            }
             setShowForm((prev) => !prev);
+            if (showForm) resetForm();
           }}
           className="px-6 py-3 bg-primary text-white rounded-xl hover:from-primary-900 hover:to-primary-700 transition font-medium shadow-md disabled:opacity-50 flex items-center gap-2"
           disabled={loading.staffs}
@@ -213,12 +325,14 @@ const SalaryManagement = () => {
           {loading.staffs ? (
             <>
               <FaSpinner className="animate-spin" />
-              Loading staff list...
+              Loading staff...
             </>
           ) : showForm ? (
             "Close Form"
           ) : (
-            "New Attendance Record"
+            <>
+              <FaPlus /> New Monthly Summary
+            </>
           )}
         </button>
       </div>
@@ -227,138 +341,189 @@ const SalaryManagement = () => {
       {showForm && (
         <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
           <div className="bg-primary text-white p-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-white/20 rounded-full">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-full">
+                  <FaEdit className="h-6 w-6" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">{editingId ? "Edit Payroll Summary" : "New Payroll Summary"}</h2>
+                  <p className="text-sm text-white/80">
+                    {editingId ? "Update salaries and payments" : "Select month and enter overtime amount for each staff"}
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-bold">{editingId ? "Edit Attendance" : "New Attendance Record"}</h2>
-                <p className="text-sm text-white/80">{editingId ? "Edit attendance details" : "Record attendance for a staff member"}</p>
-              </div>
+              {!editingId && (
+                <button
+                  type="button"
+                  onClick={handleLoadStaff}
+                  className="px-3 py-2 bg-white/20 hover:bg-white/30 rounded-lg text-sm flex items-center gap-2 transition"
+                  disabled={loading.staffs}
+                >
+                  {loading.staffs ? <FaSpinner className="animate-spin" /> : <FaSync />}
+                  Load Staff
+                </button>
+              )}
             </div>
           </div>
 
           <div className="p-6">
             <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Staff Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <span className="text-red-500">*</span> Select Staff Member
-                </label>
-                {loading.staffs ? (
-                  <div className="flex items-center justify-center h-12 bg-gray-100 rounded-lg">
-                    <FaSpinner className="animate-spin text-gray-400 mr-2" />
-                    <span className="text-gray-500">Loading staff list...</span>
-                  </div>
-                ) : (
+              {/* Month/Year */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Month</label>
                   <select
-                    className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition"
-                    value={form.staffId}
-                    onChange={(e) => setForm({ ...form, staffId: e.target.value })}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary-500"
+                    value={form.month}
+                    onChange={(e) => setForm({ ...form, month: Number(e.target.value) })}
                     required
                   >
-                    <option value="">Select Staff Member</option>
-                    {staffs.map((staff) => (
+                    {monthNames.map((name, idx) => (
+                      <option key={idx + 1} value={idx + 1}>{name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Year (Shamsi)</label>
+                  <input
+                    type="number"
+                    className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary-500"
+                    value={form.year}
+                    onChange={(e) => setForm({ ...form, year: Number(e.target.value) })}
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Add Staff Row */}
+              <div className="flex flex-wrap items-end gap-4 bg-gray-50 p-4 rounded-lg">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Add Staff</label>
+                  <select
+                    value={selectedStaffId}
+                    onChange={(e) => setSelectedStaffId(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="">Select a staff member</option>
+                    {staffs.map(staff => (
                       <option key={staff.id} value={staff.id}>
-                        {staff.name} - {staff.fatherName}
+                        {staff.name} - {staff.fatherName} (Dept: {getDepartmentName(staff.departmentId)})
                       </option>
                     ))}
                   </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddStaff}
+                  disabled={!selectedStaffId || submitting}
+                  className="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-700 transition disabled:opacity-50 flex items-center gap-2"
+                >
+                  <FaPlus className="h-4 w-4" /> Add
+                </button>
+                {form.salaries.length === 0 && (
+                  <span className="text-sm text-gray-500">No staff added yet.</span>
                 )}
               </div>
 
-              {/* Attendance Days Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {daysOrder.map((day) => (
-                  <div key={day} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-semibold text-gray-700">{englishDays[day]}</h3>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          className="hidden peer"
-                          checked={form.attendance[day].attendance}
-                          onChange={(e) => handleAttendanceChange(day, "attendance", e.target.checked)}
-                          disabled={submitting}
-                        />
-                        <div className={`w-10 h-6 flex items-center rounded-full p-1 transition-colors ${form.attendance[day].attendance ? "bg-green-500" : "bg-gray-300"} ${submitting ? "opacity-50" : ""}`}>
-                          <div className={`bg-white w-4 h-4 rounded-full shadow transform transition-transform ${form.attendance[day].attendance ? "translate-x-4" : ""}`} />
-                        </div>
-                        <span className="text-sm text-gray-600">
-                          {form.attendance[day].attendance ? <FaCheck className="text-green-500" /> : <FaTimes className="text-gray-400" />}
-                        </span>
-                      </label>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Overtime (hours)</label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.5"
-                          className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition"
-                          value={form.attendance[day].overtime}
-                          onChange={(e) => handleAttendanceChange(day, "overtime", e.target.value)}
-                          disabled={!form.attendance[day].attendance || submitting}
-                        />
-                        <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm">hrs</div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+              {/* Staff Salary Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-100 text-gray-700">
+                    <tr>
+                      <th className="p-3 text-left">Staff</th>
+                      <th className="p-3 text-left">Department</th>
+                      <th className="p-3 text-left">Base Salary</th>
+                      <th className="p-3 text-left">Overtime (AFN)</th>
+                      <th className="p-3 text-left">Total</th>
+                      <th className="p-3 text-left">Paid</th>
+                      <th className="p-3 text-left">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {form.salaries.length === 0 && (
+                      <tr>
+                        <td colSpan="7" className="p-4 text-center text-gray-500">
+                          No staff added. Use the dropdown above to add.
+                        </td>
+                      </tr>
+                    )}
+                    {form.salaries.map((item, index) => {
+                      const staff = staffs.find(s => s.id === item.staffId);
+                      const deptName = staff?.departmentId ? getDepartmentName(staff.departmentId) : "Unassigned";
+                      return (
+                        <tr key={item.staffId || index} className="border-b border-gray-200 hover:bg-gray-50">
+                          <td className="p-3 font-medium">{staff?.name || "Unknown"}</td>
+                          <td className="p-3 text-gray-600">{deptName}</td>
+                          <td className="p-3">{item.salary} AFN</td>
+                          <td className="p-3">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.5"
+                              className="w-20 border border-gray-300 rounded px-2 py-1"
+                              value={item.overtime}
+                              onChange={(e) => handleSalaryChange(index, "overtime", e.target.value)}
+                              disabled={submitting}
+                            />
+                          </td>
+                          <td className="p-3 font-bold text-emerald-700">{item.total} AFN</td>
+                          <td className="p-3">
+                            <input
+                              type="number"
+                              min="0"
+                              className="w-24 border border-gray-300 rounded px-2 py-1"
+                              value={item.paid}
+                              onChange={(e) => handleSalaryChange(index, "paid", e.target.value)}
+                              disabled={submitting}
+                            />
+                          </td>
+                          <td className="p-3">
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveStaff(index)}
+                              className="p-1 text-red-600 hover:bg-red-50 rounded transition"
+                              disabled={submitting}
+                              title="Remove staff"
+                            >
+                              <FaTimes className="h-5 w-5" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
 
               {/* Action Buttons */}
-              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 pt-4 border-t border-gray-200">
+              <div className="flex flex-wrap gap-4 pt-4 border-t border-gray-200">
                 {editingId && (
-                  <div className="flex flex-col md:flex-row gap-4 flex-1">
-                    <div className="bg-gray-100 p-4 rounded-lg">
-                      <label className="text-sm font-medium text-gray-700 mb-1">Total Amount</label>
-                      <span className="text-lg font-bold text-emerald-700">
-                        {records.find((r) => r.id === editingId)?.total || 0} AFN
-                      </span>
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Amount Paid (Receipt)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max={records.find((r) => r.id === editingId)?.total || undefined}
-                        className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-green-500 focus:border-green-500 transition"
-                        value={form.receipt}
-                        onChange={(e) => setForm({ ...form, receipt: Number(e.target.value) })}
-                        disabled={submitting}
-                      />
-                    </div>
-                  </div>
-                )}
-                <div className="flex gap-3">
-                  {editingId && (
-                    <button type="button" onClick={resetForm} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium" disabled={submitting}>
-                      Cancel Edit
-                    </button>
-                  )}
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className={`px-6 py-3 rounded-lg font-medium shadow-md transition flex items-center gap-2 ${submitting ? "bg-gray-400 cursor-not-allowed" : "bg-primary hover:from-primary-900 hover:to-primary-700 text-white"
-                      }`}
-                  >
-                    {submitting ? (
-                      <>
-                        <FaSpinner className="animate-spin h-5 w-5" />
-                        Saving...
-                      </>
-                    ) : (
-                      <>
-                        <FaCheck />
-                        {editingId ? "Save Changes" : "Save Attendance"}
-                      </>
-                    )}
+                  <button type="button" onClick={resetForm} className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition font-medium" disabled={submitting}>
+                    Cancel Edit
                   </button>
-                </div>
+                )}
+                <button
+                  type="submit"
+                  disabled={submitting || form.salaries.length === 0}
+                  className={`px-6 py-3 rounded-lg font-medium shadow-md transition flex items-center gap-2 ${
+                    submitting || form.salaries.length === 0
+                      ? "bg-gray-400 cursor-not-allowed"
+                      : "bg-primary hover:from-primary-900 hover:to-primary-700 text-white"
+                  }`}
+                >
+                  {submitting ? (
+                    <>
+                      <FaSpinner className="animate-spin h-5 w-5" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <FaCheck />
+                      {editingId ? "Update Summary" : "Create Summary"}
+                    </>
+                  )}
+                </button>
               </div>
             </form>
           </div>
@@ -371,13 +536,11 @@ const SalaryManagement = () => {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-white/20 rounded-full">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <FaEye className="h-6 w-6" />
               </div>
               <div>
-                <h2 className="text-xl font-bold">Attendance Records</h2>
-                <p className="text-sm text-white/80">Showing {records.length} of {totalRecords} records</p>
+                <h2 className="text-xl font-bold">Payroll Summaries</h2>
+                <p className="text-sm text-white/80">Showing {records.length} of {totalRecords} summaries</p>
               </div>
             </div>
             {loading.records && (
@@ -393,8 +556,7 @@ const SalaryManagement = () => {
         {loading.records ? (
           <div className="flex flex-col items-center justify-center py-12">
             <FaSpinner className="text-4xl text-primary-800 animate-spin mb-4" />
-            <p className="text-gray-600">Loading attendance records...</p>
-            <p className="text-sm text-gray-500 mt-2">Please wait a moment</p>
+            <p className="text-gray-600">Loading payroll summaries...</p>
           </div>
         ) : (
           <>
@@ -403,64 +565,55 @@ const SalaryManagement = () => {
                 <thead className="bg-primary-50 text-primary-800">
                   <tr>
                     <th className="p-3 border-b font-semibold">#</th>
-                    <th className="p-3 border-b font-semibold">Staff Member</th>
-                    <th className="p-3 border-b font-semibold">Days Present</th>
-                    <th className="p-3 border-b font-semibold">Total Overtime (hrs)</th>
-                    <th className="p-3 border-b font-semibold">Overtime Pay</th>
-                    <th className="p-3 border-b font-semibold">Base Salary</th>
-                    <th className="p-3 border-b font-semibold">Total</th>
-                    <th className="p-3 border-b font-semibold">Paid</th>
-                    <th className="p-3 border-b font-semibold">Date</th>
+                    <th className="p-3 border-b font-semibold">Period</th>
+                    <th className="p-3 border-b font-semibold">Total Salary</th>
+                    <th className="p-3 border-b font-semibold">Total Paid</th>
+                    <th className="p-3 border-b font-semibold">Remaining</th>
+                    <th className="p-3 border-b font-semibold">Staff Count</th>
+                    <th className="p-3 border-b font-semibold">Departments</th>
                     <th className="p-3 border-b font-semibold">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {records.length === 0 ? (
                     <tr>
-                      <td colSpan="10" className="p-8 text-center text-gray-500">No records found</td>
+                      <td colSpan="8" className="p-8 text-center text-gray-500">No payroll summaries found</td>
                     </tr>
                   ) : (
                     records.map((record, idx) => {
-                      const attendanceDays = Object.values(record.attendance || {}).filter((day) => day.attendance).length;
-                      const totalOvertime = Object.values(record.attendance || {}).reduce((sum, day) => sum + (day.overtime || 0), 0);
-                      const overtimePerHour = totalOvertime > 0 ? (record.overtime || 0) / totalOvertime : 0;
-
+                      const staffCount = record.salaries?.length || 0;
+                      let total = 0, paid = 0, remaind = 0;
+                      record.departmentSummaries?.forEach(ds => {
+                        total += ds.department.total || 0;
+                        paid += ds.department.received || 0;
+                        remaind += ds.department.remained || 0;
+                      });
                       return (
                         <tr key={record.id} className="hover:bg-gray-50 border-b last:border-0 transition-colors">
-                          <td className="p-3 text-gray-600">{(page - 1) * limit + idx + 1}</td>
-                          <td className="p-3">
-                            <div className="text-center">
-                              <div className="font-medium text-gray-800">{record.Staff?.name}</div>
-                              <div className="text-sm text-gray-500">{record.Staff?.fatherName}</div>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
-                              {attendanceDays} day{attendanceDays !== 1 ? "s" : ""}
-                            </span>
-                          </td>
-                          <td className="p-3">
-                            <span className="bg-orange-100 text-orange-800 px-3 py-1 rounded-full text-sm">
-                              {totalOvertime.toFixed(1)} hr{totalOvertime !== 1 ? "s" : ""}
-                            </span>
-                          </td>
-                          <td className="p-3">
-                            <div className="flex flex-col gap-1 items-center">
-                              <span className="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm">{(record.overtime || 0)} AFN total</span>
-                              <span className="bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-sm">{overtimePerHour.toFixed(1)} AFN / hr</span>
-                            </div>
-                          </td>
-                          <td className="p-3">
-                            <span className="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-bold">{(record.salary || 0)} AFN</span>
-                          </td>
-                          <td className="p-3">
-                            <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-sm font-bold">{(record.total || 0)} AFN</span>
-                          </td>
-                          <td className="p-3">
-                            <span className="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-sm font-bold">{(record.receipt || 0)} AFN</span>
-                          </td>
-                          <td className="p-3">
-                            <span className="px-3 py-1">{record.createdAt ? new Date(record.createdAt).toLocaleDateString("en-US") : "—"}</span>
+                          <td className="p-3 text-gray-600">{record.id}</td>
+                          <td className="p-3 font-medium">{monthNames[record.month - 1]} {record.year}</td>
+                          <td className="p-3 text-emerald-700 font-bold">{total} AFN</td>
+                          <td className="p-3 text-blue-700 font-bold">{paid} AFN</td>
+                          <td className="p-3 text-red-700 font-bold">{remaind} AFN</td>
+                          <td className="p-3">{staffCount}</td>
+                          <td className="p-3 text-left">
+                            {record.departmentSummaries && record.departmentSummaries.length > 0 ? (
+                              <div className="space-y-1">
+                                {record.departmentSummaries.map((ds, i) => {
+                                  const deptName = getDepartmentName(ds.department.id);
+                                  return (
+                                    <div key={i} className="text-xs">
+                                      <span className="font-medium text-gray-800">{deptName}</span>
+                                      <div className="text-[10px] text-gray-500">
+                                        Total: {ds.department.total} | Paid: {ds.department.received} | Rem: {ds.department.remained}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 text-sm">—</span>
+                            )}
                           </td>
                           <td className="p-3">
                             <div className="flex items-center justify-center gap-2">
@@ -492,4 +645,4 @@ const SalaryManagement = () => {
   );
 };
 
-export default SalaryManagement;
+export default MonthlySalaryManagement;

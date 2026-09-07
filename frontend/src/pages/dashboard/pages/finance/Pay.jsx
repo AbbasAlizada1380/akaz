@@ -6,9 +6,11 @@ import PayDateDownload from "../report/PayDateDownload";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 const SELLER_API = `${BASE_URL}/selleraccount/debt`;
+const DEPARTMENT_API = `${BASE_URL}/department`;
 
 const initialForm = {
   seller: "",
+  departmentId: "",
   amount: "",
   description: "",
 };
@@ -16,21 +18,25 @@ const initialForm = {
 export default function Pay() {
   const [activeTab, setActiveTab] = useState("payments");
   const [pays, setPays] = useState([]);
-  const [sellers, setSellers] = useState([]); // will be array of { id, fullname, totalUnpaidAmount }
+  const [sellers, setSellers] = useState([]);
+  const [departments, setDepartments] = useState([]); // all departments for filter
+  const [sellerDepartments, setSellerDepartments] = useState([]); // departments for selected seller (for form)
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
   const [sellerFilter, setSellerFilter] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
   const limit = 20;
 
-  // Fetch payments with pagination and optional seller filter
+  // Fetch payments with pagination and optional filters
   const fetchPays = async () => {
     setLoading(true);
     try {
       const params = { page, limit };
       if (sellerFilter) params.seller = sellerFilter;
+      if (departmentFilter) params.departmentId = departmentFilter;
       const res = await axios.get(`${BASE_URL}/pay`, { params });
       setPays(res.data.data || []);
       setTotalPages(res.data.totalPages || 1);
@@ -42,19 +48,20 @@ export default function Pay() {
     }
   };
 
-  // Fetch sellers from /seller/debt and transform to flat structure
+  // Fetch sellers with their department breakdown
   const fetchSellers = async () => {
     try {
       const res = await axios.get(SELLER_API);
       if (res.data.success && Array.isArray(res.data.data)) {
-        // Transform: each item has { seller: { id, fullname, ... }, totalDue }
         const transformed = res.data.data.map(item => ({
           id: item.seller.id,
           fullname: item.seller.fullname,
           phoneNumber: item.seller.phoneNumber,
           department: item.seller.department,
           isActive: item.seller.isActive,
-          totalUnpaidAmount: item.totalDue   // rename to match expected field
+          totalUnpaidAmount: item.totalDue,
+          departmentBreakdown: item.departmentBreakdown || [], // ✅ store breakdown
+          departmentsCount: item.departmentsCount || 0,
         }));
         setSellers(transformed);
       } else {
@@ -66,17 +73,60 @@ export default function Pay() {
     }
   };
 
-  // Reload data when page, activeTab, or sellerFilter changes
+  // Fetch all departments (for filter)
+  const fetchDepartments = async () => {
+    try {
+      const res = await axios.get(DEPARTMENT_API);
+      if (res.data.success && Array.isArray(res.data.data)) {
+        setDepartments(res.data.data);
+      } else {
+        setDepartments([]);
+      }
+    } catch (error) {
+      console.error("Error fetching departments:", error);
+      setDepartments([]);
+    }
+  };
+
+  // Reload data when page, activeTab, or filters change
   useEffect(() => {
     if (activeTab === "payments") {
       fetchPays();
       fetchSellers();
+      fetchDepartments();
     }
-  }, [page, activeTab, sellerFilter]);
+  }, [page, activeTab, sellerFilter, departmentFilter]);
 
-  // Reset page to 1 when seller filter changes
+  // Update sellerDepartments when seller selection changes
+  useEffect(() => {
+    if (form.seller) {
+      const selected = sellers.find(s => s.id === parseInt(form.seller));
+      if (selected && selected.departmentBreakdown) {
+        setSellerDepartments(selected.departmentBreakdown);
+        // Auto-select if only one department
+        if (selected.departmentBreakdown.length === 1) {
+          setForm(prev => ({ ...prev, departmentId: selected.departmentBreakdown[0].departmentId.toString() }));
+        } else {
+          setForm(prev => ({ ...prev, departmentId: "" }));
+        }
+      } else {
+        setSellerDepartments([]);
+        setForm(prev => ({ ...prev, departmentId: "" }));
+      }
+    } else {
+      setSellerDepartments([]);
+      setForm(prev => ({ ...prev, departmentId: "" }));
+    }
+  }, [form.seller, sellers]);
+
+  // Reset page when filters change
   const handleSellerFilterChange = (e) => {
     setSellerFilter(e.target.value);
+    setPage(1);
+  };
+
+  const handleDepartmentFilterChange = (e) => {
+    setDepartmentFilter(e.target.value);
     setPage(1);
   };
 
@@ -87,6 +137,7 @@ export default function Pay() {
   const resetForm = () => {
     setForm(initialForm);
     setEditingId(null);
+    setSellerDepartments([]);
   };
 
   const handleSubmit = async (e) => {
@@ -111,6 +162,7 @@ export default function Pay() {
 
     const payload = {
       seller: form.seller,
+      departmentId: form.departmentId || null,
       amount,
       description: form.description || null,
     };
@@ -134,12 +186,22 @@ export default function Pay() {
   };
 
   const handleEdit = (pay) => {
+    // Set form fields
     setForm({
       seller: pay.seller,
+      departmentId: pay.departmentId || "",
       amount: pay.amount,
       description: pay.description || "",
     });
     setEditingId(pay.id);
+
+    // Update sellerDepartments based on the pay's seller
+    const selected = sellers.find(s => s.id === pay.seller);
+    if (selected && selected.departmentBreakdown) {
+      setSellerDepartments(selected.departmentBreakdown);
+    } else {
+      setSellerDepartments([]);
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -219,7 +281,7 @@ export default function Pay() {
             </div>
 
             {/* Filter Bar */}
-            <div className="mb-4 flex justify-end">
+            <div className="mb-4 flex flex-wrap gap-4 justify-end">
               <select
                 value={sellerFilter}
                 onChange={handleSellerFilterChange}
@@ -229,6 +291,18 @@ export default function Pay() {
                 {sellers.map((seller) => (
                   <option key={seller.id} value={seller.id}>
                     {seller.fullname}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={departmentFilter}
+                onChange={handleDepartmentFilterChange}
+                className="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:ring-primary focus:border-primary"
+              >
+                <option value="">All Departments</option>
+                {departments.map((dept) => (
+                  <option key={dept.id} value={dept.id}>
+                    {dept.name}
                   </option>
                 ))}
               </select>
@@ -265,10 +339,40 @@ export default function Pay() {
                       <option value="">Choose a seller...</option>
                       {sellers.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.fullname} (unpaid: ${s.totalUnpaidAmount || 0})
+                          {s.fullname} (unpaid: {s.totalUnpaidAmount || 0})
                         </option>
                       ))}
                     </select>
+                  </div>
+
+                  {/* Department dropdown - shows only departments with unpaid amounts for selected seller */}
+                  <div className="space-y-2">
+                    <label className="block text-sm font-semibold text-gray-700">
+                      Department
+                    </label>
+                    <select
+                      name="departmentId"
+                      value={form.departmentId}
+                      onChange={handleChange}
+                      className="w-full border-2 border-gray-200 rounded-xl px-4 py-3.5 focus:ring-2 focus:ring-primary focus:border-primary transition-all outline-none bg-white"
+                      disabled={sellerDepartments.length === 0}
+                    >
+                      <option value="">
+                        {sellerDepartments.length === 0
+                          ? "No departments with unpaid amounts"
+                          : "Select Department (optional)"}
+                      </option>
+                      {sellerDepartments.map((dept) => (
+                        <option key={dept.departmentId} value={dept.departmentId}>
+                          {dept.departmentName} ({dept.total})
+                        </option>
+                      ))}
+                    </select>
+                    {sellerDepartments.length > 0 && (
+                      <p className="text-xs text-gray-500">
+                        Showing departments with unpaid amounts for this seller.
+                      </p>
+                    )}
                   </div>
 
                   <div className="space-y-2">
@@ -276,7 +380,7 @@ export default function Pay() {
                       Amount <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
-                      <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium">$</span>
+                      <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500 font-medium"></span>
                       <input
                         type="number"
                         name="amount"
@@ -364,6 +468,7 @@ export default function Pay() {
                     <tr>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">#</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">Seller</th>
+                      <th className="px-6 py-4 text-left text-sm font-semibold text-white">Department</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">Amount</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">Description</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">Date</th>
@@ -373,7 +478,7 @@ export default function Pay() {
                   <tbody className="divide-y divide-primary">
                     {loading && pays.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="px-6 py-16 text-center">
+                        <td colSpan="7" className="px-6 py-16 text-center">
                           <div className="flex flex-col items-center justify-center space-y-4">
                             <div className="flex space-x-2">
                               <div className="w-3 h-3 bg-primary rounded-full animate-bounce"></div>
@@ -386,7 +491,7 @@ export default function Pay() {
                       </tr>
                     ) : pays.length === 0 ? (
                       <tr>
-                        <td colSpan="6" className="px-6 py-16 text-center">
+                        <td colSpan="7" className="px-6 py-16 text-center">
                           <div className="flex flex-col items-center">
                             <div className="p-4 bg-primary rounded-full mb-4">
                               <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -407,16 +512,21 @@ export default function Pay() {
                           <td className="px-6 py-4">
                             <div className="flex items-center space-x-3">
                               <div>
-                                <div className="font-semibold text-gray-900">{pay.sellerInfo?.fullname || "Unknown Seller"}</div>
-                                {pay.sellerInfo?.phoneNumber && (
-                                  <div className="text-xs text-gray-500">{pay.sellerInfo.phoneNumber}</div>
+                                <div className="font-semibold text-gray-900">{pay.paySeller?.fullname || "Unknown Seller"}</div>
+                                {pay.paySeller?.phoneNumber && (
+                                  <div className="text-xs text-gray-500">{pay.paySeller.phoneNumber}</div>
                                 )}
                               </div>
                             </div>
                           </td>
                           <td className="px-6 py-4">
+                            <span className="inline-flex items-center px-3 py-1.5 bg-blue-100 text-blue-700 rounded-xl text-sm">
+                              {pay.payDepartment?.name || <span className="text-gray-400 italic">No department</span>}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4">
                             <span className="inline-flex items-center px-3 py-1.5 bg-green-100 text-green-700 rounded-xl font-semibold">
-                              ${parseFloat(pay.amount).toFixed(2)}
+                              {parseFloat(pay.amount).toFixed(2)}
                             </span>
                           </td>
                           <td className="px-6 py-4">
@@ -458,7 +568,6 @@ export default function Pay() {
                 </table>
               </div>
 
-              {/* Pagination Component */}
               <div className="border-t border-primary px-6 py-4 bg-primary/50">
                 <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
               </div>
