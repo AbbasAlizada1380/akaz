@@ -14,7 +14,8 @@ const SellManager = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [billsKey, setBillsKey] = useState(0);
-  const [globalDiscountAmount, setGlobalDiscountAmount] = useState(0);  // NEW: store the global discount amount
+
+  // Form state
   const [customerType, setCustomerType] = useState("existing");
   const [customerId, setCustomerId] = useState("");
   const [newCustomerName, setNewCustomerName] = useState("");
@@ -36,13 +37,72 @@ const SellManager = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState({ type: "", text: "" });
 
-  // Helper: round to nearest integer
+  // Edit mode
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingBillId, setEditingBillId] = useState(null);
+
+  // Helper
   const toInt = (val) => Math.round(parseFloat(val) || 0);
 
-
-  // Derived values
+  // Derived totals
   const overallTotal = items.reduce((sum, item) => sum + (item.discountedTotal || 0), 0);
   const remaind = receipt ? overallTotal - parseFloat(receipt) : overallTotal;
+
+  // --- Load bill for editing ---
+  const loadBillForEdit = async (billId) => {
+    setSubmitting(false);
+    setSubmitMessage({ type: "", text: "" });
+    try {
+      const res = await axios.get(`${BASE_URL}/Bill/bills/${billId}`);
+      if (!res.data.success) throw new Error("Failed to load bill");
+      const { bill, sells } = res.data;
+
+      // Customer
+      setCustomerType("existing");
+      setCustomerId(bill.customerId?.toString() || "");
+
+      // Receipt and notes
+      setReceipt(bill.paidAmount?.toString() || "0");
+      setNotes(bill.notes || "");
+
+      // Map sells – ensure numeric types for dropdowns
+      const mappedItems = sells.map((sell, index) => ({
+        id: Date.now() + index,
+        departmentId: sell.departmentId != null ? Number(sell.departmentId) : null,
+        productId: sell.exist != null ? Number(sell.exist) : null,
+        productName: allProducts.find(p => p.id === Number(sell.exist))?.name || sell.sellStockExist?.name || "",
+        amount: sell.amount,
+        unitPrice: parseFloat(sell.unit_price),
+        discountPercent: parseFloat(sell.discount_percent) || 0,
+        total: parseFloat(sell.amount) * parseFloat(sell.unit_price),
+        discountedTotal: parseFloat(sell.total) || 0,
+      }));
+
+      setItems(mappedItems.length ? mappedItems : [{
+        id: Date.now(),
+        departmentId: null,
+        productId: null,
+        productName: "",
+        amount: "",
+        unitPrice: "",
+        discountPercent: 0,
+        discountedTotal: 0,
+        total: 0,
+      }]);
+
+      setEditingBillId(billId);
+      setIsEditMode(true);
+    } catch (err) {
+      setSubmitMessage({ type: "error", text: err.message });
+    }
+  };
+
+  const cancelEdit = () => {
+    setIsEditMode(false);
+    setEditingBillId(null);
+    resetForm();
+    setSubmitMessage({ type: "", text: "" });
+  };
 
   // --- Data fetching ---
   useEffect(() => {
@@ -75,8 +135,7 @@ const SellManager = () => {
     fetchInitialData();
   }, []);
 
-
-  // Items management (with integer rounding)
+  // --- Item management ---
   const addItem = () => {
     setItems(prev => [
       ...prev,
@@ -101,19 +160,19 @@ const SellManager = () => {
     }
     setItems(prev => prev.filter(item => item.id !== id));
   };
+
   const updateItem = (id, field, value) => {
     setItems(prev =>
       prev.map(item => {
         if (item.id !== id) return item;
         const updated = { ...item, [field]: value };
-        value = Math.round(parseFloat(value) || 0);
         const amount = parseFloat(updated.amount) || 0;
-        const unitPrice = parseFloat(updated.unitPrice) || 0;
+        const unitPrice = toInt(updated.unitPrice);
         const discountPercent = parseFloat(updated.discountPercent) || 0;
 
-        const rawTotal = amount * unitPrice;    // both integers → integer
+        const rawTotal = amount * unitPrice;
         const discountAmount = Math.round(rawTotal * (discountPercent / 100));
-        const discountedTotal = rawTotal - discountAmount; // integer
+        const discountedTotal = rawTotal - discountAmount;
 
         updated.total = rawTotal;
         updated.discountedTotal = discountedTotal;
@@ -152,14 +211,10 @@ const SellManager = () => {
   };
 
   const applyGlobalDiscountAmount = (totalDiscountAmount) => {
-    // Calculate current raw total
     const totalRaw = items.reduce((sum, item) => sum + (parseFloat(item.amount) * toInt(item.unitPrice) || 0), 0);
     if (totalRaw <= 0) return;
-    // Target total after discount
     const targetTotal = Math.max(0, totalRaw - totalDiscountAmount);
-    // Effective discount percentage (may have many decimals)
     const effectivePercent = ((totalRaw - targetTotal) / totalRaw) * 100;
-    // Apply that percentage with integer rounding per item
     setItems(prev =>
       prev.map(item => {
         const amount = parseFloat(item.amount) || 0;
@@ -176,7 +231,8 @@ const SellManager = () => {
       })
     );
   };
-  // --- Validation helpers ---
+
+  // --- Validation ---
   const validateCustomer = () => {
     if (customerType === "existing" && !customerId) {
       setSubmitMessage({ type: "error", text: "Please select an existing customer" });
@@ -225,6 +281,7 @@ const SellManager = () => {
     return true;
   };
 
+  // --- Build payload (create & update) ---
   const buildPayload = () => {
     const receiptAmount = toInt(receipt);
     const itemsPayload = [];
@@ -273,6 +330,7 @@ const SellManager = () => {
     return payload;
   };
 
+  // --- Reset form ---
   const resetForm = () => {
     setCustomerId("");
     setNewCustomerName("");
@@ -294,6 +352,7 @@ const SellManager = () => {
     setNotes("");
   };
 
+  // --- Refresh data ---
   const refreshData = async () => {
     const refreshRes = await axios.get(`${BASE_URL}/stockExist`);
     if (refreshRes.data.success) {
@@ -306,7 +365,7 @@ const SellManager = () => {
     setBillsKey(prev => prev + 1);
   };
 
-  // --- Main submit handler ---
+  // --- Submit handler (POST for create, PUT for update) ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSubmitMessage({ type: "", text: "" });
@@ -319,13 +378,26 @@ const SellManager = () => {
 
     setSubmitting(true);
     try {
-      const res = await axios.post(`${BASE_URL}/sells`, payload);
-      const data = res.data;
-      setSubmitMessage({
-        type: "success",
-        text: `Sale recorded! Bill #${data.bill.billNumber || data.bill.id} - Remaining: ${data.bill.remainingAmount}`,
-      });
+      let res;
+      if (isEditMode && editingBillId) {
+        // UPDATE
+        res = await axios.put(`${BASE_URL}/Bill/bills/${editingBillId}`, payload);
+        setSubmitMessage({
+          type: "success",
+          text: `Bill #${editingBillId} updated successfully!`,
+        });
+      } else {
+        // CREATE
+        res = await axios.post(`${BASE_URL}/sells`, payload);
+        const data = res.data;
+        setSubmitMessage({
+          type: "success",
+          text: `Sale recorded! Bill #${data.bill.billNumber || data.bill.id} - Remaining: ${data.bill.remainingAmount}`,
+        });
+      }
       resetForm();
+      setIsEditMode(false);
+      setEditingBillId(null);
       await refreshData();
     } catch (err) {
       setSubmitMessage({
@@ -337,21 +409,25 @@ const SellManager = () => {
     }
   };
 
-  // --- Loading and error states ---
+  // --- Loading & error ---
   if (loading) return <div className="p-6 text-center text-gray-500">Loading sale data...</div>;
   if (error) return <div className="p-6 text-center text-red-500">Error: {error}</div>;
 
-  // --- Render ---
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto space-y-8">
         <div className="text-center">
-          <h1 className="text-3xl font-extrabold text-gray-900 sm:text-4xl">New Sale (Invoice)</h1>
-          <p className="mt-2 text-sm text-gray-600">Create a new invoice for a customer</p>
+          <h1 className="text-3xl font-extrabold text-gray-900 sm:text-4xl">
+            {isEditMode ? "Edit Invoice" : "New Sale (Invoice)"}
+          </h1>
+          <p className="mt-2 text-sm text-gray-600">
+            {isEditMode ? `Editing Bill #${editingBillId}` : "Create a new invoice for a customer"}
+          </p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
           <SellForm
+            key={isEditMode ? `edit-${editingBillId}` : 'create'}
             customerType={customerType}
             setCustomerType={setCustomerType}
             customerId={customerId}
@@ -376,12 +452,16 @@ const SellManager = () => {
             onSubmit={handleSubmit}
             applyGlobalDiscount={applyGlobalDiscount}
             applyGlobalDiscountAmount={applyGlobalDiscountAmount}
+            isEditMode={isEditMode}
+            onCancelEdit={cancelEdit}
           />
         </div>
 
         <div className="border-t border-gray-200 pt-8">
-          <h2 className="text-2xl font-bold text-gray-900 mb-6">Recent Invoices</h2>
-          <BillsList key={billsKey} />
+          <h2 className="text-2xl font-bold text-gray-900 mb-6">
+            {isEditMode ? "All Invoices (editing mode)" : "Recent Invoices"}
+          </h2>
+          <BillsList key={billsKey} onEditBill={loadBillForEdit} />
         </div>
       </div>
     </div>

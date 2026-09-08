@@ -332,7 +332,7 @@ const Receive = () => {
                     <option value="">Choose a customer...</option>
                     {customers.map((c) => (
                       <option key={c.customer.id} value={c.customer.id}>
-                        {c.customer.fullname} - Total Due: ${c.total_due}
+                        {c.customer.fullname} - Total Due: {c.total_due}
                       </option>
                     ))}
                   </select>
@@ -350,10 +350,10 @@ const Receive = () => {
                           return (
                             <div key={dept.id} className="space-y-2">
                               <label className="block text-sm font-medium text-gray-700">
-                                {dept.name} (Due: ${maxAmount})
+                                {dept.name} (Due: {maxAmount})
                               </label>
                               <div className="relative">
-                                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                                <span className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-500"></span>
                                 <input
                                   type="number"
                                   value={departmentAmounts[dept.id] || 0}
@@ -370,10 +370,10 @@ const Receive = () => {
                       </div>
                       <div className="mt-4 text-sm bg-white p-3 rounded-lg">
                         <span className="font-semibold">Total Payment: </span>
-                        <span className="text-primary font-bold">${getTotalPayment().toFixed(2)}</span>
+                        <span className="text-primary font-bold">{getTotalPayment().toFixed(2)}</span>
                         {selectedCustomerData.total_due && (
                           <span className="ml-4 text-gray-600">
-                            (Out of total due: ${selectedCustomerData.total_due})
+                            (Out of total due: {selectedCustomerData.total_due})
                           </span>
                         )}
                       </div>
@@ -471,12 +471,12 @@ const Receive = () => {
                            </td>
                           <td className="px-6 py-4">
                             <div className="font-semibold text-gray-900">
-                              {receive.customerInfo?.fullname || getCustomerName(receive.customer)}
+                              {receive.receiveCustomer?.fullname || getCustomerName(receive.customer)}
                             </div>
                           </td>
                           <td className="px-6 py-4">
                             <span className="inline-flex items-center px-3 py-1.5 bg-green-100 text-green-700 rounded-xl font-semibold">
-                              ${parseFloat(receive.amount).toFixed(2)}
+                              {parseFloat(receive.amount).toFixed(2)}
                             </span>
                           </td>
                           <td className="px-6 py-4 text-sm text-gray-600">{formatDate(receive.createdAt)}</td>

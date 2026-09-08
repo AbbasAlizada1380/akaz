@@ -10,9 +10,10 @@ const initialForm = {
   fatherName: "",
   NIC: "",
   salary: "",
-  overTimePerHour: "",
-  workingDaysPerWeek: "",
+  // overTimePerHour: "",
+  // workingDaysPerWeek: "",
   departmentId: "",
+  isActive: true,
 };
 
 const StaffManager = () => {
@@ -60,9 +61,10 @@ const StaffManager = () => {
     const payload = {
       ...form,
       salary: Number(form.salary),
-      overTimePerHour: Number(form.overTimePerHour),
-      workingDaysPerWeek: Number(form.workingDaysPerWeek),
+      // overTimePerHour: Number(form.overTimePerHour),
+      // workingDaysPerWeek: Number(form.workingDaysPerWeek),
       departmentId: form.departmentId ? Number(form.departmentId) : null,
+      isActive: form.isActive === true, // ensure boolean
     };
 
     try {
@@ -89,12 +91,12 @@ const StaffManager = () => {
       fatherName: staff.fatherName || "",
       NIC: staff.NIC || "",
       salary: staff.salary || "",
-      overTimePerHour: staff.overTimePerHour || "",
-      workingDaysPerWeek: staff.workingDaysPerWeek || "",
+      // overTimePerHour: staff.overTimePerHour || "",
+      // workingDaysPerWeek: staff.workingDaysPerWeek || "",
       departmentId: staff.departmentId || "",
+      isActive: staff.isActive !== false, // handle null/undefined
     });
     setEditingId(staff.id);
-    // Scroll to form
     document.getElementById("staff-form")?.scrollIntoView({ behavior: "smooth" });
   };
 
@@ -111,15 +113,13 @@ const StaffManager = () => {
     }
   };
 
-  const formatDate = (date) =>
-    new Date(date).toLocaleDateString("en-US");
+  const formatDate = (date) => new Date(date).toLocaleDateString("en-US");
 
   const getDepartmentName = (departmentId) => {
     const department = departments.find(d => d.id === departmentId);
     return department ? department.name : "Unassigned";
   };
 
-  // Initial loading screen
   if (tableLoading && staffs.length === 0) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 flex flex-col items-center justify-center p-6">
@@ -136,13 +136,10 @@ const StaffManager = () => {
       <div className="text-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">Staff Management</h1>
         <p className="text-gray-600">Add and manage staff information</p>
-
         {editingId && (
           <div className="mt-4 p-4 bg-yellow-100 border border-yellow-400 rounded-xl max-w-md mx-auto">
             <div className="flex items-center justify-center gap-2 text-yellow-800">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
-              </svg>
+              <FaEdit className="h-5 w-5" />
               <span className="font-semibold">Editing mode – Staff #{editingId}</span>
             </div>
           </div>
@@ -151,30 +148,24 @@ const StaffManager = () => {
 
       {/* Form Section */}
       <div id="staff-form" className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        {/* Form Header */}
         <div className="bg-primary text-white p-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-white/20 rounded-full">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5 0c-.281.023-.562.045-.843.066a23.518 23.518 0 00-7.86-3.317 8.991 8.991 0 00-5.697 1.641 8.975 8.975 0 013.33 7.007h6.07z" />
               </svg>
             </div>
             <div>
-              <h2 className="text-xl font-bold">
-                {editingId ? "Edit Staff Member" : "Add New Staff Member"}
-              </h2>
-              <p className="text-sm text-white/80">
-                {editingId ? "Edit staff information" : "Enter staff details"}
-              </p>
+              <h2 className="text-xl font-bold">{editingId ? "Edit Staff Member" : "Add New Staff Member"}</h2>
+              <p className="text-sm text-white/80">{editingId ? "Edit staff information" : "Enter staff details"}</p>
             </div>
           </div>
         </div>
 
-        {/* Form Content */}
         <div className="p-6">
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Name Field */}
+              {/* Name, FatherName, NIC, Department */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> Full Name
@@ -188,8 +179,6 @@ const StaffManager = () => {
                   disabled={formLoading}
                 />
               </div>
-
-              {/* Father Name Field */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> Father's Name
@@ -203,8 +192,6 @@ const StaffManager = () => {
                   disabled={formLoading}
                 />
               </div>
-
-              {/* NIC Field */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> National ID (NIC)
@@ -218,8 +205,6 @@ const StaffManager = () => {
                   disabled={formLoading}
                 />
               </div>
-
-              {/* Department Selection */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> Department
@@ -241,10 +226,8 @@ const StaffManager = () => {
               </div>
             </div>
 
-            {/* Working Days and Department (if needed) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Working Days Field */}
-              <div>
+            {/* <div className="grid grid-cols-1 md:grid-cols-2 gap-6"> */}
+              {/* <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> Working Days per Week
                 </label>
@@ -259,17 +242,13 @@ const StaffManager = () => {
                   className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary-500 focus:border-primary-500 transition"
                   disabled={formLoading}
                 />
-              </div>
-
-              {/* Overtime Field */}
-              <div>
+              </div> */}
+              {/* <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> Overtime Rate / Hour (AFN)
                 </label>
                 <div className="relative">
-                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
-                    ؋
-                  </div>
+                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">؋</div>
                   <input
                     required
                     type="number"
@@ -279,20 +258,16 @@ const StaffManager = () => {
                     disabled={formLoading}
                   />
                 </div>
-              </div>
-            </div>
+              </div> */}
+            {/* </div> */}
 
-            {/* Salary Section */}
-            <div className="grid grid-cols-1 md:grid-cols-1 gap-6">
-              {/* Salary Field */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> Weekly Salary (AFN)
                 </label>
                 <div className="relative">
-                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">
-                    ؋
-                  </div>
+                  <div className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">؋</div>
                   <input
                     required
                     type="number"
@@ -302,6 +277,19 @@ const StaffManager = () => {
                     disabled={formLoading}
                   />
                 </div>
+              </div>
+              {/* Active status toggle */}
+              <div className="flex items-center">
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.isActive !== false}
+                    onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+                    className="w-5 h-5 text-primary-600 rounded focus:ring-primary-500"
+                    disabled={formLoading}
+                  />
+                  <span className="text-sm font-medium text-gray-700">Staff is Active</span>
+                </label>
               </div>
             </div>
 
@@ -332,7 +320,7 @@ const StaffManager = () => {
                   </>
                 ) : (
                   <>
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 20 20" stroke="currentColor">
                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                     </svg>
                     <span>{editingId ? "Save Changes" : "Add Staff"}</span>
@@ -346,12 +334,11 @@ const StaffManager = () => {
 
       {/* Staff Table */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        {/* Table Header */}
         <div className="bg-primary text-white p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="p-2 bg-white/20 rounded-full">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                 </svg>
               </div>
@@ -372,12 +359,10 @@ const StaffManager = () => {
           </div>
         </div>
 
-        {/* Table Content */}
         {tableLoading ? (
           <div className="flex flex-col items-center justify-center py-12">
             <FaSpinner className="text-4xl text-primary-800 animate-spin mb-4" />
             <p className="text-gray-600">Loading staff list...</p>
-            <p className="text-sm text-gray-500 mt-2">Please wait a moment</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -391,6 +376,7 @@ const StaffManager = () => {
                   <th className="p-3 border-b font-semibold">Department</th>
                   <th className="p-3 border-b font-semibold">Salary (AFN)</th>
                   <th className="p-3 border-b font-semibold">Work Days</th>
+                  <th className="p-3 border-b font-semibold">Status</th>
                   <th className="p-3 border-b font-semibold">Created At</th>
                   <th className="p-3 border-b font-semibold">Actions</th>
                 </tr>
@@ -399,29 +385,23 @@ const StaffManager = () => {
               <tbody>
                 {staffs.length === 0 ? (
                   <tr>
-                    <td colSpan="9" className="p-8">
+                    <td colSpan="10" className="p-8">
                       <div className="flex flex-col items-center justify-center">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-16 w-16 text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="h-16 w-16 text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                         </svg>
                         <p className="text-gray-500 text-lg">No staff members found</p>
-                        <p className="text-gray-400 text-sm mt-1">Add a new staff member to get started</p>
                       </div>
                     </td>
                   </tr>
                 ) : (
                   staffs.map((staff, index) => (
-                    <tr
-                      key={staff.id}
-                      className="hover:bg-gray-50 border-b last:border-0 transition-colors"
-                    >
+                    <tr key={staff.id} className="hover:bg-gray-50 border-b last:border-0 transition-colors">
                       <td className="p-3 text-gray-600">{staff.id}</td>
                       <td className="p-3 font-medium text-gray-800">{staff.name}</td>
                       <td className="p-3 text-gray-600">{staff.fatherName}</td>
                       <td className="p-3">
-                        <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-sm">
-                          {staff.NIC}
-                        </span>
+                        <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded text-sm">{staff.NIC}</span>
                       </td>
                       <td className="p-3">
                         <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
@@ -438,6 +418,13 @@ const StaffManager = () => {
                       <td className="p-3">
                         <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
                           {staff.workingDaysPerWeek} day{staff.workingDaysPerWeek !== 1 ? "s" : ""}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                          staff.isActive ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {staff.isActive ? 'Active' : 'Inactive'}
                         </span>
                       </td>
                       <td className="p-3 text-gray-500 text-sm">

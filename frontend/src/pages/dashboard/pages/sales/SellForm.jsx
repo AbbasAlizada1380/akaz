@@ -1,5 +1,5 @@
 // SellForm.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 const SellForm = ({
     // Customer section
@@ -35,9 +35,23 @@ const SellForm = ({
     submitting,
     submitMessage,
     onSubmit,
+
+    // Edit mode props
+    isEditMode = false,
+    onCancelEdit,
+
+    // Pre‑filled department payments (for edit mode)
+    initialDeptPayments = null,
 }) => {
     const [globalDiscountPercent, setGlobalDiscountPercent] = useState("");
     const [globalDiscountAmount, setGlobalDiscountAmount] = useState("");
+
+    // Department-wise payments
+    const [deptPayments, setDeptPayments] = useState({});
+
+    // For the "Change to return" field (only used in edit mode)
+    const [changeToReturn, setChangeToReturn] = useState("");
+    const isEditingChange = useRef(false);
 
     // Reset global discount inputs when submission succeeds
     useEffect(() => {
@@ -47,6 +61,34 @@ const SellForm = ({
         }
     }, [submitMessage.type]);
 
+    // Initialize deptPayments from props (edit mode) or default to 0
+    useEffect(() => {
+        if (initialDeptPayments) {
+            setDeptPayments(initialDeptPayments);
+        } else {
+            // Reset to zero for each department present in items
+            const deptIds = [...new Set(items.map(item => item.departmentId).filter(Boolean))];
+            const initial = {};
+            deptIds.forEach(id => { initial[id] = 0; });
+            setDeptPayments(initial);
+        }
+    }, [items, initialDeptPayments]);
+
+    // Sync global receipt with the sum of department payments
+    useEffect(() => {
+        const total = Object.values(deptPayments).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+        setReceipt(total);
+    }, [deptPayments, setReceipt]);
+
+    // Sync changeToReturn with remaind when not actively editing (edit mode)
+    useEffect(() => {
+        if (!isEditingChange.current) {
+            const change = remaind < 0 ? Math.abs(remaind) : 0;
+            setChangeToReturn(change.toString());
+        }
+    }, [remaind]);
+
+    // Helper to filter products by department
     const getFilteredProducts = (departmentId) => {
         if (!departmentId) return allProducts;
         return allProducts.filter(p => p.departmentId === departmentId);
@@ -55,9 +97,49 @@ const SellForm = ({
     // Helper to round any number to integer
     const toInt = (val) => Math.round(parseFloat(val) || 0);
 
+    // Handler for department payment input
+    const handleDeptPaymentChange = (deptId, value) => {
+        setDeptPayments(prev => ({
+            ...prev,
+            [deptId]: value === '' ? '' : parseFloat(value) || 0,
+        }));
+    };
+
+    // Handler for "Change to return" (edit mode)
+    const handleChangeToReturn = (e) => {
+        const value = e.target.value;
+        setChangeToReturn(value);
+        const num = parseInt(value, 10);
+        if (!isNaN(num) && num >= 0) {
+            setReceipt(overallTotal + num);
+        }
+    };
+
+    // Compute per‑department totals from items
+    const deptTotals = items.reduce((acc, item) => {
+        const deptId = item.departmentId;
+        if (!deptId) return acc;
+        const amount = parseFloat(item.amount) || 0;
+        const unitPrice = toInt(item.unitPrice);
+        const rawTotal = amount * unitPrice;
+        const discountPercent = parseFloat(item.discountPercent) || 0;
+        const discountAmountInt = Math.round(rawTotal * (discountPercent / 100));
+        const discountedTotalInt = rawTotal - discountAmountInt;
+        acc[deptId] = (acc[deptId] || 0) + discountedTotalInt;
+        return acc;
+    }, {});
+
+    // Get unique departments from items
+    const involvedDepartments = departments.filter(dept =>
+        items.some(item => item.departmentId === dept.id)
+    );
+
+    // Compute total paid (sum of deptPayments)
+    const totalPaid = Object.values(deptPayments).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+
     return (
         <form onSubmit={onSubmit} className="divide-y divide-gray-200">
-            {/* Customer section */}
+            {/* Customer section – unchanged */}
             <div className="px-6 py-6 sm:px-8">
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Customer Information</h2>
                 <div className="space-y-6">
@@ -123,7 +205,7 @@ const SellForm = ({
                 </div>
             </div>
 
-            {/* Items table with discount (integer money) */}
+            {/* Items table – unchanged */}
             <div className="px-6 py-6 sm:px-8">
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Products & Quantities</h2>
                 <div className="overflow-x-auto border border-gray-200 rounded-lg">
@@ -156,19 +238,24 @@ const SellForm = ({
                         <tbody className="bg-white divide-y divide-gray-200">
                             {items.map((item) => {
                                 const filteredProducts = getFilteredProducts(item.departmentId);
-                                // All monetary values are integers (rounded)
+                                const selectedProduct = allProducts.find(p => p.id === item.productId);
+                                const stockAmount = selectedProduct?.amount ?? 0;
+                                const qty = parseFloat(item.amount) || 0;
+                                const isQtyExceeded = qty > 0 && qty > stockAmount;
+
                                 const amount = parseFloat(item.amount) || 0;
                                 const unitPrice = toInt(item.unitPrice);
                                 const rawTotal = amount * unitPrice;
                                 const discountPercent = parseFloat(item.discountPercent) || 0;
                                 const discountAmountInt = Math.round(rawTotal * (discountPercent / 100));
                                 const discountedTotalInt = rawTotal - discountAmountInt;
+
                                 return (
-                                    <tr key={item.id}>
+                                    <tr key={item.id} className={isQtyExceeded ? "bg-red-50" : ""}>
                                         {/* Department selector */}
                                         <td className="px-4 py-2">
                                             <select
-                                                value={item.departmentId || ""}
+                                                value={item.departmentId ?? ""}
                                                 onChange={(e) => {
                                                     const newDeptId = e.target.value ? parseInt(e.target.value) : null;
                                                     updateItem(item.id, "departmentId", newDeptId);
@@ -189,7 +276,7 @@ const SellForm = ({
                                         {/* Product selector */}
                                         <td className="px-4 py-2">
                                             <select
-                                                value={item.productId}
+                                                value={item.productId ?? ""}
                                                 onChange={(e) => {
                                                     const selectedProduct = filteredProducts.find(p => p.id === parseInt(e.target.value));
                                                     if (selectedProduct) {
@@ -223,10 +310,19 @@ const SellForm = ({
                                                 onChange={(e) => updateItem(item.id, "amount", e.target.value)}
                                                 placeholder="Qty"
                                                 required
-                                                className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                                                className={`block w-24 rounded-md shadow-sm focus:ring-blue-500 sm:text-sm ${
+                                                    isQtyExceeded
+                                                        ? "border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500"
+                                                        : "border-gray-300 focus:border-blue-500"
+                                                }`}
                                             />
+                                            {isQtyExceeded && (
+                                                <span className="text-red-500 text-xs block mt-1">
+                                                    Exceeds stock ({stockAmount})
+                                                </span>
+                                            )}
                                         </td>
-                                        {/* ✅ FIXED: Unit Price - now uses item.unitPrice */}
+                                        {/* Unit Price */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
@@ -289,12 +385,11 @@ const SellForm = ({
                 </button>
             </div>
 
-            {/* Payment & Notes section */}
+            {/* Payment & Notes with department-wise inputs – ENHANCED */}
             <div className="px-6 py-6 sm:px-8">
-                {/* Global Discount Section */}
+                {/* Global Discount Section – unchanged */}
                 <div className="px-6 py-4 sm:px-8 bg-gray-50 border-b border-gray-200">
                     <div className="flex flex-wrap gap-6">
-                        {/* Percentage discount */}
                         <div className="flex flex-wrap items-center gap-4">
                             <label className="text-sm font-medium text-gray-700">
                                 Global Discount %:
@@ -321,11 +416,9 @@ const SellForm = ({
                                 Apply % Discount
                             </button>
                         </div>
-
-                        {/* Amount discount (integer) */}
                         <div className="flex flex-wrap items-center gap-4">
                             <label className="text-sm font-medium text-gray-700">
-                                Global Discount Amount (integer currency):
+                                Global Discount Amount (integer):
                             </label>
                             <input
                                 type="number"
@@ -354,27 +447,124 @@ const SellForm = ({
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Payment & Notes</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
+                        {/* Enhanced Department-wise payment inputs */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">
-                                Receipt (amount paid, integer)
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                                Payment per Department *
                             </label>
-                            <input
-                                type="number"
-                                step="1"
-                                min="0"
-                                value={receipt}
-                                onChange={(e) => setReceipt(e.target.value)}
-                                placeholder="0"
-                                className="block w-64 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                            />
+                            {involvedDepartments.length === 0 ? (
+                                <p className="text-sm text-gray-500">No departments added yet.</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {involvedDepartments.map(dept => {
+                                        const deptTotal = deptTotals[dept.id] || 0;
+                                        const paid = parseFloat(deptPayments[dept.id]) || 0;
+                                        const remaining = deptTotal - paid;
+                                        const isOverpaid = remaining < 0;
+
+                                        return (
+                                            <div key={dept.id} className="flex flex-wrap items-center gap-3">
+                                                <span className="text-sm font-medium text-gray-700 w-32 truncate">
+                                                    {dept.name}
+                                                </span>
+                                                <input
+                                                    type="number"
+                                                    step="1"
+                                                    min="0"
+                                                    value={deptPayments[dept.id] ?? 0}
+                                                    onChange={(e) => handleDeptPaymentChange(dept.id, e.target.value)}
+                                                    placeholder="0"
+                                                    className={`block w-32 rounded-md shadow-sm focus:ring-blue-500 sm:text-sm ${
+                                                        isOverpaid
+                                                            ? "border-red-500 ring-1 ring-red-500 focus:border-red-500 focus:ring-red-500"
+                                                            : "border-gray-300 focus:border-blue-500"
+                                                    }`}
+                                                />
+                                                <span className="text-sm text-gray-600">
+                                                    {deptTotal > 0 ? (
+                                                        <>
+                                                            (Need: <span className="font-medium">{deptTotal}</span>
+                                                            {remaining > 0 && (
+                                                                <>, Remaining: <span className="font-medium text-red-600">{remaining}</span></>
+                                                            )}
+                                                            {remaining === 0 && (
+                                                                <span className="text-green-600 font-medium"> ✓ Fully paid</span>
+                                                            )}
+                                                            {remaining < 0 && (
+                                                                <span className="text-red-600 font-medium"> ⚠️ Overpaid by {Math.abs(remaining)}</span>
+                                                            )}
+                                                            )
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-gray-400">(no items)</span>
+                                                    )}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            {totalPaid > overallTotal && (
+                                <p className="text-red-600 text-sm mt-2">
+                                    ⚠️ Total paid ({totalPaid}) exceeds the invoice total ({overallTotal}).
+                                </p>
+                            )}
                         </div>
+
+                        {/* Total paid summary */}
                         <div>
-                            <span className="text-sm font-medium text-gray-700">Remaining balance: </span>
-                            <span className={`text-lg font-bold ${remaind > 0 ? "text-red-600" : "text-green-600"}`}>
-                                {remaind}
-                            </span>
+                            <span className="text-sm font-medium text-gray-700">Total Paid: </span>
+                            <span className="text-lg font-bold text-blue-600">{totalPaid}</span>
                         </div>
+
+                        {/* Balance display */}
+                        <div>
+                            <span className="text-sm font-medium text-gray-700">
+                                {remaind >= 0 ? 'Remaining balance: ' : 'Change due: '}
+                            </span>
+                            <span
+                                className={`text-lg font-bold ${
+                                    remaind > 0
+                                        ? 'text-red-600'
+                                        : remaind < 0
+                                        ? 'text-green-600'
+                                        : 'text-gray-700'
+                                }`}
+                            >
+                                {remaind >= 0 ? remaind : Math.abs(remaind)}
+                            </span>
+                            {remaind < 0 && (
+                                <p className="text-xs text-green-600 mt-1">
+                                    The customer overpaid. Enter the change amount below to record the return.
+                                </p>
+                            )}
+                        </div>
+
+                        {/* Edit mode: Change to return */}
+                        {isEditMode && (
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Change to return (if overpaid)
+                                </label>
+                                <input
+                                    type="number"
+                                    step="1"
+                                    min="0"
+                                    value={changeToReturn}
+                                    onChange={handleChangeToReturn}
+                                    onFocus={() => { isEditingChange.current = true; }}
+                                    onBlur={() => { isEditingChange.current = false; }}
+                                    placeholder="0"
+                                    className="block w-64 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Adjusting this will update the total paid above automatically.
+                                </p>
+                            </div>
+                        )}
                     </div>
+
+                    {/* Notes – unchanged */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
                         <textarea
@@ -388,7 +578,7 @@ const SellForm = ({
                 </div>
             </div>
 
-            {/* Submit section */}
+            {/* Submit section – unchanged */}
             <div className="px-6 py-6 sm:px-8 bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-4">
                 {submitMessage.text && (
                     <div
@@ -401,13 +591,28 @@ const SellForm = ({
                         {submitMessage.text}
                     </div>
                 )}
-                <button
-                    type="submit"
-                    disabled={submitting}
-                    className="inline-flex items-center px-6 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
-                >
-                    {submitting ? "Recording Sale..." : `Record Sale (${items.length} product(s))`}
-                </button>
+                <div className="flex gap-2">
+                    {isEditMode && (
+                        <button
+                            type="button"
+                            onClick={onCancelEdit}
+                            disabled={submitting}
+                            className="inline-flex items-center px-6 py-2 border border-gray-300 text-base font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                        >
+                            Cancel
+                        </button>
+                    )}
+                    <button
+                        type="submit"
+                        disabled={submitting}
+                        className="inline-flex items-center px-6 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+                    >
+                        {submitting
+                            ? (isEditMode ? "Updating..." : "Recording...")
+                            : (isEditMode ? `Update Bill (${items.length} product(s))` : `Record Sale (${items.length} product(s))`)
+                        }
+                    </button>
+                </div>
             </div>
         </form>
     );

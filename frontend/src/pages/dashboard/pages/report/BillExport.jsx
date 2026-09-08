@@ -52,7 +52,7 @@ const BillExport = ({ billId, billData: propBillData }) => {
     if (!data) return;
 
     const { bill, sells } = data;
-    const customer = bill.customer || {};
+    const customer = bill.billCustomer || {};
     const items = sells || [];
 
     const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
@@ -72,7 +72,7 @@ const BillExport = ({ billId, billData: propBillData }) => {
     let startY = 130;
     const headers = [["Product", "Quantity", "Unit Price", "Discount %", "Total"]];
     const body = items.map((item) => [
-      item.product?.name || "Unknown",
+      item.sellStockExist?.name || "Unknown",
       item.amount,
       formatCurrency(item.unit_price),
       `${item.discount_percent || 0}%`,
