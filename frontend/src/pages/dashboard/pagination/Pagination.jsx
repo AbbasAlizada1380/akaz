@@ -28,12 +28,12 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
               : "bg-primary text-white hover:bg-primary/90"
           }`}
         >
-          قبلی
+          Previous
         </button>
 
         <span className="px-3 text-gray-700">
-          صفحه{" "}
-          <span className="font-semibold text-primary">{currentPage}</span> از{" "}
+          Page{" "}
+          <span className="font-semibold text-primary">{currentPage}</span> of{" "}
           <span className="font-semibold text-primary">{totalPages}</span>
         </span>
 
@@ -46,7 +46,7 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
               : "bg-primary text-white hover:bg-primary/90"
           }`}
         >
-          بعدی
+          Next
         </button>
       </div>
 
@@ -59,13 +59,13 @@ const Pagination = ({ currentPage, totalPages, onPageChange }) => {
           value={pageInput}
           onChange={(e) => setPageInput(e.target.value)}
           className="w-16 text-center border border-primary rounded-md px-1 py-2 focus:ring-1 focus:ring-primary focus:outline-none"
-          placeholder="نمبر"
+          placeholder="No."
         />
         <button
           type="submit"
           className="px-3 py-2 bg-primary text-white rounded-md transition hover:bg-primary/90"
         >
-          رفتن
+          Go
         </button>
       </form>
     </div>

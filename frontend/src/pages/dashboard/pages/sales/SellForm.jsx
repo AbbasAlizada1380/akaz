@@ -1,5 +1,5 @@
 // SellForm.jsx
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 
 const SellForm = ({
     // Customer section
@@ -40,7 +40,7 @@ const SellForm = ({
     isEditMode = false,
     onCancelEdit,
 
-    // Pre‑filled department payments (for edit mode)
+    // Pre-filled department payments (for edit mode)
     initialDeptPayments = null,
 }) => {
     const [globalDiscountPercent, setGlobalDiscountPercent] = useState("");
@@ -66,17 +66,23 @@ const SellForm = ({
         if (initialDeptPayments) {
             setDeptPayments(initialDeptPayments);
         } else {
-            // Reset to zero for each department present in items
-            const deptIds = [...new Set(items.map(item => item.departmentId).filter(Boolean))];
+            const deptIds = [
+                ...new Set(items.map((item) => item.departmentId).filter(Boolean)),
+            ];
             const initial = {};
-            deptIds.forEach(id => { initial[id] = 0; });
+            deptIds.forEach((id) => {
+                initial[id] = 0;
+            });
             setDeptPayments(initial);
         }
     }, [items, initialDeptPayments]);
 
     // Sync global receipt with the sum of department payments
     useEffect(() => {
-        const total = Object.values(deptPayments).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+        const total = Object.values(deptPayments).reduce(
+            (sum, val) => sum + (parseFloat(val) || 0),
+            0
+        );
         setReceipt(total);
     }, [deptPayments, setReceipt]);
 
@@ -88,60 +94,229 @@ const SellForm = ({
         }
     }, [remaind]);
 
-    // Helper to filter products by department
+    // ---- Helpers ------------------------------------------------------------
+
+    // Filter products by department (all if none selected)
     const getFilteredProducts = (departmentId) => {
         if (!departmentId) return allProducts;
-        return allProducts.filter(p => p.departmentId === departmentId);
+        return allProducts.filter(
+            (p) => String(p.departmentId) === String(departmentId)
+        );
     };
 
-    // Helper to round any number to integer
+    // Unique code numbers available in a department
+    const getAvailableCodes = (departmentId) => {
+        const list = getFilteredProducts(departmentId);
+        const set = new Set();
+        list.forEach((p) => {
+            if (
+                p.code_number !== null &&
+                p.code_number !== undefined &&
+                p.code_number !== ""
+            ) {
+                set.add(String(p.code_number));
+            }
+        });
+        return [...set].sort();
+    };
+
+    // Round to integer
     const toInt = (val) => Math.round(parseFloat(val) || 0);
 
-    // Handler for department payment input
+    // Dept payment handler
     const handleDeptPaymentChange = (deptId, value) => {
-        setDeptPayments(prev => ({
+        setDeptPayments((prev) => ({
             ...prev,
-            [deptId]: value === '' ? '' : parseFloat(value) || 0,
+            [deptId]: value === "" ? "" : parseFloat(value) || 0,
         }));
     };
 
-    // Handler for "Change to return" (edit mode)
+    // "Change to return" handler (edit mode)
     const handleChangeToReturn = (e) => {
         const value = e.target.value;
         setChangeToReturn(value);
         const num = parseInt(value, 10);
-        if (!isNaN(num) && num >= 0) {
+        if (!isNaN(num)) {
             setReceipt(overallTotal + num);
         }
     };
 
-    // Compute per‑department totals from items
-    const deptTotals = items.reduce((acc, item) => {
-        const deptId = item.departmentId;
-        if (!deptId) return acc;
-        const amount = parseFloat(item.amount) || 0;
-        const unitPrice = toInt(item.unitPrice);
-        const rawTotal = amount * unitPrice;
-        const discountPercent = parseFloat(item.discountPercent) || 0;
-        const discountAmountInt = Math.round(rawTotal * (discountPercent / 100));
-        const discountedTotalInt = rawTotal - discountAmountInt;
-        acc[deptId] = (acc[deptId] || 0) + discountedTotalInt;
-        return acc;
-    }, {});
+    /* =========================================================
+       FIX: Auto-heal missing productId.
+    ========================================================= */
+    useEffect(() => {
+        let changed = false;
+        items.forEach((item) => {
+            if (!item.productId) {
+                const pool = getFilteredProducts(item.departmentId);
+                let match = null;
 
-    // Get unique departments from items
-    const involvedDepartments = departments.filter(dept =>
-        items.some(item => item.departmentId === dept.id)
+                if (item.codeNumber) {
+                    match = pool.find(
+                        (p) => String(p.code_number) === String(item.codeNumber)
+                    );
+                }
+
+                if (!match && item.departmentId && pool.length === 1) {
+                    match = pool[0];
+                }
+
+                if (match) {
+                    updateItem(item.id, "productId", match.id);
+                    updateItem(item.id, "productName", match.name);
+                    if (match.code_number != null) {
+                        updateItem(item.id, "codeNumber", String(match.code_number));
+                    }
+                    const defaultPrice = match.sell_price || match.unit_price || 0;
+                    updateItem(item.id, "unitPrice", toInt(defaultPrice));
+                    changed = true;
+                }
+            }
+        });
+    }, [items, allProducts, updateItem]);
+
+    /* =========================================================
+       Product selection
+    ========================================================= */
+    const handleProductSelect = (item, productIdRaw) => {
+        if (!productIdRaw) {
+            updateItem(item.id, "productId", "");
+            updateItem(item.id, "productName", "");
+            updateItem(item.id, "codeNumber", "");
+            updateItem(item.id, "departmentId", null);
+            updateItem(item.id, "unitPrice", 0);
+            return;
+        }
+
+        const selectedProduct = allProducts.find(
+            (p) => String(p.id) === String(productIdRaw)
+        );
+        if (!selectedProduct) return;
+
+        updateItem(item.id, "productId", selectedProduct.id);
+        updateItem(item.id, "productName", selectedProduct.name);
+
+        if (selectedProduct.departmentId != null) {
+            updateItem(item.id, "departmentId", selectedProduct.departmentId);
+        }
+
+        updateItem(
+            item.id,
+            "codeNumber",
+            selectedProduct.code_number != null
+                ? String(selectedProduct.code_number)
+                : ""
+        );
+
+        const defaultPrice =
+            selectedProduct.sell_price || selectedProduct.unit_price || 0;
+        updateItem(item.id, "unitPrice", toInt(defaultPrice));
+    };
+
+    /* =========================================================
+       Code-number selection
+    ========================================================= */
+    const handleCodeSelect = (item, codeRaw) => {
+        if (!codeRaw) {
+            updateItem(item.id, "codeNumber", "");
+            return;
+        }
+
+        const code = String(codeRaw);
+        const pool = getFilteredProducts(item.departmentId);
+        const match =
+            pool.find((p) => String(p.code_number) === code) ||
+            allProducts.find((p) => String(p.code_number) === code);
+
+        if (!match) {
+            updateItem(item.id, "codeNumber", code);
+            return;
+        }
+
+        handleProductSelect(item, match.id);
+    };
+
+    /* =========================================================
+       Department change handler
+    ========================================================= */
+    const handleDepartmentChange = (item, newDeptIdRaw) => {
+        const newDeptId = newDeptIdRaw ? parseInt(newDeptIdRaw) : null;
+        updateItem(item.id, "departmentId", newDeptId);
+
+        if (item.productId) {
+            const prod = allProducts.find(
+                (p) => String(p.id) === String(item.productId)
+            );
+            if (!prod) {
+                updateItem(item.id, "productId", "");
+                updateItem(item.id, "productName", "");
+                updateItem(item.id, "codeNumber", "");
+                return;
+            }
+
+            const prodDept = prod.departmentId ?? null;
+            if (
+                newDeptId !== null &&
+                String(prodDept) !== String(newDeptId)
+            ) {
+                updateItem(item.id, "productId", "");
+                updateItem(item.id, "productName", "");
+                updateItem(item.id, "codeNumber", "");
+                updateItem(item.id, "unitPrice", 0);
+            } else {
+                updateItem(
+                    item.id,
+                    "codeNumber",
+                    prod.code_number != null ? String(prod.code_number) : ""
+                );
+            }
+        } else if (item.codeNumber) {
+            if (newDeptId === null) return;
+            const codes = getAvailableCodes(newDeptId);
+            if (!codes.includes(String(item.codeNumber))) {
+                updateItem(item.id, "codeNumber", "");
+            }
+        }
+    };
+
+    // Per-department totals
+    const deptTotals = useMemo(
+        () =>
+            items.reduce((acc, item) => {
+                const deptId = item.departmentId;
+                if (!deptId) return acc;
+                const amount = parseFloat(item.amount) || 0;
+                const unitPrice = toInt(item.unitPrice);
+                const rawTotal = amount * unitPrice;
+                const discountPercent = parseFloat(item.discountPercent) || 0;
+                const discountAmountInt = Math.round(
+                    rawTotal * (discountPercent / 100)
+                );
+                const discountedTotalInt = rawTotal - discountAmountInt;
+                acc[deptId] = (acc[deptId] || 0) + discountedTotalInt;
+                return acc;
+            }, {}),
+        [items]
     );
 
-    // Compute total paid (sum of deptPayments)
-    const totalPaid = Object.values(deptPayments).reduce((sum, val) => sum + (parseFloat(val) || 0), 0);
+    // Departments involved
+    const involvedDepartments = departments.filter((dept) =>
+        items.some((item) => item.departmentId === dept.id)
+    );
+
+    // Total paid
+    const totalPaid = Object.values(deptPayments).reduce(
+        (sum, val) => sum + (parseFloat(val) || 0),
+        0
+    );
 
     return (
         <form onSubmit={onSubmit} className="divide-y divide-gray-200">
-            {/* Customer section – unchanged */}
+            {/* Customer section */}
             <div className="px-6 py-6 sm:px-8">
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Customer Information</h2>
+                <h2 className="text-lg font-medium text-gray-900 mb-4">
+                    Customer Information
+                </h2>
                 <div className="space-y-6">
                     <div className="flex flex-wrap gap-4">
                         <label className="inline-flex items-center">
@@ -152,7 +327,9 @@ const SellForm = ({
                                 onChange={() => setCustomerType("existing")}
                                 className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                             />
-                            <span className="ml-2 text-sm text-gray-700">Existing Customer</span>
+                            <span className="ml-2 text-sm text-gray-700">
+                                Existing Customer
+                            </span>
                         </label>
                         <label className="inline-flex items-center">
                             <input
@@ -162,7 +339,9 @@ const SellForm = ({
                                 onChange={() => setCustomerType("new")}
                                 className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                             />
-                            <span className="ml-2 text-sm text-gray-700">New Customer</span>
+                            <span className="ml-2 text-sm text-gray-700">
+                                New Customer
+                            </span>
                         </label>
                     </div>
 
@@ -205,18 +384,23 @@ const SellForm = ({
                 </div>
             </div>
 
-            {/* Items table – unchanged */}
+            {/* Items table */}
             <div className="px-6 py-6 sm:px-8">
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Products & Quantities</h2>
+                <h2 className="text-lg font-medium text-gray-900 mb-4">
+                    Products & Quantities
+                </h2>
                 <div className="overflow-x-auto border border-gray-200 rounded-lg">
                     <table className="min-w-full divide-y divide-gray-200">
                         <thead className="bg-gray-50">
                             <tr>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Department *
+                                    Department
                                 </th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Product *
+                                </th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Code #
                                 </th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     Quantity *
@@ -238,34 +422,44 @@ const SellForm = ({
                         <tbody className="bg-white divide-y divide-gray-200">
                             {items.map((item) => {
                                 const filteredProducts = getFilteredProducts(item.departmentId);
-                                const selectedProduct = allProducts.find(p => p.id === item.productId);
+                                const availableCodes = getAvailableCodes(item.departmentId);
+
+                                const selectedProduct = allProducts.find(
+                                    (p) => String(p.id) === String(item.productId)
+                                );
                                 const stockAmount = selectedProduct?.amount ?? 0;
                                 const qty = parseFloat(item.amount) || 0;
+                                // Only alert if they are taking OUT more than stock. Negative quantities (returns) are fine.
                                 const isQtyExceeded = qty > 0 && qty > stockAmount;
 
                                 const amount = parseFloat(item.amount) || 0;
                                 const unitPrice = toInt(item.unitPrice);
                                 const rawTotal = amount * unitPrice;
-                                const discountPercent = parseFloat(item.discountPercent) || 0;
-                                const discountAmountInt = Math.round(rawTotal * (discountPercent / 100));
-                                const discountedTotalInt = rawTotal - discountAmountInt;
+                                const discountPercent =
+                                    parseFloat(item.discountPercent) || 0;
+                                const discountAmountInt = Math.round(
+                                    rawTotal * (discountPercent / 100)
+                                );
+                                const discountedTotalInt =
+                                    rawTotal - discountAmountInt;
+
+                                const currentProductId = item.productId ? String(item.productId) : "";
 
                                 return (
-                                    <tr key={item.id} className={isQtyExceeded ? "bg-red-50" : ""}>
-                                        {/* Department selector */}
+                                    <tr
+                                        key={item.id}
+                                        className={isQtyExceeded ? "bg-red-50" : ""}
+                                    >
+                                        {/* Department */}
                                         <td className="px-4 py-2">
                                             <select
                                                 value={item.departmentId ?? ""}
-                                                onChange={(e) => {
-                                                    const newDeptId = e.target.value ? parseInt(e.target.value) : null;
-                                                    updateItem(item.id, "departmentId", newDeptId);
-                                                    updateItem(item.id, "productId", "");
-                                                    updateItem(item.id, "productName", "");
-                                                }}
-                                                required
+                                                onChange={(e) =>
+                                                    handleDepartmentChange(item, e.target.value)
+                                                }
                                                 className="block w-36 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                             >
-                                                <option value="">Select department</option>
+                                                <option value="">All departments</option>
                                                 {departments.map((dept) => (
                                                     <option key={dept.id} value={dept.id}>
                                                         {dept.name}
@@ -273,41 +467,58 @@ const SellForm = ({
                                                 ))}
                                             </select>
                                         </td>
+
                                         {/* Product selector */}
                                         <td className="px-4 py-2">
                                             <select
-                                                value={item.productId ?? ""}
-                                                onChange={(e) => {
-                                                    const selectedProduct = filteredProducts.find(p => p.id === parseInt(e.target.value));
-                                                    if (selectedProduct) {
-                                                        updateItem(item.id, "productId", selectedProduct.id);
-                                                        updateItem(item.id, "productName", selectedProduct.name);
-                                                        const defaultPrice = selectedProduct.sell_price || selectedProduct.unit_price || 0;
-                                                        updateItem(item.id, "unitPrice", toInt(defaultPrice));
-                                                    } else {
-                                                        updateItem(item.id, "productId", "");
-                                                        updateItem(item.id, "productName", "");
-                                                    }
-                                                }}
+                                                value={currentProductId}
+                                                onChange={(e) =>
+                                                    handleProductSelect(item, e.target.value)
+                                                }
                                                 required
-                                                disabled={!item.departmentId}
-                                                className="block w-48 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm disabled:bg-gray-100"
+                                                className="block w-48 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                             >
-                                                <option value="">{item.departmentId ? "Select product" : "First choose department"}</option>
+                                                <option value="">Select product</option>
                                                 {filteredProducts.map((p) => (
-                                                    <option key={p.id} value={p.id}>
+                                                    <option key={p.id} value={String(p.id)}>
                                                         {p.name} (stock: {p.amount})
                                                     </option>
                                                 ))}
                                             </select>
                                         </td>
-                                        {/* Quantity */}
+
+                                        {/* Code # */}
+                                        <td className="px-4 py-2">
+                                            <select
+                                                value={item.codeNumber ?? ""}
+                                                onChange={(e) =>
+                                                    handleCodeSelect(item, e.target.value)
+                                                }
+                                                disabled={availableCodes.length === 0}
+                                                className="block w-28 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm disabled:bg-gray-100"
+                                            >
+                                                <option value="">
+                                                    {availableCodes.length === 0
+                                                        ? "—"
+                                                        : "Code #"}
+                                                </option>
+                                                {availableCodes.map((code) => (
+                                                    <option key={code} value={code}>
+                                                        {code}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </td>
+
+                                        {/* Quantity — REMOVED min="0" */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
-                                                step="1"
+                                                step="any"
                                                 value={item.amount}
-                                                onChange={(e) => updateItem(item.id, "amount", e.target.value)}
+                                                onChange={(e) =>
+                                                    updateItem(item.id, "amount", e.target.value)
+                                                }
                                                 placeholder="Qty"
                                                 required
                                                 className={`block w-24 rounded-md shadow-sm focus:ring-blue-500 sm:text-sm ${
@@ -322,36 +533,51 @@ const SellForm = ({
                                                 </span>
                                             )}
                                         </td>
-                                        {/* Unit Price */}
+
+                                        {/* Unit Price — REMOVED min="0" constraint if it existed */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
                                                 step="1"
                                                 value={item.unitPrice ?? 0}
-                                                onChange={(e) => updateItem(item.id, "unitPrice", toInt(e.target.value))}
+                                                onChange={(e) =>
+                                                    updateItem(
+                                                        item.id,
+                                                        "unitPrice",
+                                                        toInt(e.target.value)
+                                                    )
+                                                }
                                                 placeholder="Price (int)"
                                                 required
                                                 className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                             />
                                         </td>
-                                        {/* Discount % */}
+
+                                        {/* Discount % — (Can also be negative, for markup) */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
                                                 step="any"
-                                                min="0"
-                                                max="100"
+                                                /* min="0" REMOVED */ /* max="100" REMOVED */
                                                 value={item.discountPercent || 0}
-                                                onChange={(e) => updateItem(item.id, "discountPercent", e.target.value)}
+                                                onChange={(e) =>
+                                                    updateItem(
+                                                        item.id,
+                                                        "discountPercent",
+                                                        e.target.value
+                                                    )
+                                                }
                                                 placeholder="0"
                                                 className="block w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                             />
                                         </td>
+
                                         {/* Subtotal */}
                                         <td className="px-4 py-2 font-medium text-gray-900">
                                             {discountedTotalInt}
                                         </td>
-                                        {/* Remove button */}
+
+                                        {/* Remove */}
                                         <td className="px-4 py-2 text-center">
                                             <button
                                                 type="button"
@@ -367,10 +593,15 @@ const SellForm = ({
                         </tbody>
                         <tfoot className="bg-gray-50">
                             <tr>
-                                <td colSpan="5" className="px-4 py-3 text-right font-bold text-gray-900">
+                                <td
+                                    colSpan="6"
+                                    className="px-4 py-3 text-right font-bold text-gray-900"
+                                >
                                     Total Invoice (after discount):
                                 </td>
-                                <td className="px-4 py-3 font-bold text-gray-900">{overallTotal}</td>
+                                <td className="px-4 py-3 font-bold text-gray-900">
+                                    {overallTotal}
+                                </td>
                                 <td></td>
                             </tr>
                         </tfoot>
@@ -385,9 +616,8 @@ const SellForm = ({
                 </button>
             </div>
 
-            {/* Payment & Notes with department-wise inputs – ENHANCED */}
+            {/* Payment & Notes */}
             <div className="px-6 py-6 sm:px-8">
-                {/* Global Discount Section – unchanged */}
                 <div className="px-6 py-4 sm:px-8 bg-gray-50 border-b border-gray-200">
                     <div className="flex flex-wrap gap-6">
                         <div className="flex flex-wrap items-center gap-4">
@@ -397,8 +627,7 @@ const SellForm = ({
                             <input
                                 type="number"
                                 step="any"
-                                min="0"
-                                max="100"
+                                /* min="0" max="100" REMOVED */
                                 value={globalDiscountPercent}
                                 onChange={(e) => setGlobalDiscountPercent(e.target.value)}
                                 className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
@@ -407,7 +636,7 @@ const SellForm = ({
                                 type="button"
                                 onClick={() => {
                                     const percent = parseFloat(globalDiscountPercent);
-                                    if (!isNaN(percent) && percent >= 0 && percent <= 100) {
+                                    if (!isNaN(percent)) {
                                         applyGlobalDiscount(percent);
                                     }
                                 }}
@@ -423,7 +652,7 @@ const SellForm = ({
                             <input
                                 type="number"
                                 step="1"
-                                min="0"
+                                /* min="0" REMOVED */
                                 value={globalDiscountAmount}
                                 onChange={(e) => setGlobalDiscountAmount(e.target.value)}
                                 className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
@@ -432,7 +661,7 @@ const SellForm = ({
                                 type="button"
                                 onClick={() => {
                                     const amount = parseInt(globalDiscountAmount, 10);
-                                    if (!isNaN(amount) && amount >= 0) {
+                                    if (!isNaN(amount)) {
                                         applyGlobalDiscountAmount(amount);
                                     }
                                 }}
@@ -444,35 +673,46 @@ const SellForm = ({
                     </div>
                 </div>
 
-                <h2 className="text-lg font-medium text-gray-900 mb-4">Payment & Notes</h2>
+                <h2 className="text-lg font-medium text-gray-900 mb-4">
+                    Payment & Notes
+                </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-4">
-                        {/* Enhanced Department-wise payment inputs */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
                                 Payment per Department *
                             </label>
                             {involvedDepartments.length === 0 ? (
-                                <p className="text-sm text-gray-500">No departments added yet.</p>
+                                <p className="text-sm text-gray-500">
+                                    No departments added yet.
+                                </p>
                             ) : (
                                 <div className="space-y-3">
-                                    {involvedDepartments.map(dept => {
+                                    {involvedDepartments.map((dept) => {
                                         const deptTotal = deptTotals[dept.id] || 0;
                                         const paid = parseFloat(deptPayments[dept.id]) || 0;
                                         const remaining = deptTotal - paid;
                                         const isOverpaid = remaining < 0;
 
                                         return (
-                                            <div key={dept.id} className="flex flex-wrap items-center gap-3">
+                                            <div
+                                                key={dept.id}
+                                                className="flex flex-wrap items-center gap-3"
+                                            >
                                                 <span className="text-sm font-medium text-gray-700 w-32 truncate">
                                                     {dept.name}
                                                 </span>
                                                 <input
                                                     type="number"
                                                     step="1"
-                                                    min="0"
+                                                    /* min="0" REMOVED */
                                                     value={deptPayments[dept.id] ?? 0}
-                                                    onChange={(e) => handleDeptPaymentChange(dept.id, e.target.value)}
+                                                    onChange={(e) =>
+                                                        handleDeptPaymentChange(
+                                                            dept.id,
+                                                            e.target.value
+                                                        )
+                                                    }
                                                     placeholder="0"
                                                     className={`block w-32 rounded-md shadow-sm focus:ring-blue-500 sm:text-sm ${
                                                         isOverpaid
@@ -481,22 +721,39 @@ const SellForm = ({
                                                     }`}
                                                 />
                                                 <span className="text-sm text-gray-600">
-                                                    {deptTotal > 0 ? (
+                                                    {deptTotal !== 0 ? (
                                                         <>
-                                                            (Need: <span className="font-medium">{deptTotal}</span>
+                                                            (Need:{" "}
+                                                            <span className="font-medium">
+                                                                {deptTotal}
+                                                            </span>
                                                             {remaining > 0 && (
-                                                                <>, Remaining: <span className="font-medium text-red-600">{remaining}</span></>
+                                                                <>
+                                                                    , Remaining:{" "}
+                                                                    <span className="font-medium text-red-600">
+                                                                        {remaining}
+                                                                    </span>
+                                                                </>
                                                             )}
                                                             {remaining === 0 && (
-                                                                <span className="text-green-600 font-medium"> ✓ Fully paid</span>
+                                                                <span className="text-green-600 font-medium">
+                                                                    {" "}
+                                                                    ✓ Fully paid
+                                                                </span>
                                                             )}
                                                             {remaining < 0 && (
-                                                                <span className="text-red-600 font-medium"> ⚠️ Overpaid by {Math.abs(remaining)}</span>
+                                                                <span className="text-red-600 font-medium">
+                                                                    {" "}
+                                                                    ⚠️ Overpaid by{" "}
+                                                                    {Math.abs(remaining)}
+                                                                </span>
                                                             )}
                                                             )
                                                         </>
                                                     ) : (
-                                                        <span className="text-gray-400">(no items)</span>
+                                                        <span className="text-gray-400">
+                                                            (no items)
+                                                        </span>
                                                     )}
                                                 </span>
                                             </div>
@@ -506,41 +763,44 @@ const SellForm = ({
                             )}
                             {totalPaid > overallTotal && (
                                 <p className="text-red-600 text-sm mt-2">
-                                    ⚠️ Total paid ({totalPaid}) exceeds the invoice total ({overallTotal}).
+                                    ⚠️ Total paid ({totalPaid}) exceeds the invoice total (
+                                    {overallTotal}).
                                 </p>
                             )}
                         </div>
 
-                        {/* Total paid summary */}
-                        <div>
-                            <span className="text-sm font-medium text-gray-700">Total Paid: </span>
-                            <span className="text-lg font-bold text-blue-600">{totalPaid}</span>
-                        </div>
-
-                        {/* Balance display */}
                         <div>
                             <span className="text-sm font-medium text-gray-700">
-                                {remaind >= 0 ? 'Remaining balance: ' : 'Change due: '}
+                                Total Paid:{" "}
+                            </span>
+                            <span className="text-lg font-bold text-blue-600">
+                                {totalPaid}
+                            </span>
+                        </div>
+
+                        <div>
+                            <span className="text-sm font-medium text-gray-700">
+                                {remaind >= 0 ? "Remaining balance: " : "Change due: "}
                             </span>
                             <span
                                 className={`text-lg font-bold ${
                                     remaind > 0
-                                        ? 'text-red-600'
+                                        ? "text-red-600"
                                         : remaind < 0
-                                        ? 'text-green-600'
-                                        : 'text-gray-700'
+                                        ? "text-green-600"
+                                        : "text-gray-700"
                                 }`}
                             >
                                 {remaind >= 0 ? remaind : Math.abs(remaind)}
                             </span>
                             {remaind < 0 && (
                                 <p className="text-xs text-green-600 mt-1">
-                                    The customer overpaid. Enter the change amount below to record the return.
+                                    The customer overpaid. Enter the change amount below
+                                    to record the return.
                                 </p>
                             )}
                         </div>
 
-                        {/* Edit mode: Change to return */}
                         {isEditMode && (
                             <div>
                                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -549,24 +809,30 @@ const SellForm = ({
                                 <input
                                     type="number"
                                     step="1"
-                                    min="0"
+                                    /* min="0" REMOVED */
                                     value={changeToReturn}
                                     onChange={handleChangeToReturn}
-                                    onFocus={() => { isEditingChange.current = true; }}
-                                    onBlur={() => { isEditingChange.current = false; }}
+                                    onFocus={() => {
+                                        isEditingChange.current = true;
+                                    }}
+                                    onBlur={() => {
+                                        isEditingChange.current = false;
+                                    }}
                                     placeholder="0"
                                     className="block w-64 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
                                 />
                                 <p className="text-xs text-gray-500 mt-1">
-                                    Adjusting this will update the total paid above automatically.
+                                    Adjusting this will update the total paid above
+                                    automatically.
                                 </p>
                             </div>
                         )}
                     </div>
 
-                    {/* Notes – unchanged */}
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Notes (optional)
+                        </label>
                         <textarea
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
@@ -578,7 +844,7 @@ const SellForm = ({
                 </div>
             </div>
 
-            {/* Submit section – unchanged */}
+            {/* Submit section */}
             <div className="px-6 py-6 sm:px-8 bg-gray-50 flex flex-col sm:flex-row justify-between items-center gap-4">
                 {submitMessage.text && (
                     <div
@@ -608,9 +874,12 @@ const SellForm = ({
                         className="inline-flex items-center px-6 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
                     >
                         {submitting
-                            ? (isEditMode ? "Updating..." : "Recording...")
-                            : (isEditMode ? `Update Bill (${items.length} product(s))` : `Record Sale (${items.length} product(s))`)
-                        }
+                            ? isEditMode
+                                ? "Updating..."
+                                : "Recording..."
+                            : isEditMode
+                            ? `Update Bill (${items.length} product(s))`
+                            : `Record Sale (${items.length} product(s))`}
                     </button>
                 </div>
             </div>

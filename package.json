@@ -1,0 +1,11 @@
+{
+  "name": "akaz-launcher",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "concurrently -n Backend,Frontend -c blue,green \"npm --prefix Backend start\" \"npm --prefix frontend run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

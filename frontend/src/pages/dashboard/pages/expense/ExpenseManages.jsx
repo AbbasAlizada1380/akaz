@@ -30,7 +30,6 @@ const ExpenseManager = () => {
   const fetchDepartments = async () => {
     try {
       const res = await axios.get(`${BASE_URL}/department`);
-      // Assuming response structure: { data: [] } or just array
       const departmentsData = res.data.data || res.data;
       setDepartments(departmentsData);
     } catch (err) {
@@ -48,7 +47,6 @@ const ExpenseManager = () => {
       const res = await axios.get(
         `${BASE_URL}/expense?page=${page}&limit=${limit}`
       );
-      // Expected response: { data: [], totalRecords, totalPages, currentPage, limit }
       setExpenses(res.data.data || []);
       setTotalRecords(res.data.totalRecords || 0);
       setTotalPages(res.data.totalPages || 1);
@@ -70,7 +68,6 @@ const ExpenseManager = () => {
     e.preventDefault();
     if (submitting) return;
 
-    // Validate department selection
     if (!form.departmentId) {
       alert("Please select a department");
       return;
@@ -92,7 +89,6 @@ const ExpenseManager = () => {
       }
 
       resetForm();
-      // Refresh current page after operation
       fetchExpenses(currentPage);
     } catch (err) {
       console.error(err);
@@ -119,7 +115,6 @@ const ExpenseManager = () => {
 
     try {
       await axios.delete(`${BASE_URL}/expense/${id}`);
-      // If current page becomes empty and not first page, go to previous page
       if (expenses.length === 1 && currentPage > 1) {
         setCurrentPage(currentPage - 1);
       } else {
@@ -132,12 +127,12 @@ const ExpenseManager = () => {
   };
 
   const resetForm = () => {
-    setForm({ 
-      purpose: "", 
-      by: "", 
-      amount: "", 
-      departmentId: "", 
-      description: "" 
+    setForm({
+      purpose: "",
+      by: "",
+      amount: "",
+      departmentId: "",
+      description: "",
     });
     setEditingId(null);
   };
@@ -149,7 +144,7 @@ const ExpenseManager = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6 space-y-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-primary/5 p-6 space-y-8">
       {/* Header */}
       <div className="text-center mb-6">
         <h1 className="text-3xl font-bold text-gray-800 mb-2">
@@ -172,7 +167,7 @@ const ExpenseManager = () => {
 
       {/* Form Section */}
       <div className="bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden">
-        <div className="bg-blue-600 text-white p-4">
+        <div className="bg-primary text-white p-4">
           <h2 className="text-xl font-bold">
             {editingId ? "Edit Expense" : "Add New Expense"}
           </h2>
@@ -197,7 +192,7 @@ const ExpenseManager = () => {
                   onChange={(e) =>
                     setForm({ ...form, purpose: e.target.value })
                   }
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
               <div>
@@ -211,7 +206,7 @@ const ExpenseManager = () => {
                   onChange={(e) =>
                     setForm({ ...form, by: e.target.value })
                   }
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
             </div>
@@ -233,7 +228,7 @@ const ExpenseManager = () => {
                       amount: e.target.value,
                     })
                   }
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
 
@@ -247,7 +242,7 @@ const ExpenseManager = () => {
                   onChange={(e) =>
                     setForm({ ...form, departmentId: e.target.value })
                   }
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary bg-white"
                 >
                   <option value="">Select Department</option>
                   {departments.map((dept) => (
@@ -270,7 +265,7 @@ const ExpenseManager = () => {
                   setForm({ ...form, description: e.target.value })
                 }
                 rows={3}
-                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary"
               />
             </div>
 
@@ -287,7 +282,7 @@ const ExpenseManager = () => {
               <button
                 type="submit"
                 disabled={submitting}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                className="px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 disabled:opacity-50 transition-colors"
               >
                 {submitting
                   ? "Saving..."

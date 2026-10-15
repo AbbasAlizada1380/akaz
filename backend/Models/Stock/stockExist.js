@@ -4,6 +4,12 @@ import sequelize from "../../dbconnection.js";
 const StockExist = sequelize.define(
     "StockExist",
     {
+        code_number: {
+            type: DataTypes.STRING,
+            allowNull: true,
+            unique: true,
+        },
+
         name: {
             type: DataTypes.STRING,
             allowNull: true,

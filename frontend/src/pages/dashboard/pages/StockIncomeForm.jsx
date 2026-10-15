@@ -11,11 +11,12 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
     const [globalDepartmentId, setGlobalDepartmentId] = useState("");
     const [globalExpense, setGlobalExpense] = useState("");
     const [paidAmount, setPaidAmount] = useState("");
-    const [factorMode, setFactorMode] = useState("stock"); // "stock" or "pending" - controls entire factor
-    
+    const [factorMode, setFactorMode] = useState("stock");
+
     const [rows, setRows] = useState([
         {
             existId: "",
+            code_number: "",
             newExist: "",
             department: "",
             type: "quantity",
@@ -26,15 +27,23 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
         },
     ]);
 
-    // Filter existing products based on selected global department
+    /* ============================================================
+       Filter existing products based on selected global department
+    ============================================================ */
     const filteredExists = useMemo(() => {
-        if (!globalDepartmentId) {
-            return exists;
-        }
+        if (!globalDepartmentId) return exists;
         return exists.filter(ex => String(ex.departmentId) === String(globalDepartmentId));
     }, [exists, globalDepartmentId]);
 
-    // Calculate total cost without expense
+    /* ============================================================
+       Products WITH a code → suggestions for the Code Number field
+    ============================================================ */
+    const codedExists = useMemo(() => {
+        return filteredExists.filter(
+            ex => ex.code_number && String(ex.code_number).trim() !== ""
+        );
+    }, [filteredExists]);
+
     const computeTotalCostWithoutExpense = () => {
         let total = 0;
         for (const row of rows) {
@@ -45,7 +54,6 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
         return total;
     };
 
-    // Calculate total expense from all rows
     const computeTotalExpense = () => {
         let total = 0;
         for (const row of rows) {
@@ -58,12 +66,11 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
     const totalExpense = computeTotalExpense();
     const totalCost = totalCostWithoutExpense + totalExpense;
 
-    // Distribute global expense proportionally
     const distributeExpenseProportionally = (expenseAmount) => {
         const totalWithoutExpense = computeTotalCostWithoutExpense();
-        
+
         if (totalWithoutExpense === 0 || !expenseAmount || parseFloat(expenseAmount) === 0) {
-            setRows(prevRows => 
+            setRows(prevRows =>
                 prevRows.map(row => ({ ...row, expense: "0" }))
             );
             return;
@@ -89,7 +96,6 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
         }
     };
 
-    // Recalculate expenses when rows change
     useEffect(() => {
         if (globalExpense && !isNaN(parseFloat(globalExpense)) && parseFloat(globalExpense) > 0) {
             distributeExpenseProportionally(globalExpense);
@@ -109,7 +115,6 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
         if (!paidAmount || paidAmount === "") setPaidAmount(totalCost.toString());
     }, [totalCost]);
 
-    // Sync global department to all rows that are "new product"
     useEffect(() => {
         setRows((prevRows) =>
             prevRows.map((row) => {
@@ -125,14 +130,17 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
         setRows(prevRows =>
             prevRows.map(row => {
                 if (row.existId && globalDepartmentId) {
-                    const productExists = filteredExists.some(ex => String(ex.id) === String(row.existId));
-                    if (!productExists) {
+                    const stillValid = filteredExists.some(
+                        ex => String(ex.id) === String(row.existId)
+                    );
+                    if (!stillValid) {
                         return {
                             ...row,
                             existId: "",
+                            code_number: "",
                             newExist: "",
                             department: globalDepartmentId,
-                            expense: "0"
+                            expense: "0",
                         };
                     }
                 }
@@ -146,6 +154,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
             ...rows,
             {
                 existId: "",
+                code_number: "",
                 newExist: "",
                 department: globalDepartmentId,
                 type: "quantity",
@@ -167,6 +176,14 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
         setRows(newRows);
     };
 
+    /* ============================================================
+       Bidirectional linking
+       - Selecting Product → picks its code (if any), locks the product field
+       - Typing a Code (from datalist OR free-form)
+         → if it matches an existing coded product, auto-select it
+         → if not, treat as a NEW product code (user must type name)
+       - Typing a New Product name → clears selections
+    ============================================================ */
     const handleRowChange = (index, field, value) => {
         const newRows = [...rows];
 
@@ -174,9 +191,44 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
             newRows[index].existId = value;
             if (value) {
                 newRows[index].newExist = "";
-                const selectedProduct = filteredExists.find((ex) => String(ex.id) === String(value));
-                newRows[index].department = selectedProduct?.departmentId || "";
+                const selected = filteredExists.find(ex => String(ex.id) === String(value));
+                newRows[index].department = selected?.departmentId || "";
+                newRows[index].code_number = selected?.code_number || "";
             } else {
+                newRows[index].code_number = "";
+                newRows[index].department = globalDepartmentId;
+            }
+        } else if (field === "code_number") {
+            // value can be free-form text OR a code picked from the datalist
+            newRows[index].code_number = value;
+            const trimmed = (value || "").trim();
+
+            if (trimmed) {
+                const match = codedExists.find(
+                    ex => String(ex.code_number).toLowerCase() === trimmed.toLowerCase()
+                );
+                if (match) {
+                    // Found an existing coded product → auto-link
+                    newRows[index].existId = match.id;
+                    newRows[index].newExist = "";
+                    newRows[index].department = match.departmentId || "";
+                } else {
+                    // Unknown code → treat as new product code
+                    newRows[index].existId = "";
+                    // leave newExist as user typed it (or empty if not yet typed)
+                    newRows[index].department = globalDepartmentId;
+                }
+            } else {
+                // Cleared the code → clear the linked product
+                newRows[index].existId = "";
+                newRows[index].department = globalDepartmentId;
+            }
+        } else if (field === "newExist") {
+            newRows[index].newExist = value;
+            if (value && value.trim() !== "") {
+                // Typing a new product name clears the selected product,
+                // but keeps the code if the user already typed one
+                newRows[index].existId = "";
                 newRows[index].department = globalDepartmentId;
             }
         } else if (field === "expense") {
@@ -184,6 +236,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
         } else {
             newRows[index][field] = value;
         }
+
         setRows(newRows);
     };
 
@@ -202,7 +255,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
         for (let i = 0; i < rows.length; i++) {
             const row = rows[i];
             if (!row.existId && !row.newExist.trim()) {
-                alert(`Row ${i + 1}: Please select an existing product or enter a new product name`);
+                alert(`Row ${i + 1}: Please select a product, choose a code, or enter a new product name`);
                 return;
             }
             if (!row.existId && row.newExist.trim() && !row.department) {
@@ -215,6 +268,16 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
             }
         }
 
+        // Duplicate code check
+        const filledCodes = rows
+            .map(r => (r.code_number || "").trim())
+            .filter(Boolean);
+        const duplicates = filledCodes.filter((code, i) => filledCodes.indexOf(code) !== i);
+        if (duplicates.length > 0) {
+            alert(`Duplicate code numbers detected: ${[...new Set(duplicates)].join(", ")}`);
+            return;
+        }
+
         const paid = parseFloat(paidAmount);
         if (isNaN(paid) || paid < 0) {
             alert("Please enter a valid paid amount (0 or positive)");
@@ -223,12 +286,15 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
 
         const payload = {
             seller: sellerMode === "existing" ? { id: sellerId } : { name: newSeller.trim() },
-            mode: factorMode, // "stock" or "pending" - applies to all items
+            mode: factorMode,
             items: rows.map((row) => {
+                const codeNumber = (row.code_number || "").trim() || null;
+
                 if (row.existId) {
-                    const fullExist = exists.find((ex) => String(ex.id) === String(row.existId));
+                    const fullExist = exists.find(ex => String(ex.id) === String(row.existId));
                     if (!fullExist) throw new Error(`Product with id ${row.existId} not found`);
                     return {
+                        code_number: codeNumber,
                         exist: fullExist,
                         type: row.type,
                         amount: parseFloat(row.amount),
@@ -236,19 +302,19 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                         sell_price: parseFloat(row.sell_price),
                         expense: parseFloat(row.expense) || 0,
                     };
-                } else {
-                    return {
-                        exist: {
-                            name: row.newExist.trim(),
-                            department: row.department,
-                        },
-                        type: row.type,
-                        amount: parseFloat(row.amount),
-                        net_unite_price: parseFloat(row.net_unite_price),
-                        sell_price: parseFloat(row.sell_price),
-                        expense: parseFloat(row.expense) || 0,
-                    };
                 }
+                return {
+                    code_number: codeNumber,
+                    exist: {
+                        name: row.newExist.trim(),
+                        department: row.department,
+                    },
+                    type: row.type,
+                    amount: parseFloat(row.amount),
+                    net_unite_price: parseFloat(row.net_unite_price),
+                    sell_price: parseFloat(row.sell_price),
+                    expense: parseFloat(row.expense) || 0,
+                };
             }),
             paidAmount: paid,
             departmentId: globalDepartmentId || null,
@@ -257,9 +323,9 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
         try {
             await axios.post(`${BASE_URL}/stockIncome`, payload);
             alert("All data saved successfully");
-            // Reset form
             setRows([{
                 existId: "",
+                code_number: "",
                 newExist: "",
                 department: "",
                 type: "quantity",
@@ -300,7 +366,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                 value="existing"
                                 checked={sellerMode === "existing"}
                                 onChange={() => setSellerMode("existing")}
-                                className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300"
+                                className="h-4 w-4 text-primary focus:ring-primary border-gray-300"
                             />
                             <span className="ml-2 text-sm text-gray-700">Existing Seller</span>
                         </label>
@@ -310,7 +376,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                 value="new"
                                 checked={sellerMode === "new"}
                                 onChange={() => setSellerMode("new")}
-                                className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300"
+                                className="h-4 w-4 text-primary focus:ring-primary border-gray-300"
                             />
                             <span className="ml-2 text-sm text-gray-700">New Seller</span>
                         </label>
@@ -323,7 +389,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                 value={sellerId}
                                 onChange={(e) => setSellerId(e.target.value)}
                                 required
-                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                             >
                                 <option value="">Select a seller</option>
                                 {sellers.map((s) => (
@@ -342,7 +408,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                 value={newSeller}
                                 onChange={(e) => setNewSeller(e.target.value)}
                                 required
-                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                                className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                             />
                         </div>
                     )}
@@ -350,7 +416,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
             </div>
 
             {/* Factor Mode Section */}
-            <div className="px-6 py-6 sm:px-8 bg-blue-50">
+            <div className="px-6 py-6 sm:px-8 bg-primary/5">
                 <h2 className="text-lg font-medium text-gray-900 mb-4">Factor Mode</h2>
                 <div className="space-y-4">
                     <div className="flex flex-wrap gap-6">
@@ -360,7 +426,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                 value="stock"
                                 checked={factorMode === "stock"}
                                 onChange={() => setFactorMode("stock")}
-                                className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300"
+                                className="h-4 w-4 text-primary focus:ring-primary border-gray-300"
                             />
                             <span className="ml-2 text-sm text-gray-700">
                                 <span className="font-medium text-green-600">Add to Stock</span>
@@ -373,7 +439,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                 value="pending"
                                 checked={factorMode === "pending"}
                                 onChange={() => setFactorMode("pending")}
-                                className="h-4 w-4 text-cyan-600 focus:ring-cyan-500 border-gray-300"
+                                className="h-4 w-4 text-primary focus:ring-primary border-gray-300"
                             />
                             <span className="ml-2 text-sm text-gray-700">
                                 <span className="font-medium text-yellow-600">Pending</span>
@@ -398,7 +464,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                     <button
                         type="button"
                         onClick={addRow}
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-cyan-700 bg-cyan-100 hover:bg-cyan-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500 transition"
+                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-primary bg-primary/10 hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition"
                     >
                         + Add Row
                     </button>
@@ -414,7 +480,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                             value={globalDepartmentId}
                             onChange={(e) => setGlobalDepartmentId(e.target.value)}
                             required
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                         >
                             <option value="">Select a department</option>
                             {departments.map((dept) => (
@@ -436,7 +502,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                             placeholder="Enter total expense"
                             value={globalExpense}
                             onChange={handleGlobalExpenseChange}
-                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                         />
                         <p className="text-xs text-gray-500 mt-1">
                             Expense will be distributed based on item cost proportion.
@@ -449,6 +515,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                         <thead className="bg-gray-50">
                             <tr>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">#</th>
+                                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code Number</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Product</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">New Product</th>
                                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
@@ -464,56 +531,87 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                             {rows.map((row, idx) => {
                                 let departmentDisplay = "";
                                 if (row.existId) {
-                                    const product = filteredExists.find((ex) => String(ex.id) === String(row.existId));
-                                    departmentDisplay = product?.department?.name || getDepartmentName(product?.departmentId) || "—";
+                                    const p = filteredExists.find(ex => String(ex.id) === String(row.existId));
+                                    departmentDisplay = p?.department?.name || getDepartmentName(p?.departmentId) || "—";
                                 } else {
                                     departmentDisplay = getDepartmentName(row.department) || "—";
                                 }
+                                const productLocked = !!row.existId;
+
                                 return (
                                     <tr key={idx}>
-                                        <td className="px-4 py-2 text-center text-gray-500">
-                                            {idx + 1}
+                                        <td className="px-4 py-2 text-center text-gray-500">{idx + 1}</td>
+
+                                        {/* Code Number — free-text input with datalist of existing codes */}
+                                        <td className="px-4 py-2">
+                                            <input
+                                                type="text"
+                                                list={`codes-${idx}`}
+                                                placeholder="Code / type new"
+                                                value={row.code_number}
+                                                onChange={(e) => handleRowChange(idx, "code_number", e.target.value)}
+                                                className="block w-40 rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
+                                            />
+                                            <datalist id={`codes-${idx}`}>
+                                                {codedExists.map((ex) => (
+                                                    <option key={ex.id} value={ex.code_number}>
+                                                        {ex.name}
+                                                    </option>
+                                                ))}
+                                            </datalist>
                                         </td>
+
+                                        {/* Product — full list */}
                                         <td className="px-4 py-2">
                                             <select
                                                 value={row.existId}
                                                 onChange={(e) => handleRowChange(idx, "existId", e.target.value)}
-                                                className="block w-40 rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                                                className="block w-48 rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                                             >
                                                 <option value="">Select product</option>
                                                 {filteredExists.map((ex) => (
                                                     <option key={ex.id} value={ex.id}>
-                                                        {ex.name} ({ex.department?.name || getDepartmentName(ex.departmentId)})
+                                                        {ex.name}
+                                                        {ex.code_number ? ` [${ex.code_number}]` : ""}
+                                                        {` (${ex.department?.name || getDepartmentName(ex.departmentId)})`}
                                                     </option>
                                                 ))}
                                             </select>
                                         </td>
+
+                                        {/* New Product */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="text"
                                                 placeholder="Product name"
                                                 value={row.newExist}
                                                 onChange={(e) => handleRowChange(idx, "newExist", e.target.value)}
-                                                disabled={!!row.existId}
-                                                className="block w-40 rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 disabled:bg-gray-100 sm:text-sm"
+                                                disabled={productLocked}
+                                                className="block w-40 rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary disabled:bg-gray-100 sm:text-sm"
                                             />
                                         </td>
+
+                                        {/* Department display */}
                                         <td className="px-4 py-2">
                                             <div className="text-sm text-gray-700 px-2 py-1 bg-gray-50 rounded">
                                                 {departmentDisplay || "—"}
                                             </div>
                                         </td>
+
+                                        {/* Type */}
                                         <td className="px-4 py-2">
                                             <select
                                                 value={row.type}
                                                 onChange={(e) => handleRowChange(idx, "type", e.target.value)}
-                                                className="block w-28 rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                                                className="block w-28 rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                                             >
                                                 <option value="quantity">Quantity</option>
                                                 <option value="length">Length</option>
                                                 <option value="weight">Weight</option>
                                             </select>
                                         </td>
+
+                                        {/* Amount */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
@@ -521,9 +619,11 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                                 placeholder="Amount"
                                                 value={row.amount}
                                                 onChange={(e) => handleRowChange(idx, "amount", e.target.value)}
-                                                className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                                                className="block w-24 rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                                             />
                                         </td>
+
+                                        {/* Net Unit Price */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
@@ -531,9 +631,11 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                                 placeholder="Net unit price"
                                                 value={row.net_unite_price}
                                                 onChange={(e) => handleRowChange(idx, "net_unite_price", e.target.value)}
-                                                className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                                                className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                                             />
                                         </td>
+
+                                        {/* Sell Price */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
@@ -541,9 +643,11 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                                 placeholder="Sell price"
                                                 value={row.sell_price}
                                                 onChange={(e) => handleRowChange(idx, "sell_price", e.target.value)}
-                                                className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                                                className="block w-32 rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                                             />
                                         </td>
+
+                                        {/* Expense */}
                                         <td className="px-4 py-2">
                                             <input
                                                 type="number"
@@ -552,11 +656,13 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                                                 value={row.expense}
                                                 onChange={(e) => handleRowChange(idx, "expense", e.target.value)}
                                                 disabled={!!globalExpense && parseFloat(globalExpense) > 0}
-                                                className={`block w-28 rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm ${
+                                                className={`block w-28 rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm ${
                                                     (globalExpense && parseFloat(globalExpense) > 0) ? 'bg-gray-100' : ''
                                                 }`}
                                             />
                                         </td>
+
+                                        {/* Remove */}
                                         <td className="px-4 py-2 text-center">
                                             <button
                                                 type="button"
@@ -585,12 +691,12 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                     </div>
                     <div>
                         <p className="text-sm font-medium text-gray-700">Total Expense</p>
-                        <p className="text-2xl font-bold text-cyan-600">{totalExpense.toFixed(2)}</p>
+                        <p className="text-2xl font-bold text-primary">{totalExpense.toFixed(2)}</p>
                         <p className="text-xs text-gray-500 mt-1">Sum of all row expenses</p>
                     </div>
                     <div>
                         <p className="text-sm font-medium text-gray-700">Total Cost</p>
-                        <p className="text-2xl font-bold text-cyan-700">{totalCost.toFixed(2)}</p>
+                        <p className="text-2xl font-bold text-primary">{totalCost.toFixed(2)}</p>
                         <p className="text-xs text-gray-500 mt-1">(Cost + Expense)</p>
                     </div>
                 </div>
@@ -601,7 +707,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
                         step="any"
                         value={paidAmount}
                         onChange={(e) => setPaidAmount(e.target.value)}
-                        className="block w-64 rounded-md border-gray-300 shadow-sm focus:border-cyan-500 focus:ring-cyan-500 sm:text-sm"
+                        className="block w-64 rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring-primary sm:text-sm"
                         required
                     />
                     <p className="text-xs text-gray-500 mt-1">Amount actually paid (can be partial)</p>
@@ -612,7 +718,7 @@ const StockIncomeForm = ({ onSuccess, departments, sellers, exists }) => {
             <div className="px-6 py-6 sm:px-8 flex justify-end">
                 <button
                     type="submit"
-                    className="inline-flex items-center px-6 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-cyan-600 hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-cyan-500 transition"
+                    className="inline-flex items-center px-6 py-2 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition"
                 >
                     Save All Rows
                 </button>

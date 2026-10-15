@@ -5,14 +5,12 @@ import sequelize from "../../dbconnection.js";
 import { Op, Transaction } from "sequelize";
 
 async function updateSellerAccountWithFactor(sellerId, factorId, status, transaction) {
-  // Ensure IDs are numbers
   const seller = Number(sellerId);
   const factor = Number(factorId);
 
   let sellerAccount = await SellerAccount.findOne({ where: { sellerId: seller }, transaction });
 
   if (!sellerAccount) {
-    // Create new account with this factor
     const totalArr = [factor];
     const paidArr = status === 'paid' ? [factor] : [];
     const unpaidArr = status !== 'paid' ? [factor] : [];
@@ -24,17 +22,14 @@ async function updateSellerAccountWithFactor(sellerId, factorId, status, transac
       total: totalArr
     }, { transaction });
   } else {
-    // Get current arrays (already parsed from JSON)
     let currentPaid = sellerAccount.paid || [];
     let currentUnpaid = sellerAccount.unpaid || [];
     let currentTotal = sellerAccount.total || [];
 
-    // Ensure all elements are numbers (in case they were stored as strings)
     currentPaid = currentPaid.map(Number);
     currentUnpaid = currentUnpaid.map(Number);
     currentTotal = currentTotal.map(Number);
 
-    // Build new arrays (use copy to trigger change detection)
     let newTotal = [...currentTotal];
     if (!newTotal.includes(factor)) newTotal.push(factor);
 
@@ -45,12 +40,10 @@ async function updateSellerAccountWithFactor(sellerId, factorId, status, transac
       if (!newPaid.includes(factor)) newPaid.push(factor);
       newUnpaid = newUnpaid.filter(id => id !== factor);
     } else {
-      // unpaid or partial
       if (!newUnpaid.includes(factor)) newUnpaid.push(factor);
       newPaid = newPaid.filter(id => id !== factor);
     }
 
-    // Update with new arrays (this will trigger JSON field update)
     await sellerAccount.update({
       paid: newPaid,
       unpaid: newUnpaid,
@@ -61,14 +54,13 @@ async function updateSellerAccountWithFactor(sellerId, factorId, status, transac
   return sellerAccount;
 }
 
-// UPDATED: Update StockExist with sell_price
+// Update StockExist with weighted averages
 async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, newSellPrice, transaction) {
   const stockExist = await StockExist.findByPk(existId, { transaction });
   if (!stockExist) {
     throw new Error(`StockExist with id ${existId} not found`);
   }
 
-  // Sum all amounts and total value (amount * unit_price) for this existId
   const result = await StockIncome.findAll({
     where: { existId },
     attributes: [
@@ -83,7 +75,6 @@ async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, newS
   const totalValue = parseFloat(result[0]?.totalValue) || 0;
   const avgUnitPrice = totalAmount > 0 ? totalValue / totalAmount : 0;
 
-  // Calculate weighted average sell_price
   const sellPriceResult = await StockIncome.findAll({
     where: { existId },
     attributes: [
@@ -98,7 +89,6 @@ async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, newS
   const totalSellValue = parseFloat(sellPriceResult[0]?.totalSellValue) || 0;
   const avgSellPrice = totalSellAmount > 0 ? totalSellValue / totalSellAmount : newSellPrice || 0;
 
-  // Update StockExist with new total amount, average unit price, and average sell price
   await stockExist.update({
     amount: totalAmount,
     unit_price: avgUnitPrice,
@@ -108,16 +98,14 @@ async function updateStockExistFromIncome(existId, newAmount, newUnitPrice, newS
   return stockExist;
 }
 
-// controllers/stockIncomeController.js
-
 export const createBatchStockIncome = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
-    const { 
-      seller, 
-      items, 
-      paidAmount: userPaidAmount, 
-      notes, 
+    const {
+      seller,
+      items,
+      paidAmount: userPaidAmount,
+      notes,
       departmentId,
       mode = "stock"
     } = req.body;
@@ -151,7 +139,15 @@ export const createBatchStockIncome = async (req, res) => {
     let totalAmount = 0;
 
     for (const item of items) {
-      const { exist, type, amount, sell_price, net_unite_price, expense = 0 } = item;
+      const {
+        exist,
+        type,
+        amount,
+        sell_price,
+        net_unite_price,
+        expense = 0,
+        code_number = null,   // ← per-item code_number (nullable)
+      } = item;
 
       if (!exist || (!exist.id && !exist.name)) {
         await transaction.rollback();
@@ -174,6 +170,7 @@ export const createBatchStockIncome = async (req, res) => {
       const parsedNetUnitPrice = parseFloat(net_unite_price);
       const parsedExpense = parseFloat(expense) || 0;
       const parsedSellPrice = parseFloat(sell_price);
+      const trimmedCode = code_number ? String(code_number).trim() : null;
 
       const computedUnitPrice = (parsedExpense / parsedAmount) + parsedNetUnitPrice;
       const totalPrice = parsedAmount * computedUnitPrice;
@@ -181,6 +178,16 @@ export const createBatchStockIncome = async (req, res) => {
       let existId;
       let itemDepartmentId;
 
+      /* ============================================================
+         Resolve StockExist:
+         1. If exist.id provided → use that exact StockExist row.
+         2. Else if code_number provided → match by code_number.
+            - Found → reuse.
+            - Not found → create new StockExist with that code.
+         3. Else → match by name (legacy behavior).
+            - Found → reuse.
+            - Not found → create new StockExist with code_number = null.
+      ============================================================ */
       if (exist.id) {
         const existingExist = await StockExist.findByPk(parseInt(exist.id), { transaction });
         if (!existingExist) {
@@ -189,8 +196,64 @@ export const createBatchStockIncome = async (req, res) => {
         }
         existId = existingExist.id;
         itemDepartmentId = existingExist.departmentId;
+
+        // If user also provided a code_number and the found record doesn't have one, set it
+        if (trimmedCode && !existingExist.code_number) {
+          await existingExist.update({ code_number: trimmedCode }, { transaction });
+        }
+      } else if (trimmedCode) {
+        // ---------- Lookup / create by code_number ----------
+        let foundByCode = await StockExist.findOne({
+          where: { code_number: trimmedCode },
+          transaction,
+        });
+
+        if (foundByCode) {
+          existId = foundByCode.id;
+          itemDepartmentId = foundByCode.departmentId;
+        } else {
+          // New product with a unique code
+          let deptId = null;
+          if (exist.department) {
+            if (typeof exist.department === 'object' && exist.department.id) {
+              deptId = exist.department.id;
+            } else if (typeof exist.department === 'number' || !isNaN(parseInt(exist.department))) {
+              deptId = parseInt(exist.department);
+            }
+          } else if (exist.departmentId) {
+            deptId = parseInt(exist.departmentId);
+          }
+
+          if (!deptId) {
+            await transaction.rollback();
+            return res.status(400).json({
+              error: `Department ID is required for new product: ${exist.name} (code ${trimmedCode})`
+            });
+          }
+
+          const dept = await Department.findByPk(deptId, { transaction });
+          if (!dept) {
+            await transaction.rollback();
+            return res.status(404).json({ error: `Department with id ${deptId} not found` });
+          }
+
+          const newExist = await StockExist.create({
+            code_number: trimmedCode,
+            name: exist.name,
+            departmentId: deptId,
+            sell_price: parsedSellPrice,
+          }, { transaction });
+
+          existId = newExist.id;
+          itemDepartmentId = deptId;
+        }
       } else if (exist.name) {
-        let found = await StockExist.findOne({ where: { name: exist.name }, transaction });
+        // ---------- Legacy: match by name (no code) ----------
+        let found = await StockExist.findOne({
+          where: { name: exist.name },
+          transaction,
+        });
+
         if (found) {
           existId = found.id;
           itemDepartmentId = found.departmentId;
@@ -208,7 +271,9 @@ export const createBatchStockIncome = async (req, res) => {
 
           if (!deptId) {
             await transaction.rollback();
-            return res.status(400).json({ error: `Department ID is required for new product: ${exist.name}` });
+            return res.status(400).json({
+              error: `Department ID is required for new product: ${exist.name}`
+            });
           }
 
           const dept = await Department.findByPk(deptId, { transaction });
@@ -218,10 +283,12 @@ export const createBatchStockIncome = async (req, res) => {
           }
 
           const newExist = await StockExist.create({
+            code_number: null,
             name: exist.name,
             departmentId: deptId,
-            sell_price: parsedSellPrice
+            sell_price: parsedSellPrice,
           }, { transaction });
+
           existId = newExist.id;
           itemDepartmentId = deptId;
         }
@@ -233,6 +300,7 @@ export const createBatchStockIncome = async (req, res) => {
       if (!existIds.includes(existId)) existIds.push(existId);
 
       const income = await StockIncome.create({
+        code_number: trimmedCode,      // ← save code on the income row too
         sellerId: sellerId,
         existId: existId,
         departmentId: itemDepartmentId,
@@ -248,10 +316,10 @@ export const createBatchStockIncome = async (req, res) => {
 
       if (mode === "stock") {
         await updateStockExistFromIncome(
-          existId, 
-          parsedAmount, 
-          computedUnitPrice, 
-          parsedSellPrice, 
+          existId,
+          parsedAmount,
+          computedUnitPrice,
+          parsedSellPrice,
           transaction
         );
       }
@@ -287,22 +355,22 @@ export const createBatchStockIncome = async (req, res) => {
       factorNumber: `FAC-${factor.id.toString().padStart(6, '0')}`
     }, { transaction });
 
-    // ---------- 5. Update SellerAccount using FACTOR ----------
+    // ---------- 5. Update SellerAccount ----------
     await updateSellerAccountWithFactor(sellerId, factor.id, status, transaction);
 
-    // ---------- 6. Create Pay record (if payment exists) ----------
+    // ---------- 6. Create Pay record ----------
     let payId = null;
     if (finalPaidAmount > 0) {
       const payRecord = await Pay.create({
         seller: sellerId,
-        departmentId: departmentId || null, // ✅ departmentId added here
+        departmentId: departmentId || null,
         amount: finalPaidAmount,
         description: `Payment for factor ${factor.id} (batch number of ${createdIncomeIds})`,
       }, { transaction });
       payId = payRecord.id;
     }
 
-    // ---------- 7. Update department with factor ID, pay ID, and exist IDs ----------
+    // ---------- 7. Update department ----------
     if (departmentId) {
       const targetDepartment = await Department.findByPk(parseInt(departmentId), { transaction });
       if (targetDepartment) {
@@ -339,7 +407,7 @@ export const createBatchStockIncome = async (req, res) => {
       }
     }
 
-    // ---------- 8. Link all StockIncome records to the factor ----------
+    // ---------- 8. Link incomes to factor ----------
     if (createdIncomeIds.length > 0) {
       await StockIncome.update(
         { FactorId: factor.id },
@@ -351,15 +419,15 @@ export const createBatchStockIncome = async (req, res) => {
 
     res.status(201).json({
       message: 'Batch stock incomes created successfully',
-      sellerId: sellerId,
+      sellerId,
       factorId: factor.id,
       factorNumber: factor.factorNumber,
-      mode: mode,
-      payId: payId,
-      totalAmount: totalAmount,
+      mode,
+      payId,
+      totalAmount,
       paidAmount: finalPaidAmount,
-      remainingAmount: remainingAmount,
-      status: status,
+      remainingAmount,
+      status,
       incomesCount: createdIncomes.length,
       incomes: createdIncomes,
       isPending: mode === "pending"
@@ -370,6 +438,7 @@ export const createBatchStockIncome = async (req, res) => {
     res.status(500).json({ error: 'Internal server error', details: error.message });
   }
 };
+
 
 export const getAllStockIncome = async (req, res) => {
   try {

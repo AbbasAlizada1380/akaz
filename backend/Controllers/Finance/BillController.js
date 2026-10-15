@@ -363,7 +363,7 @@ export const getAllBills = async (req, res) => {
             {
               model: StockExist,
               as: "sellStockExist",
-              attributes: ["id", "name", "departmentId", "unit_price", "sell_price"],
+              attributes: ["id", "name", "departmentId", "unit_price", "sell_price","code_number"],
             },
           ],
         },
@@ -413,7 +413,7 @@ export const getBillById = async (req, res) => {
             {
               model: StockExist,
               as: "sellStockExist",
-              attributes: ["id", "name", "departmentId", "unit_price", "sell_price"],
+              attributes: ["id", "name", "departmentId", "unit_price", "sell_price", "code_number"],
             },
           ],
         },

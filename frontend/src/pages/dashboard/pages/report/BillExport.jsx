@@ -70,14 +70,25 @@ const BillExport = ({ billId, billData: propBillData }) => {
     if (bill.notes) doc.text(`Notes: ${bill.notes}`, doc.internal.pageSize.getWidth() - 40, 110, { align: "right" });
 
     let startY = 130;
-    const headers = [["Product", "Quantity", "Unit Price", "Discount %", "Total"]];
-    const body = items.map((item) => [
-      item.sellStockExist?.name || "Unknown",
-      item.amount,
-      formatCurrency(item.unit_price),
-      `${item.discount_percent || 0}%`,
-      formatCurrency(item.total),
-    ]);
+    
+    // ADDED CODE # TO HEADERS
+    const headers = [["Code #", "Product", "Quantity", "Unit Price", "Discount %", "Total"]];
+    
+    // ADDED CODE # TO TABLE BODY
+    const body = items.map((item) => {
+      // Check both common namespaces for the code number just in case
+      const productData = item.sellStockExist || item.product || {};
+      const codeNumber = productData.code_number ?? productData.codeNumber ?? "-";
+
+      return [
+        codeNumber,
+        productData.name || "Unknown",
+        item.amount,
+        formatCurrency(item.unit_price),
+        `${item.discount_percent || 0}%`,
+        formatCurrency(item.total),
+      ];
+    });
 
     autoTable(doc, {
       startY,
@@ -137,31 +148,43 @@ const BillExport = ({ billId, billData: propBillData }) => {
     if (customer.address) invoiceRows.push([`Address: ${customer.address}`]);
     if (bill.notes) invoiceRows.push([`Notes: ${bill.notes}`]);
     invoiceRows.push([]);
-    invoiceRows.push(["Product", "Quantity", "Unit Price", "Discount %", "Total"]);
+    
+    // ADDED CODE # TO HEADERS
+    invoiceRows.push(["Code #", "Product", "Quantity", "Unit Price", "Discount %", "Total"]);
+    
+    // ADDED CODE # TO ROWS
     items.forEach((item) => {
+      // Check both common namespaces for the code number just in case
+      const productData = item.sellStockExist || item.product || {};
+      const codeNumber = productData.code_number ?? productData.codeNumber ?? "-";
+
       invoiceRows.push([
-        item.product?.name || "Unknown",
+        codeNumber,
+        productData.name || "Unknown",
         item.amount,
         parseFloat(item.unit_price).toFixed(2),
         `${item.discount_percent || 0}%`,
         parseFloat(item.total).toFixed(2),
       ]);
     });
+    
     invoiceRows.push([]);
-    invoiceRows.push(["Total:", "", "", "", parseFloat(bill.totalAmount).toFixed(2)]);
+    // UPDATED TOTALS TO MATCH NEW 6-COLUMN LAYOUT
+    invoiceRows.push(["Total:", "", "", "", "", parseFloat(bill.totalAmount).toFixed(2)]);
     if (bill.discount_percent && parseFloat(bill.discount_percent) > 0) {
-      invoiceRows.push(["Discount:", `${bill.discount_percent}%`, "", "", parseFloat(bill.discounted_amount).toFixed(2)]);
+      invoiceRows.push(["Discount:", `${bill.discount_percent}%`, "", "", "", parseFloat(bill.discounted_amount).toFixed(2)]);
     }
-    invoiceRows.push(["Paid:", "", "", "", parseFloat(bill.paidAmount).toFixed(2)]);
-    invoiceRows.push(["Remaining:", "", "", "", parseFloat(bill.remainingAmount).toFixed(2)]);
+    invoiceRows.push(["Paid:", "", "", "", "", parseFloat(bill.paidAmount).toFixed(2)]);
+    invoiceRows.push(["Remaining:", "", "", "", "", parseFloat(bill.remainingAmount).toFixed(2)]);
     invoiceRows.push(["Status:", bill.status === "paid" ? "Paid" : bill.status === "partial" ? "Partial" : "Unpaid"]);
     invoiceRows.push([]);
     invoiceRows.push([`Generated: ${moment().format("YYYY/MM/DD HH:mm")}`]);
 
     const wsInvoice = XLSX.utils.aoa_to_sheet(invoiceRows);
 
-    // --- Column widths (fits A4 portrait) ---
+    // --- UPDATED Column widths (fits A4 portrait with new column) ---
     wsInvoice["!cols"] = [
+      { wch: 10 },  // Code # (new)
       { wch: 28 },  // Product
       { wch: 8 },   // Quantity
       { wch: 10 },  // Unit Price
@@ -171,8 +194,8 @@ const BillExport = ({ billId, billData: propBillData }) => {
 
     // --- Merges & centering ---
     if (!wsInvoice["!merges"]) wsInvoice["!merges"] = [];
-    wsInvoice["!merges"].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 4 } }); // Business name
-    wsInvoice["!merges"].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 4 } }); // Invoice #
+    wsInvoice["!merges"].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }); // Business name (extended to col F)
+    wsInvoice["!merges"].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }); // Invoice # (extended to col F)
 
     // Center the two merged cells
     const titleCell = wsInvoice[XLSX.utils.encode_cell({ r: 0, c: 0 })];
@@ -186,10 +209,10 @@ const BillExport = ({ billId, billData: propBillData }) => {
       invoiceNumCell.s.alignment = { horizontal: "center", vertical: "center" };
     }
 
-    // --- Text wrapping for Product column ---
-    const range = XLSX.utils.decode_range(wsInvoice["!ref"] || "A1:E100");
+    // --- Text wrapping for Product column (Shifted to column index 1 because of Code #) ---
+    const range = XLSX.utils.decode_range(wsInvoice["!ref"] || "A1:F100");
     for (let R = range.s.r; R <= range.e.r; R++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: R, c: 0 });
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: 1 }); // Column index 1 is Product
       if (wsInvoice[cellAddress]) {
         wsInvoice[cellAddress].s = wsInvoice[cellAddress].s || {};
         wsInvoice[cellAddress].s.alignment = wsInvoice[cellAddress].s.alignment || {};
@@ -225,18 +248,23 @@ const BillExport = ({ billId, billData: propBillData }) => {
 
     XLSX.utils.book_append_sheet(workbook, wsInvoice, "Invoice");
 
-    // --- Raw Data sheet (unchanged, but keep margins and page setup) ---
-    const rawData = items.map((item) => ({
-      ID: item.productId,
-      Name: item.product?.name || "Unknown",
-      Quantity: item.amount,
-      "Unit Price": item.unit_price,
-      "Discount %": item.discount_percent,
-      "Discount Amount": item.discounted_amount,
-      Total: item.total,
-    }));
+    // --- Raw Data sheet ---
+    const rawData = items.map((item) => {
+      const productData = item.sellStockExist || item.product || {};
+      return {
+        "Code #": productData.code_number ?? productData.codeNumber ?? "-",
+        ID: item.productId,
+        Name: productData.name || "Unknown",
+        Quantity: item.amount,
+        "Unit Price": item.unit_price,
+        "Discount %": item.discount_percent,
+        "Discount Amount": item.discounted_amount,
+        Total: item.total,
+      };
+    });
     const wsRaw = XLSX.utils.json_to_sheet(rawData);
-    wsRaw["!cols"] = [{ wch: 10 }, { wch: 28 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 12 }];
+    // Added an extra column size for Code #
+    wsRaw["!cols"] = [{ wch: 10 }, { wch: 10 }, { wch: 28 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 12 }];
     wsRaw["!pageSetup"] = { orientation: "portrait", paperSize: 9, fitToWidth: 1, fitToHeight: 0 };
     wsRaw["!margins"] = { left: 0.7, right: 0.7, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 };
     XLSX.utils.book_append_sheet(workbook, wsRaw, "Raw Data");

@@ -212,9 +212,12 @@ const SellManager = () => {
 
   const applyGlobalDiscountAmount = (totalDiscountAmount) => {
     const totalRaw = items.reduce((sum, item) => sum + (parseFloat(item.amount) * toInt(item.unitPrice) || 0), 0);
-    if (totalRaw <= 0) return;
-    const targetTotal = Math.max(0, totalRaw - totalDiscountAmount);
+    // ALLOW NEGATIVE: We remove the totalRaw <= 0 restriction and Math.max(0, ...)
+    if (totalRaw === 0) return; 
+    
+    const targetTotal = totalRaw - totalDiscountAmount;
     const effectivePercent = ((totalRaw - targetTotal) / totalRaw) * 100;
+    
     setItems(prev =>
       prev.map(item => {
         const amount = parseFloat(item.amount) || 0;
@@ -255,17 +258,21 @@ const SellManager = () => {
         setSubmitMessage({ type: "error", text: "Each item must have a product selected" });
         return false;
       }
-      if (!item.amount || parseFloat(item.amount) <= 0) {
-        setSubmitMessage({ type: "error", text: "Each item must have a positive quantity" });
+      // ALLOW NEGATIVE: Removed the <= 0 checks
+      if (item.amount === "" || isNaN(parseFloat(item.amount))) {
+        setSubmitMessage({ type: "error", text: "Each item must have a valid quantity" });
         return false;
       }
-      if (!item.unitPrice || parseFloat(item.unitPrice) <= 0) {
+      if (item.unitPrice === "" || isNaN(parseFloat(item.unitPrice))) {
         setSubmitMessage({ type: "error", text: "Each item must have a valid unit price" });
         return false;
       }
+      
       const discount = parseFloat(item.discountPercent) || 0;
-      if (discount < 0 || discount > 100) {
-        setSubmitMessage({ type: "error", text: "Discount % must be between 0 and 100" });
+      // ALLOW NEGATIVE: Changed bounds check from < 0 or > 100 to just disallow > 100 if you still want to prevent massive markdowns, 
+      // but since negative makes it a markup, we'll just check for valid number. (I'll allow anything).
+      if (isNaN(discount)) {
+        setSubmitMessage({ type: "error", text: "Discount % must be a valid number" });
         return false;
       }
     }
@@ -274,8 +281,9 @@ const SellManager = () => {
 
   const validateReceipt = () => {
     const receiptAmount = parseFloat(receipt) || 0;
-    if (receiptAmount < 0) {
-      setSubmitMessage({ type: "error", text: "Receipt cannot be negative" });
+    // ALLOW NEGATIVE: Removed the < 0 check
+    if (isNaN(receiptAmount)) {
+      setSubmitMessage({ type: "error", text: "Receipt must be a valid number" });
       return false;
     }
     return true;

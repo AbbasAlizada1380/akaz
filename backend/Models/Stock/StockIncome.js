@@ -4,6 +4,12 @@ import sequelize from "../../dbconnection.js";
 const StockIncome = sequelize.define(
   "StockIncome",
   {
+    code_number: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      unique: false,
+    },
+
     amount: {
       type: DataTypes.INTEGER,
       allowNull: false,

@@ -38,10 +38,7 @@ export const createSell = async (req, res) => {
       await transaction.rollback();
       return res.status(400).json({ message: "At least one item is required" });
     }
-    if (receipt && receipt < 0) {
-      await transaction.rollback();
-      return res.status(400).json({ message: "Receipt cannot be negative" });
-    }
+    // Removed negative receipt restriction: `if (receipt && receipt < 0)` is gone.
 
     // --- Customer handling ---
     let finalCustomerId;
@@ -79,26 +76,30 @@ export const createSell = async (req, res) => {
         discounted_total,
       } = item;
 
-      // Basic validation
-      if (!existId || !amount || amount <= 0 || !unit_price || unit_price <= 0) {
+      // Removed positive amount restrictions.
+      if (!existId || amount === undefined || amount === null || unit_price === undefined || unit_price === null) {
         await transaction.rollback();
-        return res.status(400).json({ message: "Each item must have existId, positive amount and unit_price" });
+        return res.status(400).json({ message: "Each item must have existId, amount and unit_price" });
       }
-      if (discount_percent < 0 || discount_percent > 100) {
-        await transaction.rollback();
-        return res.status(400).json({ message: "Discount percent must be between 0 and 100" });
-      }
-
+      
+      // Removed 0-100 percent limit so negative (markups) can be passed.
+      
       // Check stock
       const stock = await StockExist.findByPk(existId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!stock) {
         await transaction.rollback();
         return res.status(404).json({ message: `Product with id ${existId} not found` });
       }
-      if (stock.amount < amount) {
+      
+      // Calculate what the stock WILL BE after the transaction.
+      // If amount is positive, stock goes down. If amount is negative, stock goes up.
+      const newStockAmount = stock.amount - amount;
+      
+      // Only block if we are taking more than available (i.e. newStockAmount goes below 0)
+      if (newStockAmount < 0) {
         await transaction.rollback();
         return res.status(400).json({
-          message: `Insufficient stock for ${stock.name}. Available: ${stock.amount}`,
+          message: `Insufficient stock for ${stock.name}. Available: ${stock.amount}, Requested: ${amount}`,
         });
       }
 
@@ -124,6 +125,7 @@ export const createSell = async (req, res) => {
     }
 
     const receiptAmount = parseFloat(receipt) || 0;
+    // If the total is negative (a return) and receipt is 0, this logic still works.
     const effectiveReceipt = Math.min(receiptAmount, totalDiscountedAmount);
     const remainingAmount = totalDiscountedAmount - effectiveReceipt;
 
@@ -131,16 +133,20 @@ export const createSell = async (req, res) => {
     let deptPayments = {};
 
     if (departmentReceipts && typeof departmentReceipts === 'object' && Object.keys(departmentReceipts).length > 0) {
-      // Use provided department payments
       deptPayments = { ...departmentReceipts };
-      // Cap each department payment to its total
+      
+      // Cap each department payment to its total (works with negatives too)
       for (const [deptId, paid] of Object.entries(deptPayments)) {
         const deptTotal = deptTotals[parseInt(deptId)] || 0;
-        if (paid > deptTotal) {
+        // If deptTotal is positive, paid can't be greater than it.
+        // If deptTotal is negative, paid can't be less than it.
+        if (deptTotal >= 0 && paid > deptTotal) {
+          deptPayments[deptId] = deptTotal;
+        } else if (deptTotal < 0 && paid < deptTotal) {
           deptPayments[deptId] = deptTotal;
         }
       }
-      // Scale down if total payments exceed effectiveReceipt
+      
       const totalDeptPayments = Object.values(deptPayments).reduce((a, b) => a + b, 0);
       if (totalDeptPayments > effectiveReceipt && totalDeptPayments > 0) {
         const scale = effectiveReceipt / totalDeptPayments;
@@ -150,7 +156,7 @@ export const createSell = async (req, res) => {
       }
     } else {
       // Fallback: proportional distribution
-      if (totalDiscountedAmount > 0) {
+      if (totalDiscountedAmount !== 0) {
         let remaining = effectiveReceipt;
         for (const [deptId, deptTotal] of Object.entries(deptTotals)) {
           const proportion = deptTotal / totalDiscountedAmount;
@@ -160,7 +166,7 @@ export const createSell = async (req, res) => {
           remaining -= amount;
         }
         // Adjust rounding
-        if (remaining > 0) {
+        if (remaining !== 0) {
           const firstDept = Object.keys(deptPayments)[0];
           if (firstDept) deptPayments[firstDept] += remaining;
         }
@@ -176,9 +182,15 @@ export const createSell = async (req, res) => {
       const lineTotal = item.discounted_total;
       let allocatedReceipt = 0;
 
-      if (deptRemaining[deptId] && deptRemaining[deptId] > 0) {
-        allocatedReceipt = Math.min(deptRemaining[deptId], lineTotal);
-        deptRemaining[deptId] -= allocatedReceipt;
+      if (deptRemaining[deptId] && deptRemaining[deptId] !== 0) {
+        // Allocate based on the line total (works for negative amounts too)
+        if (lineTotal > 0) {
+          allocatedReceipt = Math.min(deptRemaining[deptId], lineTotal);
+          deptRemaining[deptId] -= allocatedReceipt;
+        } else if (lineTotal < 0) {
+           allocatedReceipt = Math.max(deptRemaining[deptId], lineTotal);
+           deptRemaining[deptId] -= allocatedReceipt;
+        }
       }
 
       const remaind = lineTotal - allocatedReceipt;
@@ -207,7 +219,7 @@ export const createSell = async (req, res) => {
         totalAmount: totalDiscountedAmount,
         paidAmount: effectiveReceipt,
         remainingAmount,
-        status: remainingAmount === 0 ? "paid" : effectiveReceipt > 0 ? "partial" : "unpaid",
+        status: remainingAmount === 0 ? "paid" : effectiveReceipt !== 0 ? "partial" : "unpaid",
         notes: notes || null,
         discount_percent: billDiscountPercent !== undefined ? billDiscountPercent : null,
         discounted_amount: billDiscountAmount !== undefined ? billDiscountAmount : null,
@@ -241,7 +253,7 @@ export const createSell = async (req, res) => {
       );
       createdSells.push(sell);
 
-      // Update stock
+      // Update stock: If amount is negative, subtracting a negative adds to stock.
       await sellInfo.stockRecord.update(
         { amount: sellInfo.stockRecord.amount - sellInfo.amount },
         { transaction }
@@ -307,7 +319,7 @@ export const createSell = async (req, res) => {
     // --- Create Receives per department ---
     const receiveIds = [];
     for (const [deptId, amount] of Object.entries(deptPayments)) {
-      if (amount > 0) {
+      if (amount !== 0) {
         const receive = await Receive.create(
           {
             customer: finalCustomerId,
@@ -503,7 +515,7 @@ export const getSellById = async (req, res) => {
 };
 
 /* ===============================
-   UPDATE SELL (requires careful stock & bill adjustment)
+   UPDATE SELL
 ================================ */
 export const updateSell = async (req, res) => {
   const transaction = await sequelize.transaction();
@@ -521,9 +533,10 @@ export const updateSell = async (req, res) => {
     const newAmount = amount ?? oldAmount;
     const newUnitPrice = unit_price ?? oldUnitPrice;
 
-    if (newAmount <= 0 || newUnitPrice <= 0) {
+    // Removed positive checks. Now validates that they are numbers.
+    if (isNaN(newAmount) || isNaN(newUnitPrice)) {
       await transaction.rollback();
-      return res.status(400).json({ message: "Amount and unit price must be positive" });
+      return res.status(400).json({ message: "Amount and unit price must be valid numbers" });
     }
 
     // Update stock (StockExist)
@@ -534,6 +547,7 @@ export const updateSell = async (req, res) => {
     }
 
     const quantityDiff = newAmount - oldAmount;
+    // If increasing the positive amount, check if we have enough stock
     if (quantityDiff > 0 && stock.amount < quantityDiff) {
       await transaction.rollback();
       return res.status(400).json({ message: "Insufficient stock for increase" });
@@ -653,8 +667,10 @@ export const returnSell = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const { sellId, quantity, refundedMoney, unitPrice } = req.body;
-    if (!sellId || !quantity || quantity <= 0 || !refundedMoney || refundedMoney < 0) {
-      return res.status(400).json({ error: "sellId, quantity (>0) and refundedMoney are required" });
+    
+    // Removed positive checks so negative quantities can be passed if needed.
+    if (!sellId || quantity === undefined || refundedMoney === undefined) {
+      return res.status(400).json({ error: "sellId, quantity and refundedMoney are required" });
     }
 
     const originalSell = await Sells.findByPk(sellId, { transaction });
@@ -663,6 +679,7 @@ export const returnSell = async (req, res) => {
       return res.status(404).json({ error: "Original sell not found" });
     }
 
+    // Basic check: You can't return MORE than what was sold
     if (quantity > originalSell.amount) {
       await transaction.rollback();
       return res.status(400).json({ error: "Return quantity exceeds sold amount" });
@@ -674,7 +691,7 @@ export const returnSell = async (req, res) => {
       return res.status(404).json({ error: "Product not found" });
     }
 
-    // Increase stock
+    // Increase stock (If quantity is negative, this decreases the stock)
     await stock.update({ amount: stock.amount + quantity }, { transaction });
 
     // Create return sell record
@@ -723,8 +740,8 @@ export const returnSell = async (req, res) => {
       await customerAccount.update({ returned: returnedArr }, { transaction });
     }
 
-    // If refundedMoney > 0, create Return_Pay record
-    if (refundedMoney > 0) {
+    // If refundedMoney !== 0, create Return_Pay record
+    if (refundedMoney !== 0) {
       const customer = await Customer.findByPk(bill.customerId, { transaction });
       await Return_Pay.create(
         {
