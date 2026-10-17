@@ -81,20 +81,20 @@ export const createSell = async (req, res) => {
         await transaction.rollback();
         return res.status(400).json({ message: "Each item must have existId, amount and unit_price" });
       }
-      
+
       // Removed 0-100 percent limit so negative (markups) can be passed.
-      
+
       // Check stock
       const stock = await StockExist.findByPk(existId, { transaction, lock: transaction.LOCK.UPDATE });
       if (!stock) {
         await transaction.rollback();
         return res.status(404).json({ message: `Product with id ${existId} not found` });
       }
-      
+
       // Calculate what the stock WILL BE after the transaction.
       // If amount is positive, stock goes down. If amount is negative, stock goes up.
       const newStockAmount = stock.amount - amount;
-      
+
       // Only block if we are taking more than available (i.e. newStockAmount goes below 0)
       if (newStockAmount < 0) {
         await transaction.rollback();
@@ -134,7 +134,7 @@ export const createSell = async (req, res) => {
 
     if (departmentReceipts && typeof departmentReceipts === 'object' && Object.keys(departmentReceipts).length > 0) {
       deptPayments = { ...departmentReceipts };
-      
+
       // Cap each department payment to its total (works with negatives too)
       for (const [deptId, paid] of Object.entries(deptPayments)) {
         const deptTotal = deptTotals[parseInt(deptId)] || 0;
@@ -146,7 +146,7 @@ export const createSell = async (req, res) => {
           deptPayments[deptId] = deptTotal;
         }
       }
-      
+
       const totalDeptPayments = Object.values(deptPayments).reduce((a, b) => a + b, 0);
       if (totalDeptPayments > effectiveReceipt && totalDeptPayments > 0) {
         const scale = effectiveReceipt / totalDeptPayments;
@@ -188,8 +188,8 @@ export const createSell = async (req, res) => {
           allocatedReceipt = Math.min(deptRemaining[deptId], lineTotal);
           deptRemaining[deptId] -= allocatedReceipt;
         } else if (lineTotal < 0) {
-           allocatedReceipt = Math.max(deptRemaining[deptId], lineTotal);
-           deptRemaining[deptId] -= allocatedReceipt;
+          allocatedReceipt = Math.max(deptRemaining[deptId], lineTotal);
+          deptRemaining[deptId] -= allocatedReceipt;
         }
       }
 
@@ -667,7 +667,7 @@ export const returnSell = async (req, res) => {
   const transaction = await sequelize.transaction();
   try {
     const { sellId, quantity, refundedMoney, unitPrice } = req.body;
-    
+
     // Removed positive checks so negative quantities can be passed if needed.
     if (!sellId || quantity === undefined || refundedMoney === undefined) {
       return res.status(400).json({ error: "sellId, quantity and refundedMoney are required" });
@@ -766,7 +766,7 @@ export const returnSell = async (req, res) => {
    GET SELLS BY DATE RANGE
 ================================ */
 export const getSellsByDateRange = async (req, res) => {
-  const { from, to, customerId, departmentId } = req.query;
+  const { from, to, customerId, departmentId, existId } = req.query;
   if (!from || !to) {
     return res.status(400).json({ success: false, message: "from and to dates required" });
   }
@@ -779,46 +779,83 @@ export const getSellsByDateRange = async (req, res) => {
       createdAt: { [Op.between]: [startDate, endDate] },
     };
 
-    const include = [
-      { model: StockExist, as: "product", attributes: ["id", "name", "departmentId"] },
-      { model: Bill, as: "bill", attributes: ["id", "billNumber", "totalAmount", "paidAmount", "sells"] },
-    ];
+    // --- Setup Includes (aliases MUST match model associations) ---
+
+    // 1. StockExist — alias is "sellStockExist"
+    const stockInclude = {
+      model: StockExist,
+      as: "sellStockExist",
+      attributes: ["id", "name", "departmentId", "code_number"],
+    };
+
+    if (departmentId) {
+      stockInclude.where = { departmentId };
+    }
+
+    if (existId) {
+      whereClause.exist = existId;
+    }
+
+    // 2. Bill — alias is "sellBill"
+    const billInclude = {
+      model: Bill,
+      as: "sellBill",
+      attributes: ["id", "billNumber", "totalAmount", "paidAmount", "sells"],
+    };
 
     if (customerId) {
-      include.push({
-        model: Bill,
-        as: "bill",
-        where: { customerId },
-      });
-    }
-    if (departmentId) {
-      include[0].where = { departmentId };
+      billInclude.where = { customerId };
     }
 
     const sells = await Sells.findAll({
       where: whereClause,
-      include,
+      include: [stockInclude, billInclude],
       order: [["createdAt", "DESC"]],
+    });
+
+    // --- Normalize so frontend keeps working with `product` and `bill` ---
+    const normalizedSells = sells.map((s) => {
+      const plain = s.toJSON();
+      return {
+        ...plain,
+        product: plain.sellStockExist || null,
+        bill: plain.sellBill || null,
+      };
     });
 
     // Aggregate by bill
     const uniqueBills = new Map();
-    for (const s of sells) {
-      if (s.bill && !uniqueBills.has(s.bill.id)) uniqueBills.set(s.bill.id, s.bill);
+    for (const s of normalizedSells) {
+      if (s.bill && !uniqueBills.has(s.bill.id)) {
+        uniqueBills.set(s.bill.id, s.bill);
+      }
     }
-    const totalBillPaid = Array.from(uniqueBills.values()).reduce((sum, b) => sum + b.paidAmount, 0);
-    const totalBillAmount = Array.from(uniqueBills.values()).reduce((sum, b) => sum + b.totalAmount, 0);
+
+    const totalBillPaid = Array.from(uniqueBills.values()).reduce(
+      (sum, b) => sum + Number(b.paidAmount || 0),
+      0
+    );
+    const totalBillAmount = Array.from(uniqueBills.values()).reduce(
+      (sum, b) => sum + Number(b.totalAmount || 0),
+      0
+    );
     const totalRemaining = totalBillAmount - totalBillPaid;
 
     res.json({
       success: true,
       data: {
-        sells,
-        totalCount: sells.length,
+        sells: normalizedSells,
+        totalCount: normalizedSells.length,
         totalAmount: totalBillAmount,
         totalReceived: totalBillPaid,
         totalRemained: totalRemaining,
-        filters: { from, to, customerId: customerId || null, departmentId: departmentId || null },
+        filters: {
+          from,
+          to,
+          customerId: customerId || null,
+          departmentId: departmentId || null,
+          existId: existId || null,
+        },
       },
     });
   } catch (error) {

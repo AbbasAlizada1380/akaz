@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import moment from "moment-jalaali";
 import CustomerReport from './CustomerReport';
 import ReceiptDateDownload from '../report/ReceiptDateDownload.jsx';
 import Pagination from '../../pagination/Pagination';
+import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
@@ -14,12 +18,17 @@ const initialForm = {
 const Receive = () => {
   const [activeTab, setActiveTab] = useState('receives');
   const [receives, setReceives] = useState([]);
-  const [customers, setCustomers] = useState([]);       // full customer debt data with departments array
+  const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
-  const [departmentAmounts, setDepartmentAmounts] = useState({}); // key: departmentId, value: amount
+  const [departmentAmounts, setDepartmentAmounts] = useState({});
   const [selectedCustomerData, setSelectedCustomerData] = useState(null);
+
+  // Selection state for creating a receipt bill
+  const [selectedReceipts, setSelectedReceipts] = useState([]);
+  const [showBillModal, setShowBillModal] = useState(false);
+  const [billDescription, setBillDescription] = useState('');
 
   // Pagination state
   const [page, setPage] = useState(1);
@@ -28,7 +37,7 @@ const Receive = () => {
   const limit = 20;
 
   // ======================
-  // Fetch Receives (with pagination)
+  // Fetch Receives
   // ======================
   const fetchReceives = async () => {
     setLoading(true);
@@ -39,6 +48,8 @@ const Receive = () => {
       setReceives(res.data.data || []);
       setTotalPages(res.data.totalPages || 1);
       setTotalRecords(res.data.totalRecords || 0);
+      // Clear selection on page change
+      setSelectedReceipts([]);
     } catch (error) {
       console.error('Error fetching receives:', error);
     } finally {
@@ -47,7 +58,7 @@ const Receive = () => {
   };
 
   // ======================
-  // Fetch Customers (with department breakdown)
+  // Fetch Customers
   // ======================
   const fetchCustomers = async () => {
     try {
@@ -71,7 +82,7 @@ const Receive = () => {
   }, [activeTab, page]);
 
   // ======================
-  // When customer is selected, load their department data
+  // Customer select
   // ======================
   const handleCustomerChange = (e) => {
     const customerId = e.target.value;
@@ -83,11 +94,10 @@ const Receive = () => {
       const selected = customers.find(c => c.customer?.id === parseInt(customerId));
       if (selected) {
         setSelectedCustomerData(selected);
-        // Initialize department amounts from the departments array
         const initialDeptAmounts = {};
         if (selected.departments && Array.isArray(selected.departments)) {
           selected.departments.forEach(dept => {
-            initialDeptAmounts[dept.id] = 0; // start with 0 for each department
+            initialDeptAmounts[dept.id] = 0;
           });
         }
         setDepartmentAmounts(initialDeptAmounts);
@@ -95,36 +105,27 @@ const Receive = () => {
     }
   };
 
-  // ======================
-  // Update amount for a specific department
-  // ======================
   const handleDeptAmountChange = (deptId, value) => {
     const numValue = parseFloat(value) || 0;
-    setDepartmentAmounts(prev => ({
-      ...prev,
-      [deptId]: numValue
-    }));
+    setDepartmentAmounts(prev => ({ ...prev, [deptId]: numValue }));
   };
 
-  // ======================
-  // Calculate total payment from all departments
-  // ======================
   const getTotalPayment = () => {
     return Object.values(departmentAmounts).reduce((sum, val) => sum + (val || 0), 0);
   };
 
-  // ======================
-  // Get max possible per department (from customer data)
-  // ======================
   const getMaxForDepartment = (deptId) => {
     if (!selectedCustomerData || !selectedCustomerData.departments) return 0;
     const dept = selectedCustomerData.departments.find(d => d.id === deptId);
     return dept ? dept.amount : 0;
   };
 
-  // ======================
-  // Validate before submit
-  // ======================
+  const getDepartmentName = (deptId) => {
+    if (!selectedCustomerData || !selectedCustomerData.departments) return `Department ${deptId}`;
+    const dept = selectedCustomerData.departments.find(d => d.id === deptId);
+    return dept ? dept.name : `Department ${deptId}`;
+  };
+
   const validatePayment = () => {
     if (!form.customer) {
       alert('Please select a customer');
@@ -141,7 +142,6 @@ const Receive = () => {
         alert(`Total payment (${totalPayment}) cannot exceed total due (${totalDue})`);
         return false;
       }
-      // Per‑department maximums enforcement
       for (const [deptId, amount] of Object.entries(departmentAmounts)) {
         const maxAllowed = getMaxForDepartment(parseInt(deptId));
         if (amount > maxAllowed) {
@@ -154,21 +154,13 @@ const Receive = () => {
     return true;
   };
 
-  // Helper to get department name
-  const getDepartmentName = (deptId) => {
-    if (!selectedCustomerData || !selectedCustomerData.departments) return `Department ${deptId}`;
-    const dept = selectedCustomerData.departments.find(d => d.id === deptId);
-    return dept ? dept.name : `Department ${deptId}`;
-  };
-
   // ======================
-  // Handle Submit (Add/Edit)
+  // Handle Submit
   // ======================
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validatePayment()) return;
 
-    // Build payload: include department fields as "department<id>"
     const payload = {
       customer: form.customer,
       description: form.description || null,
@@ -206,9 +198,6 @@ const Receive = () => {
     }
   };
 
-  // ======================
-  // Reset Form
-  // ======================
   const resetForm = () => {
     setForm(initialForm);
     setEditingId(null);
@@ -217,16 +206,12 @@ const Receive = () => {
   };
 
   // ======================
-  // Handle Edit – for simplicity, we disable editing because department split would need to be fetched
+  // Edit / Delete
   // ======================
   const handleEdit = (receive) => {
     alert('Editing with department split is not fully supported yet. Please delete and recreate if needed.');
-    // In a real implementation, you would fetch the original allocation and pre‑fill the department amounts.
   };
 
-  // ======================
-  // Handle Delete
-  // ======================
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this receive?')) return;
     setLoading(true);
@@ -252,15 +237,153 @@ const Receive = () => {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
+    return moment(dateString).format("YYYY/MM/DD HH:mm");
   };
 
   const getCustomerName = (customerId) => {
     const cust = customers.find(c => c.customer?.id === customerId);
     return cust ? cust.customer.fullname : 'Unknown';
+  };
+
+  // ======================
+  // Selection helpers
+  // ======================
+  const toggleReceiptSelection = (id) => {
+    setSelectedReceipts(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    const currentlySelectedCustomer =
+      selectedReceipts.length > 0
+        ? receives.find(r => r.id === selectedReceipts[0])?.customer
+        : null;
+
+    const visibleIds = receives
+      .filter(r => !currentlySelectedCustomer || r.customer === currentlySelectedCustomer)
+      .map(r => r.id);
+
+    const allSelected = visibleIds.every(id => selectedReceipts.includes(id));
+
+    if (allSelected) {
+      setSelectedReceipts([]);
+    } else {
+      setSelectedReceipts(visibleIds);
+    }
+  };
+
+  const getSelectedTotal = () => {
+    return receives
+      .filter(r => selectedReceipts.includes(r.id))
+      .reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+  };
+
+  const getSelectedCustomer = () => {
+    if (selectedReceipts.length === 0) return null;
+    const first = receives.find(r => r.id === selectedReceipts[0]);
+    return first ? first.customer : null;
+  };
+
+  const openBillModal = () => {
+    if (selectedReceipts.length === 0) {
+      alert('Please select at least one receipt');
+      return;
+    }
+    const firstRec = receives.find(r => r.id === selectedReceipts[0]);
+    const firstCustomer = firstRec?.customer;
+    const mixed = selectedReceipts.some(id => {
+      const rec = receives.find(r => r.id === id);
+      return rec && rec.customer !== firstCustomer;
+    });
+    if (mixed) {
+      alert('All selected receipts must belong to the same customer.');
+      return;
+    }
+    setBillDescription('');
+    setShowBillModal(true);
+  };
+
+  const isRowSelected = (id) => selectedReceipts.includes(id);
+  const canSelectRow = (receive) => {
+    if (selectedReceipts.length === 0) return true;
+    const firstRec = receives.find(r => r.id === selectedReceipts[0]);
+    return firstRec && firstRec.customer === receive.customer;
+  };
+
+  // ======================
+  // DOWNLOAD PDF (NO PRINT WINDOW)
+  // ======================
+  const handleDownloadPDF = () => {
+    const selectedItems = receives.filter(r => selectedReceipts.includes(r.id));
+    if (selectedItems.length === 0) return;
+
+    const customerName = getCustomerName(getSelectedCustomer());
+    const total = getSelectedTotal();
+    
+    // Generate a pseudo-random bill number for reference
+    const billNumber = `RB-${Date.now().toString().slice(-6)}`;
+    const dateStr = moment().format("YYYY/MM/DD HH:mm");
+
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
+    doc.setR2L(false);
+    doc.addFileToVFS("Vazirmatn.ttf", VazirmatnTTF);
+    doc.addFont("Vazirmatn.ttf", "Vazirmatn", "normal");
+    doc.setFont("Vazirmatn");
+
+    // Header
+    doc.setFontSize(16);
+    doc.text("Combined Receipt Bill", doc.internal.pageSize.getWidth() - 40, 40, { align: "right" });
+    
+    doc.setFontSize(10);
+    doc.text(`Bill #: ${billNumber}`, doc.internal.pageSize.getWidth() - 40, 65, { align: "right" });
+    doc.text(`Date: ${dateStr}`, doc.internal.pageSize.getWidth() - 40, 80, { align: "right" });
+    doc.text(`Customer: ${customerName}`, doc.internal.pageSize.getWidth() - 40, 95, { align: "right" });
+    
+    let startY = 115;
+    if (billDescription) {
+      doc.text(`Notes: ${billDescription}`, doc.internal.pageSize.getWidth() - 40, startY, { align: "right" });
+      startY += 20;
+    }
+
+    // Table
+    const headers = [["#", "Date", "Description", "Amount"]];
+    const body = selectedItems.map((item, index) => [
+      index + 1,
+      formatDate(item.createdAt),
+      item.description || "-",
+      parseFloat(item.amount).toFixed(2)
+    ]);
+
+    autoTable(doc, {
+      startY,
+      head: headers,
+      body,
+      theme: "grid",
+      styles: { font: "Vazirmatn", fontSize: 9, halign: "center", valign: "middle" },
+      headStyles: { fillColor: [220, 220, 220], textColor: 20, fontStyle: "normal" },
+      margin: { left: 30, right: 30 },
+    });
+
+    // Totals
+    let finalY = doc.lastAutoTable.finalY + 20;
+    doc.setFontSize(12);
+    doc.text(`Total Paid: ${total.toFixed(2)}`, doc.internal.pageSize.getWidth() - 40, finalY, { align: "right" });
+
+    // Footer
+    const pageCount = doc.internal.getNumberOfPages();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(9);
+      doc.text(`${i}/${pageCount}`, pageWidth - 40, pageHeight - 30, { align: "right" });
+      doc.text(`Generated: ${moment().format("YYYY/MM/DD HH:mm")}`, pageWidth - 40, pageHeight - 15, { align: "right" });
+    }
+
+    // Save
+    doc.save(`Receipt_Bill_${billNumber}.pdf`);
+    setShowBillModal(false); // Close modal after download
   };
 
   return (
@@ -338,7 +461,6 @@ const Receive = () => {
                   </select>
                 </div>
 
-                {/* Department breakdown and input fields using the departments array */}
                 {selectedCustomerData && selectedCustomerData.departments && selectedCustomerData.departments.length > 0 && (
                   <div className="space-y-4 border-t border-gray-200 pt-4">
                     <div className="bg-gray-50 rounded-xl p-4">
@@ -428,11 +550,11 @@ const Receive = () => {
               </form>
             </div>
 
-            {/* TABLE (unchanged) */}
+            {/* TABLE */}
             <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-primary">
               <ReceiptDateDownload />
               <div className="bg-gradient-to-r from-primary to-primary px-6 py-5">
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center flex-wrap gap-3">
                   <div className="flex items-center space-x-3">
                     <div className="p-2 bg-white/20 rounded-lg">
                       <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -441,15 +563,40 @@ const Receive = () => {
                     </div>
                     <h2 className="text-xl font-semibold text-white">Receive History</h2>
                   </div>
-                  <span className="bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold">
-                    Total: {totalRecords} receives
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {selectedReceipts.length > 0 && (
+                      <button
+                        onClick={openBillModal}
+                        className="bg-white text-primary font-semibold px-4 py-2 rounded-xl hover:bg-gray-100 transition-all shadow"
+                      >
+                        Create Receipt Bill ({selectedReceipts.length})
+                      </button>
+                    )}
+                    <span className="bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold">
+                      Total: {totalRecords} receives
+                    </span>
+                  </div>
                 </div>
               </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-primary">
                     <tr>
+                      <th className="px-3 py-4 text-left text-sm font-semibold text-white w-10">
+                        <input
+                          type="checkbox"
+                          onChange={toggleSelectAll}
+                          checked={
+                            receives.length > 0 &&
+                            receives
+                              .filter(r => !getSelectedCustomer() || r.customer === getSelectedCustomer())
+                              .every(r => isRowSelected(r.id))
+                          }
+                          className="w-4 h-4 accent-primary cursor-pointer"
+                          title="Select all for same customer"
+                        />
+                      </th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">#</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">Customer</th>
                       <th className="px-6 py-4 text-left text-sm font-semibold text-white">Amount</th>
@@ -460,51 +607,67 @@ const Receive = () => {
                   </thead>
                   <tbody className="divide-y divide-primary">
                     {loading && receives.length === 0 ? (
-                      <tr><td colSpan="6" className="px-6 py-16 text-center">Loading...</td></tr>
+                      <tr><td colSpan="7" className="px-6 py-16 text-center">Loading...</td></tr>
                     ) : receives.length === 0 ? (
-                      <tr><td colSpan="6" className="px-6 py-16 text-center">No receives found</td></tr>
+                      <tr><td colSpan="7" className="px-6 py-16 text-center">No receives found</td></tr>
                     ) : (
-                      receives.map((receive, index) => (
-                        <tr key={receive.id} className="group hover:bg-gray-50">
-                          <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                            {String(index + 1 + (page - 1) * limit).padStart(2, '0')}
-                           </td>
-                          <td className="px-6 py-4">
-                            <div className="font-semibold text-gray-900">
-                              {receive.receiveCustomer?.fullname || getCustomerName(receive.customer)}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="inline-flex items-center px-3 py-1.5 bg-green-100 text-green-700 rounded-xl font-semibold">
-                              {parseFloat(receive.amount).toFixed(2)}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-sm text-gray-600">{formatDate(receive.createdAt)}</td>
-                          <td className="px-6 py-4 text-gray-600">{receive.description || <span className="italic">No description</span>}</td>
-                          <td className="px-6 py-4">
-                            <div className="flex space-x-2">
-                              <button
-                                onClick={() => handleEdit(receive)}
-                                className="p-2 rounded-lg text-primary hover:bg-primary/10 transition-all"
-                                title="Edit receive"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
-                                </svg>
-                              </button>
-                              <button
-                                onClick={() => handleDelete(receive.id)}
-                                className="p-2 text-red-700 rounded-lg hover:bg-red-200 transition-all"
-                                title="Delete receive"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                                </svg>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))
+                      receives.map((receive, index) => {
+                        const disabled = !canSelectRow(receive);
+                        const selected = isRowSelected(receive.id);
+                        return (
+                          <tr
+                            key={receive.id}
+                            className={`group hover:bg-gray-50 ${selected ? 'bg-primary/10' : ''}`}
+                          >
+                            <td className="px-3 py-4">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                disabled={disabled}
+                                onChange={() => toggleReceiptSelection(receive.id)}
+                                className={`w-4 h-4 accent-primary cursor-pointer ${disabled ? 'opacity-30 cursor-not-allowed' : ''}`}
+                              />
+                            </td>
+                            <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                              {String(index + 1 + (page - 1) * limit).padStart(2, '0')}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="font-semibold text-gray-900">
+                                {receive.receiveCustomer?.fullname || getCustomerName(receive.customer)}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <span className="inline-flex items-center px-3 py-1.5 bg-green-100 text-green-700 rounded-xl font-semibold">
+                                {parseFloat(receive.amount).toFixed(2)}
+                              </span>
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-600">{formatDate(receive.createdAt)}</td>
+                            <td className="px-6 py-4 text-gray-600">{receive.description || <span className="italic">No description</span>}</td>
+                            <td className="px-6 py-4">
+                              <div className="flex space-x-2">
+                                <button
+                                  onClick={() => handleEdit(receive)}
+                                  className="p-2 rounded-lg text-primary hover:bg-primary/10 transition-all"
+                                  title="Edit receive"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+                                  </svg>
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(receive.id)}
+                                  className="p-2 text-red-700 rounded-lg hover:bg-red-200 transition-all"
+                                  title="Delete receive"
+                                >
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                  </svg>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
@@ -515,6 +678,97 @@ const Receive = () => {
                 </div>
               )}
             </div>
+
+            {/* ======================
+                Receipt Bill Modal
+            ====================== */}
+            {showBillModal && (
+              <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+                  <div className="bg-primary px-6 py-5 text-white">
+                    <h2 className="text-xl font-semibold">Create Receipt Bill</h2>
+                    <p className="text-sm opacity-90 mt-1">
+                      Combine {selectedReceipts.length} selected receipt(s) into a single bill
+                    </p>
+                  </div>
+
+                  <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="font-medium">Customer:</span>
+                        <span className="font-semibold">
+                          {getCustomerName(getSelectedCustomer())}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="font-medium">Total Amount:</span>
+                        <span className="font-bold text-green-700">
+                          {getSelectedTotal().toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="border border-gray-200 rounded-xl overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="px-3 py-2 text-left">#</th>
+                            <th className="px-3 py-2 text-left">Date</th>
+                            <th className="px-3 py-2 text-left">Description</th>
+                            <th className="px-3 py-2 text-right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {receives
+                            .filter(r => selectedReceipts.includes(r.id))
+                            .map((r, idx) => (
+                              <tr key={r.id} className="border-t">
+                                <td className="px-3 py-2">{idx + 1}</td>
+                                <td className="px-3 py-2">{formatDate(r.createdAt)}</td>
+                                <td className="px-3 py-2">{r.description || '-'}</td>
+                                <td className="px-3 py-2 text-right font-semibold">
+                                  {parseFloat(r.amount).toFixed(2)}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Bill Description (optional)
+                      </label>
+                      <textarea
+                        value={billDescription}
+                        onChange={(e) => setBillDescription(e.target.value)}
+                        rows="3"
+                        placeholder="Notes about this combined receipt bill..."
+                        className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-3">
+                    <button
+                      onClick={() => setShowBillModal(false)}
+                      className="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 font-semibold rounded-xl hover:bg-gray-100 transition-all"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDownloadPDF}
+                      className="px-6 py-2.5 bg-primary text-white font-semibold rounded-xl transition-all shadow hover:bg-primary/90 flex items-center gap-2"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                      </svg>
+                      Download PDF
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           <CustomerReport />

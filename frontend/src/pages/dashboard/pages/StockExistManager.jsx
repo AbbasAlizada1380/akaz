@@ -1,9 +1,10 @@
 // components/StockExistManager.jsx
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { Package, Plus, Trash2, Pencil, Search, X } from "lucide-react";
+import { Package, Plus, Trash2, Pencil, Search, X, BarChart3 } from "lucide-react";
 import Pagination from "../pagination/Pagination.jsx";
-import { useSelector } from "react-redux"; // <-- import to get user role
+import { useSelector } from "react-redux";
+import SellsDateDownload from "./report/SellsDateDownloads.jsx";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 if (!BASE_URL) {
@@ -12,14 +13,17 @@ if (!BASE_URL) {
 const API_BASE = BASE_URL || "http://localhost:5000/api";
 
 const StockExistManager = () => {
-  // Get current user from Redux
   const { currentUser } = useSelector((state) => state.user);
-  const isAdmin = currentUser?.role === "admin"; // only admin can add new stock
+  const isAdmin = currentUser?.role === "admin";
 
   const [stocks, setStocks] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [editingStock, setEditingStock] = useState(null);
+
+  // NEW: state for the product selected to view its sales report
+  const [selectedStockForReport, setSelectedStockForReport] = useState(null);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -86,6 +90,7 @@ const StockExistManager = () => {
 
   const handlePageChange = (page) => {
     setCurrentPage(page);
+    setSelectedStockForReport(null); // Clear selection on page change
   };
 
   const handleChange = (e) => {
@@ -107,7 +112,6 @@ const StockExistManager = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // BLOCK adding new stock for non-admin users
     if (!editingStock && !isAdmin) {
       alert("You do not have permission to add new stock items. Only admins can add.");
       return;
@@ -124,11 +128,9 @@ const StockExistManager = () => {
 
     try {
       if (editingStock) {
-        // Update existing stock (allowed for all authenticated users)
         await axios.put(`${API_BASE}/stockExist/${editingStock.id}`, formData);
         alert("Stock updated successfully!");
       } else {
-        // Create new stock (only allowed for admin)
         await axios.post(`${API_BASE}/stockExist`, formData);
         alert("Stock added successfully!");
       }
@@ -148,6 +150,10 @@ const StockExistManager = () => {
     if (!window.confirm("Are you sure you want to delete this stock?")) return;
     try {
       await axios.delete(`${API_BASE}/stockExist/${id}`);
+      // If we just deleted the currently selected product for report, clear it
+      if (selectedStockForReport && selectedStockForReport.id === id) {
+        setSelectedStockForReport(null);
+      }
       if (stocks.length === 1 && currentPage > 1) {
         setCurrentPage(currentPage - 1);
       } else {
@@ -171,15 +177,25 @@ const StockExistManager = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  // NEW: handler when clicking a row
+  const handleRowClick = (stock) => {
+    // Don't trigger when clicking on buttons — handled by e.stopPropagation on buttons
+    setSelectedStockForReport(stock);
+    // Scroll down to the report panel
+    setTimeout(() => {
+      document.getElementById("sales-report-panel")?.scrollIntoView({ behavior: "smooth" });
+    }, 100);
+  };
+
   const clearSearch = () => {
     setSearchTerm("");
     setCurrentPage(1);
+    setSelectedStockForReport(null);
   };
 
   return (
     <div className="bg-white py-8">
       <div className="mx-auto">
-        {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold mb-2">Stock Items Management</h1>
           <p className="text-secondary">
@@ -190,7 +206,7 @@ const StockExistManager = () => {
         </div>
 
         <div className="gap-8">
-          {/* Form Card – Only visible for admin users OR when editing (editing is allowed for all) */}
+          {/* FORM (admin add or edit mode) */}
           {(isAdmin || editingStock) && (
             <div className="bg-white mr-4 ml-6 rounded-lg shadow-lg p-6 border border-gray-200 mb-8">
               <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-200">
@@ -301,7 +317,11 @@ const StockExistManager = () => {
               </form>
             </div>
           )}
-          {/* Stock List Card */}
+          <div id="sales-report-panel" className="mt-6 mr-4 ml-6">
+
+            <SellsDateDownload />
+          </div>
+          {/* Stock list */}
           <div className="mt-8 p-6">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 pb-4 border-b border-gray-200">
               <div className="flex items-center gap-3">
@@ -311,7 +331,6 @@ const StockExistManager = () => {
                 <h2 className="text-xl font-bold">Stock Items List</h2>
               </div>
 
-              {/* Search Bar */}
               <div className="relative">
                 <input
                   type="text"
@@ -332,14 +351,12 @@ const StockExistManager = () => {
               </div>
             </div>
 
-            {/* Loading State */}
             {loading ? (
               <div className="flex justify-center items-center py-12">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
               </div>
             ) : (
               <>
-                {/* Table */}
                 <div className="overflow-hidden border border-gray-200 rounded-lg">
                   <table className="w-full">
                     <thead className="bg-primary">
@@ -355,36 +372,59 @@ const StockExistManager = () => {
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {stocks.length > 0 ? (
-                        stocks.map((stock) => (
-                          <tr key={stock.id} className="hover:bg-gray-50 bg-white transition-colors duration-150">
-                            <td className="px-6 py-4 text-sm text-secondary">#{stock.id}</td>
-                            <td className="px-6 py-4 text-sm font-medium text-secondary">{stock.name}</td>
-                            <td className="px-6 py-4 text-sm text-secondary">
-                              {getDepartmentName(stock)}
-                            </td>
-                            <td className="px-6 py-4 text-sm text-secondary">{stock.amount}</td>
-                            <td className="px-6 py-4 text-sm text-secondary"> {Number(stock.sell_price).toFixed(2)}</td>
-                            <td className="px-6 py-4 text-sm text-secondary"> {Number(stock.unit_price).toFixed(2)}</td>
-                            <td className="px-6 py-4">
-                              <div className="flex gap-3">
-                                <button
-                                  onClick={() => startEdit(stock)}
-                                  className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
-                                >
-                                  <Pencil size={16} />
-                                  <span>Edit</span>
-                                </button>
-                                <button
-                                  onClick={() => handleDelete(stock.id)}
-                                  className="text-red-600 hover:text-red-800 flex items-center gap-1"
-                                >
-                                  <Trash2 size={16} />
-                                  <span>Delete</span>
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))
+                        stocks.map((stock) => {
+                          const isSelected = selectedStockForReport?.id === stock.id;
+                          return (
+                            <tr
+                              key={stock.id}
+                              onClick={() => handleRowClick(stock)}
+                              className={`cursor-pointer transition-colors duration-150 ${isSelected
+                                  ? "bg-primary/10 border-l-4 border-primary"
+                                  : "hover:bg-gray-50 bg-white"
+                                }`}
+                            >
+                              <td className="px-6 py-4 text-sm text-secondary">#{stock.id}</td>
+                              <td className="px-6 py-4 text-sm font-medium text-secondary">
+                                {stock.name}
+                                {isSelected && (
+                                  <span className="ml-2 text-xs bg-primary text-white px-2 py-0.5 rounded-full">
+                                    Selected
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-secondary">
+                                {getDepartmentName(stock)}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-secondary">{stock.amount}</td>
+                              <td className="px-6 py-4 text-sm text-secondary"> {Number(stock.sell_price).toFixed(2)}</td>
+                              <td className="px-6 py-4 text-sm text-secondary"> {Number(stock.unit_price).toFixed(2)}</td>
+                              <td className="px-6 py-4">
+                                <div className="flex gap-3">
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      startEdit(stock);
+                                    }}
+                                    className="text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                                  >
+                                    <Pencil size={16} />
+                                    <span>Edit</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDelete(stock.id);
+                                    }}
+                                    className="text-red-600 hover:text-red-800 flex items-center gap-1"
+                                  >
+                                    <Trash2 size={16} />
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })
                       ) : (
                         <tr>
                           <td colSpan="7" className="px-6 py-12 text-center">
@@ -409,6 +449,10 @@ const StockExistManager = () => {
               </>
             )}
           </div>
+
+          {/* NEW: Sales Report Panel — appears when a row is clicked */}
+
+
         </div>
       </div>
     </div>
