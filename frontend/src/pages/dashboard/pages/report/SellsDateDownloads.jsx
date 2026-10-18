@@ -20,7 +20,6 @@ const SellsDateDownload = () => {
   const [loading, setLoading] = useState(false);
   const [reportType, setReportType] = useState("summary"); // summary, detailed, both
 
-  // Fetch the list of products so user can select
   useEffect(() => {
     const fetchProducts = async () => {
       setLoadingProducts(true);
@@ -65,6 +64,10 @@ const SellsDateDownload = () => {
         return;
       }
 
+      // --- Totals from API (authoritative) ---
+      const totalBenefit = Number(data.data?.totalBenefit || 0);
+      const benefitsByDepartment = data.data?.benefitsByDepartment || [];
+
       const productInfo = sells[0].product || selectedProduct || {};
       const productName = productInfo.name || "Unknown Product";
       const codeNumber = productInfo.code_number || "-";
@@ -95,7 +98,7 @@ const SellsDateDownload = () => {
       const totalRevenue = sells.reduce((sum, s) => sum + Number(s.total || 0), 0);
       const totalPaid = sells.reduce((sum, s) => sum + Number(s.receipt || 0), 0);
       const totalRemaind = sells.reduce((sum, s) => sum + Number(s.remaind || 0), 0);
-      const avgSale = totalRevenue / sells.length;
+      const avgSale = sells.length ? totalRevenue / sells.length : 0;
 
       let currentY = 150;
 
@@ -113,6 +116,7 @@ const SellsDateDownload = () => {
           ["Total Received", `${totalPaid.toLocaleString()} AFN`],
           ["Total Remaining", `${totalRemaind.toLocaleString()} AFN`],
           ["Average Sale", `${avgSale.toLocaleString()} AFN`],
+          ["Total Benefit", `${totalBenefit.toLocaleString()} AFN`],
         ];
 
         autoTable(doc, {
@@ -130,6 +134,47 @@ const SellsDateDownload = () => {
         });
 
         currentY = doc.lastAutoTable.finalY + 20;
+
+        // ----- Benefits by Department (sub-table) -----
+        if (benefitsByDepartment.length > 0) {
+          doc.setFontSize(13);
+          doc.text("Benefits by Department", margin, currentY);
+          currentY += 15;
+
+          const deptHeaders = [["Department", "Benefit Entries", "Total Benefit (AFN)"]];
+          const deptBody = benefitsByDepartment.map((d) => [
+            d.departmentName || `Dept #${d.departmentId}`,
+            d.count.toString(),
+            Number(d.total || 0).toLocaleString(),
+          ]);
+
+          autoTable(doc, {
+            startY: currentY,
+            margin: { left: margin, right: margin },
+            head: deptHeaders,
+            body: deptBody,
+            theme: "grid",
+            styles: { font: "Vazirmatn", fontSize: 10, halign: "left", cellPadding: 6 },
+            headStyles: { fillColor: [46, 125, 50], textColor: 255, fontStyle: "bold" },
+            columnStyles: {
+              0: { cellWidth: 220 },
+              1: { cellWidth: 120, halign: "center" },
+              2: { cellWidth: 160, halign: "right" },
+            },
+            foot: [[
+              "Total",
+              benefitsByDepartment.reduce((s, d) => s + Number(d.count || 0), 0).toString(),
+              totalBenefit.toLocaleString(),
+            ]],
+            footStyles: {
+              fillColor: [232, 245, 233],
+              textColor: [0, 0, 0],
+              fontStyle: "bold",
+            },
+          });
+
+          currentY = doc.lastAutoTable.finalY + 20;
+        }
       }
 
       // ========== DETAILED TABLE ==========
@@ -143,21 +188,39 @@ const SellsDateDownload = () => {
         doc.text("Detailed Transactions", margin, currentY);
         currentY += 20;
 
+        // Build column list with Benefit columns
         const detailedHeaders = [
-          ["#", "Date", "Bill #", "Customer", "Qty", "Unit Price", "Total", "Paid", "Remaining"],
+          [
+            "#",
+            "Date",
+            "Bill #",
+            "Customer",
+            "Qty",
+            "Unit Price",
+            "Total",
+            "Paid",
+            "Remaining",
+            "Benefit",
+          ],
         ];
 
-        const detailedBody = sells.map((sell, idx) => [
-          (idx + 1).toString(),
-          moment(sell.createdAt).format("YYYY/MM/DD"),
-          sell.bill?.billNumber || "-",
-          sell.bill?.billCustomer?.fullname || "N/A",
-          Number(sell.amount).toString(),
-          Number(sell.unit_price).toLocaleString(),
-          Number(sell.total).toLocaleString(),
-          Number(sell.receipt || 0).toLocaleString(),
-          Number(sell.remaind || 0).toLocaleString(),
-        ]);
+        const detailedBody = sells.map((sell, idx) => {
+          const sellBenefit = Number(
+            sell.benefitTotal ?? sell.sellBenefit?.amount ?? 0
+          );
+          return [
+            (idx + 1).toString(),
+            moment(sell.createdAt).format("YYYY/MM/DD"),
+            sell.bill?.billNumber || "-",
+            sell.bill?.billCustomer?.fullname || "N/A",
+            Number(sell.amount).toString(),
+            Number(sell.unit_price).toLocaleString(),
+            Number(sell.total).toLocaleString(),
+            Number(sell.receipt || 0).toLocaleString(),
+            Number(sell.remaind || 0).toLocaleString(),
+            sellBenefit.toLocaleString(),
+          ];
+        });
 
         autoTable(doc, {
           startY: currentY,
@@ -170,17 +233,34 @@ const SellsDateDownload = () => {
             fontSize: 8,
             halign: "center",
             valign: "middle",
-            cellPadding: 5,
+            cellPadding: 4,
           },
           headStyles: {
             font: "Vazirmatn",
             fontStyle: "bold",
             fillColor: [70, 130, 180],
             textColor: 255,
-            fontSize: 9,
+            fontSize: 8.5,
             halign: "center",
           },
-          foot: [["", "", "", "", totalQty.toString(), "", totalRevenue.toLocaleString(), totalPaid.toLocaleString(), totalRemaind.toLocaleString()]],
+          columnStyles: {
+            3: { cellWidth: 70, halign: "left" }, // Customer
+            9: { cellWidth: 55, halign: "right" }, // Benefit
+          },
+          foot: [
+            [
+              "",
+              "",
+              "",
+              "",
+              totalQty.toString(),
+              "",
+              totalRevenue.toLocaleString(),
+              totalPaid.toLocaleString(),
+              totalRemaind.toLocaleString(),
+              totalBenefit.toLocaleString(),
+            ],
+          ],
           footStyles: {
             fillColor: [240, 240, 240],
             textColor: [0, 0, 0],
@@ -192,11 +272,14 @@ const SellsDateDownload = () => {
         currentY = doc.lastAutoTable.finalY + 20;
       }
 
+      // ========== Page numbers ==========
       const pageCount = doc.internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
         doc.setFontSize(9);
-        doc.text(`${i} / ${pageCount}`, pageWidth - margin, pageHeight - 30, { align: "right" });
+        doc.text(`${i} / ${pageCount}`, pageWidth - margin, pageHeight - 30, {
+          align: "right",
+        });
       }
 
       const safeName = productName.replace(/[^a-z0-9]/gi, "_").substring(0, 30);
@@ -204,7 +287,8 @@ const SellsDateDownload = () => {
       doc.save(filename);
     } catch (err) {
       console.error(err);
-      const errorMessage = err.response?.data?.message || "Error retrieving sells data.";
+      const errorMessage =
+        err.response?.data?.message || "Error retrieving sells data.";
       alert(errorMessage);
     } finally {
       setLoading(false);
@@ -218,15 +302,16 @@ const SellsDateDownload = () => {
           <Package size={20} />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-gray-800">Product Sales Report</h2>
+          <h2 className="text-lg font-semibold text-gray-800">
+            Product Sales Report
+          </h2>
           <p className="text-xs text-gray-500">
-            Download sales history for a specific product
+            Download sales history for a specific product (with benefits)
           </p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Product selector */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
             Product <span className="text-red-500">*</span>
@@ -249,7 +334,6 @@ const SellsDateDownload = () => {
           </select>
         </div>
 
-        {/* From Date */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
             From Date <span className="text-red-500">*</span>
@@ -263,7 +347,6 @@ const SellsDateDownload = () => {
           />
         </div>
 
-        {/* To Date */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
             To Date <span className="text-red-500">*</span>
@@ -277,7 +360,6 @@ const SellsDateDownload = () => {
           />
         </div>
 
-        {/* Report Type */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
             Report Type

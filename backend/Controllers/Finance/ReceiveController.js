@@ -1,80 +1,80 @@
 import { Bill, Department, Receive, Sells, Benefit } from '../../Models/index.js';
 import { Customer } from '../../Models/index.js';
-import Sell from '../../Models/Stock/Sells.js';
 import CustomerAccount from '../../Models/Customer/CustomerAccount.js';
 import sequelize from '../../dbconnection.js';
 import { Op } from 'sequelize';
 
+/* ============================================================
+   GET ALL RECEIVES
+   ============================================================ */
 export const getAllReceives = async (req, res) => {
-    try {
-        // Pagination parameters
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
-        const offset = (page - 1) * limit;
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
 
-        // Fetch paginated receives
-        const { count, rows } = await Receive.findAndCountAll({
-            include: [
-                {
-                    model: Customer,
-                    as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
-                    attributes: ['id', 'fullname', 'phoneNumber'],
-                },
-            ],
-            order: [['createdAt', 'DESC']],
-            limit: limit,
-            offset: offset,
-            distinct: true,
-        });
+    const { count, rows } = await Receive.findAndCountAll({
+      include: [
+        {
+          model: Customer,
+          as: 'receiveCustomer',
+          attributes: ['id', 'fullname', 'phoneNumber'],
+        },
+      ],
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
+      distinct: true,
+    });
 
-        // Pagination metadata
-        const totalPages = Math.ceil(count / limit);
+    const totalPages = Math.ceil(count / limit);
 
-        res.status(200).json({
-            success: true,
-            data: rows,
-            page: page,
-            limit: limit,
-            totalRecords: count,
-            totalPages: totalPages,
-        });
-    } catch (error) {
-        console.error('خطا در دریافت لیست دریافت‌ها:', error);
-        res.status(500).json({ message: 'خطای سرور', error: error.message });
-    }
+    res.status(200).json({
+      success: true,
+      data: rows,
+      page,
+      limit,
+      totalRecords: count,
+      totalPages,
+    });
+  } catch (error) {
+    console.error('خطا در دریافت لیست دریافت‌ها:', error);
+    res.status(500).json({ message: 'خطای سرور', error: error.message });
+  }
 };
 
-// دریافت یک Receive بر اساس ID
+/* ============================================================
+   GET RECEIVE BY ID
+   ============================================================ */
 export const getReceiveById = async (req, res) => {
-    const { id } = req.params;
-    try {
-        const receive = await Receive.findByPk(id, {
-            include: [
-                {
-                    model: Customer,
-                    as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
-                    attributes: ['id', 'fullname', 'phoneNumber' ],
-                },
-            ],
-        });
-        if (!receive) {
-            return res.status(404).json({ message: 'دریافت‌کننده یافت نشد' });
-        }
-        res.status(200).json({
-            success: true,
-            data: receive
-        });
-    } catch (error) {
-        console.error('خطا در دریافت دریافت‌کننده:', error);
-        res.status(500).json({ message: 'خطای سرور', error: error.message });
+  const { id } = req.params;
+  try {
+    const receive = await Receive.findByPk(id, {
+      include: [
+        {
+          model: Customer,
+          as: 'receiveCustomer',
+          attributes: ['id', 'fullname', 'phoneNumber'],
+        },
+      ],
+    });
+    if (!receive) {
+      return res.status(404).json({ message: 'دریافت‌کننده یافت نشد' });
     }
+    res.status(200).json({ success: true, data: receive });
+  } catch (error) {
+    console.error('خطا در دریافت دریافت‌کننده:', error);
+    res.status(500).json({ message: 'خطای سرور', error: error.message });
+  }
 };
 
-/**
- * When a sell becomes fully paid, move its associated Benefit ID
- * from Department.benifit (pending) to Department.realizedBenefit (realized).
- */
+/* ============================================================
+   HELPER: realign Department benefits when a sell becomes fully settled
+   (works for both positive sales -> realized, and negative sells -> realized)
+   ============================================================ */
 const updateDepartmentBenefitsOnFullPayment = async (sellIds, transaction) => {
+  if (!sellIds || sellIds.length === 0) return;
+
   const benefits = await Benefit.findAll({
     where: { sellId: sellIds },
     attributes: ['id', 'departmentId'],
@@ -97,594 +97,496 @@ const updateDepartmentBenefitsOnFullPayment = async (sellIds, transaction) => {
     let pending = department.benifit;
     if (typeof pending === 'string') pending = JSON.parse(pending);
     if (!Array.isArray(pending)) pending = [];
-    // Convert existing pending IDs to numbers
-    pending = pending.map(id => typeof id === 'number' ? id : Number(id));
+    pending = pending.map((id) => (typeof id === 'number' ? id : Number(id)));
 
     let realized = department.realizedBenefit;
     if (typeof realized === 'string') realized = JSON.parse(realized);
     if (!Array.isArray(realized)) realized = [];
-    // Convert existing realized IDs to numbers
-    realized = realized.map(id => typeof id === 'number' ? id : Number(id));
+    realized = realized.map((id) => (typeof id === 'number' ? id : Number(id)));
 
-    // Ensure new benefitIds are numbers
-    const numericBenefitIds = benefitIds.map(id => typeof id === 'number' ? id : Number(id));
+    const numericBenefitIds = benefitIds.map((id) =>
+      typeof id === 'number' ? id : Number(id)
+    );
 
-    // Filter out numeric IDs
-    const newPending = pending.filter(id => !numericBenefitIds.includes(id));
+    const newPending = pending.filter((id) => !numericBenefitIds.includes(id));
     const newRealized = [...realized, ...numericBenefitIds];
 
     await department.update(
-      {
-        benifit: newPending,
-        realizedBenefit: newRealized,
-      },
+      { benifit: newPending, realizedBenefit: newRealized },
       { transaction }
     );
   }
 };
 
+
 export const createReceive = async (req, res) => {
   const { customer, date, description, ...deptAmounts } = req.body;
 
-  // --- Validation ---
   if (!customer) {
-    return res.status(400).json({
-      success: false,
-      message: 'مشتری الزامی است'
-    });
+    return res.status(400).json({ success: false, message: 'مشتری الزامی است' });
   }
 
-  const deptKeys = Object.keys(deptAmounts).filter(k => k.startsWith('department'));
+  const deptKeys = Object.keys(deptAmounts).filter((k) => k.startsWith('department'));
   let totalPayment = 0;
   const deptPayments = {};
 
   if (deptKeys.length > 0) {
     for (const key of deptKeys) {
-      const deptId = parseInt(key.replace('department', ''));
+      const deptId = parseInt(key.replace('department', ''), 10);
       const val = parseFloat(deptAmounts[key]);
-      if (isNaN(val) || val < 0) {
-        return res.status(400).json({
-          success: false,
-          message: `مبلغ نامعتبر برای ${key}`
-        });
+      if (isNaN(val)) {
+        return res.status(400).json({ success: false, message: `مبلغ نامعتبر برای ${key}` });
       }
       deptPayments[deptId] = val;
       totalPayment += val;
     }
   } else {
     const { amount } = req.body;
-    if (!amount) {
-      return res.status(400).json({
-        success: false,
-        message: 'مبلغ الزامی است'
-      });
+    if (amount === undefined || amount === null) {
+      return res.status(400).json({ success: false, message: 'مبلغ الزامی است' });
     }
     totalPayment = parseFloat(amount);
-    if (isNaN(totalPayment) || totalPayment < 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'مبلغ نامعتبر است'
-      });
+    if (isNaN(totalPayment)) {
+      return res.status(400).json({ success: false, message: 'مبلغ نامعتبر است' });
     }
   }
 
   const transaction = await sequelize.transaction();
 
   try {
-    // --- Customer exists ---
     const customerExists = await Customer.findByPk(customer, { transaction });
     if (!customerExists) {
       await transaction.rollback();
-      return res.status(400).json({
-        success: false,
-        message: 'مشتری مشخص‌شده وجود ندارد'
-      });
+      return res.status(400).json({ success: false, message: 'مشتری مشخص‌شده وجود ندارد' });
     }
 
-    // --- Get or create CustomerAccount ---
     let customerAccount = await CustomerAccount.findOne({
       where: { customerId: customer },
       transaction,
       lock: transaction.LOCK.UPDATE,
     });
 
+    // Fallback if no customer account exists yet
+    const persistReceivesOnly = async () => {
+      const created = [];
+      if (deptKeys.length > 0) {
+        for (const [deptId, amount] of Object.entries(deptPayments)) {
+          if (amount !== 0) {
+            const rec = await Receive.create({
+              customer, amount, date: date || new Date(),
+              description: description || `پرداخت برای دپارتمان ${deptId}`,
+              departmentId: parseInt(deptId, 10), billId: null, sellId: null,
+            }, { transaction });
+            created.push(rec);
+          }
+        }
+      } else if (totalPayment !== 0) {
+        const rec = await Receive.create({
+          customer, amount: totalPayment, date: date || new Date(),
+          description: description || 'پرداخت',
+          departmentId: null, billId: null, sellId: null,
+        }, { transaction });
+        created.push(rec);
+      }
+      await transaction.commit();
+      return created;
+    };
+
     if (!customerAccount) {
-      // No account – just create receives and return
-      const createdReceives = [];
-      if (deptKeys.length > 0) {
-        for (const [deptId, amount] of Object.entries(deptPayments)) {
-          if (amount > 0) {
-            const rec = await Receive.create({
-              customer,
-              amount,
-              date: date || new Date(),
-              description: description || `پرداخت برای دپارتمان ${deptId}`,
-              departmentId: parseInt(deptId, 10),
-              billId: null,
-              sellId: null,
-            }, { transaction });
-            createdReceives.push(rec);
-          }
+      const created = await persistReceivesOnly();
+      return res.status(201).json({ success: true, message: 'دریافت با موفقیت ایجاد شد', data: created.map((r) => r.toJSON()) });
+    }
+
+    // 1. Get all partially paid or unpaid bills for this customer (FIFO by ID)
+    const openBills = await Bill.findAll({
+      where: {
+        customerId: customer,
+        status: { [Op.ne]: 'paid' }
+      },
+      order: [['id', 'ASC']], // Strict FIFO
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+
+    if (openBills.length === 0) {
+      const created = await persistReceivesOnly();
+      return res.status(201).json({ success: true, message: 'دریافت با موفقیت ایجاد شد', data: created.map((r) => r.toJSON()) });
+    }
+
+    const createdReceives = [];
+    const affectedSells = new Set();
+
+    // ==========================================
+    // STRICT FIFO LOGIC (As Requested)
+    // ==========================================
+    const allocateFIFO = async (sells, initialPoolAmount) => {
+      let remainingPool = initialPoolAmount;
+      
+      // 1. Calculate the NET owed first
+      const netOwed = sells.reduce((sum, s) => sum + Number(s.remaind), 0);
+
+      // 2. If the payment exactly equals the net owed, settle EVERYTHING.
+      // This means if they owe 200 and have a -250 return, they pay 50.
+      // Both bills are settled to 0.
+      if (netOwed !== 0 && initialPoolAmount === netOwed) {
+        for (const sell of sells) {
+          const remaind = Number(sell.remaind);
+          if (remaind === 0) continue;
+
+          // Move receipt to total, meaning this bill is fully settled
+          sell.receipt = Number(sell.total);
+          sell.remaind = 0;
+          affectedSells.add(sell.id);
         }
-      } else {
+        return 0; // Pool is fully used
+      }
+
+      // 3. If they are paying PARTIALLY, go strictly FIFO
+      for (const sell of sells) {
+        if (remainingPool === 0) break;
+
+        const remaind = Number(sell.remaind);
+        if (remaind === 0) continue;
+
+        if (remaind < 0) {
+            // Partial payment on a return: reduce it toward 0
+            const applicable = Math.min(Math.abs(remainingPool), Math.abs(remaind));
+            const sgn = Math.sign(remaind);
+            
+            sell.receipt = Number(sell.receipt) + (sgn * applicable);
+            sell.remaind = remaind - (sgn * applicable);
+            affectedSells.add(sell.id);
+            remainingPool -= (sgn * applicable);
+        } else if (remaind > 0) {
+            if (remainingPool < 0) continue; // Can't pay positive with negative pool
+
+            const applicable = Math.min(remainingPool, remaind);
+            sell.receipt = Number(sell.receipt) + applicable;
+            sell.remaind = remaind - applicable;
+            affectedSells.add(sell.id);
+            remainingPool -= applicable; 
+        }
+      }
+      return remainingPool;
+    };
+
+    // 2. Process per department
+    if (deptKeys.length > 0) {
+      for (const [deptIdStr, paymentAmount] of Object.entries(deptPayments)) {
+        const deptId = parseInt(deptIdStr, 10);
+        if (paymentAmount === 0) continue;
+
+        // Get all open sells for this department (sorted by ID)
+        const deptSells = await Sells.findAll({
+          where: {
+            billId: openBills.map(b => b.id),
+            departmentId: deptId,
+            remaind: { [Op.ne]: 0 }
+          },
+          order: [['id', 'ASC']], // FIFO
+          transaction,
+          lock: transaction.LOCK.UPDATE,
+        });
+
+        if (deptSells.length === 0) {
+          await transaction.rollback();
+          return res.status(400).json({ success: false, message: `بدهی برای دپارتمان ${deptId} وجود ندارد` });
+        }
+
+        // Allocate using FIFO logic
+        await allocateFIFO(deptSells, paymentAmount);
+
+        // Save affected sells
+        for (const sell of deptSells) {
+          if (affectedSells.has(sell.id)) await sell.save({ transaction });
+        }
+
+        // Create Receive record
         const rec = await Receive.create({
-          customer,
-          amount: totalPayment,
-          date: date || new Date(),
-          description: description || 'پرداخت',
-          departmentId: null,
-          billId: null,
-          sellId: null,
+          customer, amount: paymentAmount, date: date || new Date(),
+          description: description || `پرداخت برای دپارتمان ${deptId}`,
+          departmentId: deptId, billId: null, sellId: null,
         }, { transaction });
         createdReceives.push(rec);
       }
-
-      await transaction.commit();
-      return res.status(201).json({
-        success: true,
-        message: "دریافت با موفقیت ایجاد شد",
-        data: createdReceives.map(r => r.toJSON())
-      });
-    }
-
-    // --- Parse unpaid structure ---
-    let unpaidByDept = customerAccount.unpaid;
-    if (typeof unpaidByDept === 'string') unpaidByDept = JSON.parse(unpaidByDept);
-    if (!unpaidByDept || typeof unpaidByDept !== 'object') unpaidByDept = {};
-
-    // No debt – create receives and return
-    if (Object.keys(unpaidByDept).length === 0) {
-      const createdReceives = [];
-      if (deptKeys.length > 0) {
-        for (const [deptId, amount] of Object.entries(deptPayments)) {
-          if (amount > 0) {
-            const rec = await Receive.create({
-              customer,
-              amount,
-              date: date || new Date(),
-              description: description || `پرداخت برای دپارتمان ${deptId}`,
-              departmentId: parseInt(deptId, 10),
-              billId: null,
-              sellId: null,
-            }, { transaction });
-            createdReceives.push(rec);
-          }
-        }
-      } else {
-        const rec = await Receive.create({
-          customer,
-          amount: totalPayment,
-          date: date || new Date(),
-          description: description || 'پرداخت',
-          departmentId: null,
-          billId: null,
-          sellId: null,
-        }, { transaction });
-        createdReceives.push(rec);
-      }
-
-      await transaction.commit();
-      return res.status(201).json({
-        success: true,
-        message: "دریافت با موفقیت ایجاد شد",
-        data: createdReceives.map(r => r.toJSON())
-      });
-    }
-
-    // --- Helper to fetch sells ---
-    const fetchSells = async (ids) => {
-      return await Sells.findAll({
-        where: { id: ids },
-        order: [['id', 'ASC']],
+    } else {
+      // ---- Global fallback ----
+      const allSells = await Sells.findAll({
+        where: { billId: openBills.map(b => b.id), remaind: { [Op.ne]: 0 } },
+        order: [['id', 'ASC']], // FIFO
         transaction,
         lock: transaction.LOCK.UPDATE,
       });
-    };
 
-    const fullyPaidByDept = {};
-    const remainingUnpaidByDept = JSON.parse(JSON.stringify(unpaidByDept));
-    const affectedSellIds = [];
-
-    // --- Payment allocation ---
-    if (deptKeys.length > 0) {
-      for (const deptId of Object.keys(deptPayments)) {
-        const paymentForDept = deptPayments[deptId];
-        if (paymentForDept === 0) continue;
-
-        const unpaidIdsInDept = unpaidByDept[deptId] || [];
-        if (unpaidIdsInDept.length === 0) {
-          await transaction.rollback();
-          return res.status(400).json({
-            success: false,
-            message: `بدهی برای دپارتمان ${deptId} وجود ندارد`
-          });
-        }
-
-        const sells = await fetchSells(unpaidIdsInDept);
-        const totalOwedInDept = sells.reduce((sum, s) => sum + parseFloat(s.remaind), 0);
-        if (paymentForDept > totalOwedInDept) {
-          await transaction.rollback();
-          return res.status(400).json({
-            success: false,
-            message: `مبلغ پرداختی برای دپارتمان ${deptId} (${paymentForDept}) بیشتر از کل بدهی آن دپارتمان (${totalOwedInDept}) است`,
-          });
-        }
-
-        let remaining = paymentForDept;
-        const paidInThisDept = [];
-
-        for (const sell of sells) {
-          if (remaining <= 0) break;
-          const remaind = parseFloat(sell.remaind);
-          if (remaining >= remaind) {
-            sell.receipt = parseFloat(sell.total);
-            sell.remaind = 0;
-            remaining -= remaind;
-            paidInThisDept.push(sell.id);
-          } else {
-            sell.receipt = parseFloat(sell.receipt) + remaining;
-            sell.remaind = remaind - remaining;
-            remaining = 0;
-          }
-          await sell.save({ transaction });
-          affectedSellIds.push(sell.id);
-        }
-
-        if (paidInThisDept.length) {
-          fullyPaidByDept[deptId] = paidInThisDept;
-          remainingUnpaidByDept[deptId] = remainingUnpaidByDept[deptId]?.filter(id => !paidInThisDept.includes(id)) || [];
-          if (remainingUnpaidByDept[deptId]?.length === 0) delete remainingUnpaidByDept[deptId];
-        }
-      }
-    } else {
-      // Global fallback
-      const allUnpaidIds = Object.values(unpaidByDept).flat();
-      const allSells = await fetchSells(allUnpaidIds);
-      const totalOwed = allSells.reduce((sum, s) => sum + parseFloat(s.remaind), 0);
-      if (totalPayment > totalOwed) {
+      if (allSells.length === 0) {
         await transaction.rollback();
-        return res.status(400).json({
-          success: false,
-          message: `مبلغ پرداختی (${totalPayment}) بیشتر از کل بدهی (${totalOwed}) است`,
-        });
+        return res.status(400).json({ success: false, message: 'بدهی/اعتبار بازی وجود ندارد' });
       }
 
-      let remaining = totalPayment;
-      const fullyPaidIds = [];
+      await allocateFIFO(allSells, totalPayment);
 
       for (const sell of allSells) {
-        if (remaining <= 0) break;
-        const remaind = parseFloat(sell.remaind);
-        if (remaining >= remaind) {
-          sell.receipt = parseFloat(sell.total);
-          sell.remaind = 0;
-          remaining -= remaind;
-          fullyPaidIds.push(sell.id);
-        } else {
-          sell.receipt = parseFloat(sell.receipt) + remaining;
-          sell.remaind = remaind - remaining;
-          remaining = 0;
-        }
-        await sell.save({ transaction });
-        affectedSellIds.push(sell.id);
+        if (affectedSells.has(sell.id)) await sell.save({ transaction });
       }
 
-      if (fullyPaidIds.length) {
-        const paidSells = await Sells.findAll({
-          where: { id: fullyPaidIds },
-          attributes: ['id', 'departmentId'],
-          transaction,
-        });
-        for (const s of paidSells) {
-          const dept = s.departmentId;
-          if (!fullyPaidByDept[dept]) fullyPaidByDept[dept] = [];
-          fullyPaidByDept[dept].push(s.id);
-          if (remainingUnpaidByDept[dept]) {
-            remainingUnpaidByDept[dept] = remainingUnpaidByDept[dept].filter(id => id !== s.id);
-            if (remainingUnpaidByDept[dept].length === 0) delete remainingUnpaidByDept[dept];
-          }
-        }
-      }
-    }
-
-    // --- Create Receive records (one per department) ---
-    const createdReceives = [];
-    if (deptKeys.length > 0) {
-      for (const [deptId, amount] of Object.entries(deptPayments)) {
-        if (amount > 0) {
-          const rec = await Receive.create({
-            customer,
-            amount,
-            date: date || new Date(),
-            description: description || `پرداخت برای دپارتمان ${deptId}`,
-            departmentId: parseInt(deptId, 10),
-            billId: null,
-            sellId: null,
-          }, { transaction });
-          createdReceives.push(rec);
-        }
-      }
-    } else {
       const rec = await Receive.create({
-        customer,
-        amount: totalPayment,
-        date: date || new Date(),
+        customer, amount: totalPayment, date: date || new Date(),
         description: description || 'پرداخت',
-        departmentId: null,
-        billId: null,
-        sellId: null,
+        departmentId: null, billId: null, sellId: null,
       }, { transaction });
       createdReceives.push(rec);
     }
 
-    const receiveIds = createdReceives.map(r => r.id);
+    // 3. Recalculate Bills exactly based on the updated Sells
+    for (const bill of openBills) {
+      const allBillSells = await Sells.findAll({ where: { billId: bill.id }, attributes: ['receipt', 'total'], transaction });
+      
+      const newPaidAmount = allBillSells.reduce((sum, s) => sum + Number(s.receipt || 0), 0);
+      const newTotal = allBillSells.reduce((sum, s) => sum + Number(s.total || 0), 0);
+      const newRemaining = newTotal - newPaidAmount;
 
-    // --- Update CustomerAccount ---
+      let newStatus = 'unpaid';
+      if (newRemaining === 0) newStatus = 'paid';
+      else if (
+        (newTotal > 0 && newPaidAmount > 0) || 
+        (newTotal < 0 && newPaidAmount < 0)
+      ) newStatus = 'partial';
+      else if (newPaidAmount !== 0) newStatus = 'partial';
+
+      await bill.update({
+        totalAmount: newTotal,
+        paidAmount: newPaidAmount,
+        remainingAmount: newRemaining,
+        status: newStatus
+      }, { transaction });
+    }
+
+    // 4. Update Customer Account
     let currentPaidByDept = customerAccount.paid;
     if (typeof currentPaidByDept === 'string') currentPaidByDept = JSON.parse(currentPaidByDept);
     if (!currentPaidByDept || typeof currentPaidByDept !== 'object') currentPaidByDept = {};
 
-    for (const [deptId, paidIds] of Object.entries(fullyPaidByDept)) {
+    // Rebuild the complete unpaid array based on actual database state
+    const allUnpaidSells = await Sells.findAll({
+      where: { billId: openBills.map(b => b.id), remaind: { [Op.ne]: 0 } },
+      transaction
+    });
+    
+    const remainingUnpaidByDept = {};
+    const newPaidByDept = {};
+    
+    for (const s of allUnpaidSells) {
+      if (!remainingUnpaidByDept[s.departmentId]) remainingUnpaidByDept[s.departmentId] = [];
+      remainingUnpaidByDept[s.departmentId].push(s.id);
+    }
+
+    const allSellsInBills = await Sells.findAll({
+      where: { billId: openBills.map(b => b.id) },
+      transaction
+    });
+
+    for (const s of allSellsInBills) {
+      if (Number(s.remaind) === 0) {
+        if (!newPaidByDept[s.departmentId]) newPaidByDept[s.departmentId] = [];
+        newPaidByDept[s.departmentId].push(s.id);
+      }
+    }
+
+    for (const [deptId, paidIds] of Object.entries(newPaidByDept)) {
       if (!currentPaidByDept[deptId]) currentPaidByDept[deptId] = [];
-      const newIds = paidIds.filter(id => !currentPaidByDept[deptId].includes(id));
-      currentPaidByDept[deptId] = [...currentPaidByDept[deptId], ...newIds];
+      const combined = new Set([...currentPaidByDept[deptId], ...paidIds]);
+      currentPaidByDept[deptId] = Array.from(combined);
     }
 
     let receiveArray = customerAccount.receive;
     if (typeof receiveArray === 'string') receiveArray = JSON.parse(receiveArray);
     if (!Array.isArray(receiveArray)) receiveArray = [];
-    receiveArray.push(...receiveIds);
+    receiveArray.push(...createdReceives.map(r => r.id));
 
-    await customerAccount.update(
-      {
-        paid: currentPaidByDept,
-        unpaid: remainingUnpaidByDept,
-        receive: receiveArray,
-      },
-      { transaction }
-    );
+    await customerAccount.update({
+      paid: currentPaidByDept,
+      unpaid: remainingUnpaidByDept,
+      receive: receiveArray,
+    }, { transaction });
 
-    // --- Update Bills ---
-    if (affectedSellIds.length > 0) {
-      const affectedSells = await Sells.findAll({
-        where: { id: affectedSellIds },
-        attributes: ['id', 'billId', 'receipt'],
-        transaction,
-      });
-
-      const billReceiptSum = new Map();
-      for (const sell of affectedSells) {
-        const billId = sell.billId;
-        const receipt = parseFloat(sell.receipt) || 0;
-        billReceiptSum.set(billId, (billReceiptSum.get(billId) || 0) + receipt);
-      }
-
-      for (const [billId] of billReceiptSum.entries()) {
-        const bill = await Bill.findByPk(billId, { transaction });
-        if (bill) {
-          const allSellsOfBill = await Sells.findAll({
-            where: { billId },
-            attributes: ['receipt'],
-            transaction,
-          });
-          const newPaidAmount = allSellsOfBill.reduce((sum, s) => sum + parseFloat(s.receipt), 0);
-          const newRemaining = bill.totalAmount - newPaidAmount;
-          const newStatus = newRemaining === 0 ? "paid" : (newPaidAmount > 0 ? "partial" : "unpaid");
-
-          await bill.update(
-            {
-              paidAmount: newPaidAmount,
-              remainingAmount: newRemaining,
-              status: newStatus,
-            },
-            { transaction }
-          );
-        }
-      }
-    }
-
-    // --- Realize benefits ---
-    const allFullyPaidSellIds = Object.values(fullyPaidByDept).flat();
-    if (allFullyPaidSellIds.length > 0) {
-      await updateDepartmentBenefitsOnFullPayment(allFullyPaidSellIds, transaction);
-    }
-
-    // --- Commit transaction ---
     await transaction.commit();
 
-    // --- Fetch created receives for response ---
     const receivesWithCustomer = await Receive.findAll({
-      where: { id: receiveIds },
+      where: { id: createdReceives.map(r => r.id) },
       include: [{
         model: Customer,
         as: 'receiveCustomer',
-        attributes: ['id', 'fullname', 'phoneNumber']
+        attributes: ['id', 'fullname', 'phoneNumber'],
       }],
     });
 
     res.status(201).json({
       success: true,
-      message: "دریافت با موفقیت ایجاد شد",
-      data: receivesWithCustomer
+      message: 'دریافت با موفقیت ایجاد شد',
+      data: receivesWithCustomer,
     });
 
   } catch (error) {
-    // Only rollback if transaction is still active (i.e., not committed)
-    // Sequelize doesn't expose a "finished" flag, so we catch and rollback
-    // If it's already committed, rollback throws, but we ignore that.
     try {
       await transaction.rollback();
-    } catch (rollbackError) {
-      // Ignore if rollback fails (already committed)
-    }
+    } catch (_) {}
     console.error('خطا در ایجاد دریافت:', error);
     res.status(500).json({
       success: false,
       message: 'خطای سرور',
-      error: error.message
+      error: error.message,
     });
   }
 };
 
-// به‌روزرسانی یک Receive
+/* ============================================================
+   UPDATE / DELETE / DATE RANGE / CUSTOMER SUMMARY
+   (unchanged except comment cleanups)
+   ============================================================ */
 export const updateReceive = async (req, res) => {
-    const { id } = req.params;
-    const { customer, amount, date, description } = req.body;
+  const { id } = req.params;
+  const { customer, amount, date, description } = req.body;
 
-    try {
-        const receive = await Receive.findByPk(id);
-        if (!receive) {
-            return res.status(404).json({ 
-                success: false,
-                message: 'دریافت‌کننده یافت نشد' 
-            });
-        }
-
-        // اگر مشتری جدید داده شده، بررسی وجود آن
-        if (customer && customer !== receive.customer) {
-            const customerExists = await Customer.findByPk(customer);
-            if (!customerExists) {
-                return res.status(400).json({ 
-                    success: false,
-                    message: 'مشتری مشخص‌شده وجود ندارد' 
-                });
-            }
-        }
-
-        // به‌روزرسانی فقط فیلدهای ارسال‌شده
-        await receive.update({
-            customer: customer !== undefined ? customer : receive.customer,
-            amount: amount !== undefined ? amount : receive.amount,
-            date: date !== undefined ? date : receive.date,
-            description: description !== undefined ? description : receive.description,
-        });
-
-        const updatedReceive = await Receive.findByPk(id, {
-            include: [{ 
-                model: Customer, 
-                as: 'receiveCustomer', // Fixed: changed from 'customerInfo' to 'receiveCustomer'
-                attributes: ['id', 'fullname', 'phoneNumber'] 
-            }],
-        });
-        
-        res.status(200).json({
-            success: true,
-            message: "دریافت با موفقیت به‌روزرسانی شد",
-            data: updatedReceive
-        });
-    } catch (error) {
-        console.error('خطا در به‌روزرسانی دریافت:', error);
-        res.status(500).json({ 
-            success: false,
-            message: 'خطای سرور', 
-            error: error.message 
-        });
+  try {
+    const receive = await Receive.findByPk(id);
+    if (!receive) {
+      return res
+        .status(404)
+        .json({ success: false, message: 'دریافت‌کننده یافت نشد' });
     }
+
+    if (customer && customer !== receive.customer) {
+      const customerExists = await Customer.findByPk(customer);
+      if (!customerExists) {
+        return res
+          .status(400)
+          .json({ success: false, message: 'مشتری مشخص‌شده وجود ندارد' });
+      }
+    }
+
+    await receive.update({
+      customer: customer !== undefined ? customer : receive.customer,
+      amount: amount !== undefined ? amount : receive.amount,
+      date: date !== undefined ? date : receive.date,
+      description: description !== undefined ? description : receive.description,
+    });
+
+    const updatedReceive = await Receive.findByPk(id, {
+      include: [
+        {
+          model: Customer,
+          as: 'receiveCustomer',
+          attributes: ['id', 'fullname', 'phoneNumber'],
+        },
+      ],
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'دریافت با موفقیت به‌روزرسانی شد',
+      data: updatedReceive,
+    });
+  } catch (error) {
+    console.error('خطا در به‌روزرسانی دریافت:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطای سرور',
+      error: error.message,
+    });
+  }
 };
 
-// حذف یک Receive
 export const deleteReceive = async (req, res) => {
-    const { id } = req.params;
-    
-    const transaction = await sequelize.transaction();
-    
-    try {
-        const receive = await Receive.findByPk(id);
-        if (!receive) {
-            await transaction.rollback();
-            return res.status(404).json({ 
-                success: false,
-                message: 'دریافت‌کننده یافت نشد' 
-            });
-        }
-        
-        // Remove receive reference from customer account
-        const customerAccount = await CustomerAccount.findOne({
-            where: { customerId: receive.customer },
-            transaction
-        });
-        
-        if (customerAccount) {
-            let receiveArray = customerAccount.receive;
-            if (typeof receiveArray === 'string') receiveArray = JSON.parse(receiveArray);
-            if (Array.isArray(receiveArray)) {
-                const updatedReceiveArray = receiveArray.filter(id => id !== receive.id);
-                await customerAccount.update(
-                    { receive: updatedReceiveArray },
-                    { transaction }
-                );
-            }
-        }
-        
-        await receive.destroy({ transaction });
-        await transaction.commit();
-        
-        res.status(200).json({ 
-            success: true,
-            message: 'دریافت‌کننده با موفقیت حذف شد' 
-        });
-    } catch (error) {
-        await transaction.rollback();
-        console.error('خطا در حذف دریافت:', error);
-        res.status(500).json({ 
-            success: false,
-            message: 'خطای سرور', 
-            error: error.message 
-        });
+  const { id } = req.params;
+  const transaction = await sequelize.transaction();
+
+  try {
+    const receive = await Receive.findByPk(id);
+    if (!receive) {
+      await transaction.rollback();
+      return res
+        .status(404)
+        .json({ success: false, message: 'دریافت‌کننده یافت نشد' });
     }
+
+    const customerAccount = await CustomerAccount.findOne({
+      where: { customerId: receive.customer },
+      transaction,
+    });
+
+    if (customerAccount) {
+      let receiveArray = customerAccount.receive;
+      if (typeof receiveArray === 'string')
+        receiveArray = JSON.parse(receiveArray);
+      if (Array.isArray(receiveArray)) {
+        const updatedReceiveArray = receiveArray.filter(
+          (rid) => rid !== receive.id
+        );
+        await customerAccount.update(
+          { receive: updatedReceiveArray },
+          { transaction }
+        );
+      }
+    }
+
+    await receive.destroy({ transaction });
+    await transaction.commit();
+
+    res.status(200).json({
+      success: true,
+      message: 'دریافت‌کننده با موفقیت حذف شد',
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error('خطا در حذف دریافت:', error);
+    res.status(500).json({
+      success: false,
+      message: 'خطای سرور',
+      error: error.message,
+    });
+  }
 };
 
 export const getReceivesByDateRange = async (req, res) => {
   const { from, to, customerId } = req.query;
 
-  // Validate required date parameters
   if (!from || !to) {
     return res.status(400).json({
       success: false,
-      message: "from and to dates are required",
+      message: 'from and to dates are required',
     });
   }
 
   try {
-    // Convert to full day range
     const startDate = new Date(`${from}T00:00:00`);
     const endDate = new Date(`${to}T23:59:59`);
 
-    // Build where clause for Receive
     const whereClause = {
-      createdAt: {
-        [Op.between]: [startDate, endDate],
-      },
+      createdAt: { [Op.between]: [startDate, endDate] },
     };
 
-    // Add customer filter if provided
-    if (customerId) {
-      whereClause.customer = customerId;
-    }
+    if (customerId) whereClause.customer = customerId;
 
-    // Fetch receives with associated customer info
     const receives = await Receive.findAll({
       where: whereClause,
       include: [
         {
           model: Customer,
-          as: "receiveCustomer", // Fixed: changed from 'customerInfo' to 'receiveCustomer'
-          attributes: ["id", "fullname", "phoneNumber"],
+          as: 'receiveCustomer',
+          attributes: ['id', 'fullname', 'phoneNumber'],
         },
       ],
-      order: [["createdAt", "DESC"]],
+      order: [['createdAt', 'DESC']],
     });
 
-    // Calculate total amount (sum of all receive amounts)
     const totalAmount = receives.reduce(
       (sum, r) => sum + parseFloat(r.amount || 0),
       0
     );
 
-    // Return response
     return res.status(200).json({
       success: true,
-      message: "Receives fetched successfully",
+      message: 'Receives fetched successfully',
       data: {
         receives,
         totalCount: receives.length,
@@ -697,50 +599,47 @@ export const getReceivesByDateRange = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error in getReceivesByDateRange:", error);
+    console.error('Error in getReceivesByDateRange:', error);
     return res.status(500).json({
       success: false,
-      message: "Error fetching receives",
+      message: 'Error fetching receives',
       error: error.message,
     });
   }
 };
 
-// ==============================
-// Get Customer Payment Summary
-// ==============================
 export const getCustomerReceiveSummary = async (req, res) => {
   try {
     const { customerId } = req.params;
 
     if (!customerId) {
-      return res.status(400).json({
-        success: false,
-        message: "Customer ID is required",
-      });
+      return res
+        .status(400)
+        .json({ success: false, message: 'Customer ID is required' });
     }
 
-    // Get all receives for this customer
     const receives = await Receive.findAll({
       where: { customer: customerId },
-      order: [["createdAt", "DESC"]],
+      order: [['createdAt', 'DESC']],
       include: [
         {
           model: Customer,
-          as: "receiveCustomer", // Fixed: changed from 'customerInfo' to 'receiveCustomer'
-          attributes: ["id", "fullname", "phoneNumber"],
+          as: 'receiveCustomer',
+          attributes: ['id', 'fullname', 'phoneNumber'],
         },
       ],
     });
 
-    // Calculate summary statistics
-    const totalReceived = receives.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
+    const totalReceived = receives.reduce(
+      (sum, r) => sum + parseFloat(r.amount || 0),
+      0
+    );
     const receiveCount = receives.length;
     const averageReceive = receiveCount > 0 ? totalReceived / receiveCount : 0;
 
-    // Get latest and first receive dates
     const latestReceive = receives.length > 0 ? receives[0].createdAt : null;
-    const firstReceive = receives.length > 0 ? receives[receives.length - 1].createdAt : null;
+    const firstReceive =
+      receives.length > 0 ? receives[receives.length - 1].createdAt : null;
 
     res.json({
       success: true,
@@ -757,10 +656,10 @@ export const getCustomerReceiveSummary = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error in getCustomerReceiveSummary:", error);
+    console.error('Error in getCustomerReceiveSummary:', error);
     res.status(500).json({
       success: false,
-      message: "Error fetching customer receive summary",
+      message: 'Error fetching customer receive summary',
       error: error.message,
     });
   }

@@ -691,9 +691,6 @@ export const updateBill = async (req, res) => {
   if (!items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Items array is required' });
   }
-  if (receipt === undefined || receipt < 0) {
-    return res.status(400).json({ error: 'Valid receipt amount is required' });
-  }
 
   const transaction = await sequelize.transaction();
 
@@ -728,7 +725,7 @@ export const updateBill = async (req, res) => {
       if (!deptId) continue;
       if (!oldAllByDept[deptId]) oldAllByDept[deptId] = [];
       oldAllByDept[deptId].push(sell.id);
-      if (sell.remaind === 0) {
+      if (Number(sell.remaind) === 0) {
         if (!oldPaidByDept[deptId]) oldPaidByDept[deptId] = [];
         oldPaidByDept[deptId].push(sell.id);
       } else {
@@ -768,7 +765,6 @@ export const updateBill = async (req, res) => {
     await Receive.destroy({ where: { billId: billId }, transaction });
 
     // 7. Process new items → prepare sells & collect department totals
-    const receiptAmount = parseFloat(receipt) || 0;
     let totalAmount = 0;
     const deptTotals = {};
     const preparedItems = [];
@@ -803,10 +799,11 @@ export const updateBill = async (req, res) => {
 
       await StockExist.decrement({ amount }, { where: { id: existId }, transaction });
 
-      const lineTotal = discounted_total || (amount * unit_price - discount_amount);
-      totalAmount += parseFloat(lineTotal);
+      const lineTotal = Number(discounted_total) || (amount * unit_price - discount_amount);
+      totalAmount += lineTotal;
+      
       if (departmentId) {
-        deptTotals[departmentId] = (deptTotals[departmentId] || 0) + parseFloat(lineTotal);
+        deptTotals[departmentId] = (deptTotals[departmentId] || 0) + lineTotal;
       }
 
       preparedItems.push({
@@ -821,22 +818,55 @@ export const updateBill = async (req, res) => {
       });
     }
 
-    // 8. Determine per-department payments (raw amounts)
+    // 8. Determine per-department payments (Sign-aware)
+    const rawReceipt = parseFloat(receipt) || 0;
+    let effectiveReceipt;
+
+    // Clamp receipt based on totalAmount direction
+    if (totalAmount > 0) {
+      effectiveReceipt = Math.min(Math.max(rawReceipt, 0), totalAmount);
+    } else if (totalAmount < 0) {
+      effectiveReceipt = Math.max(Math.min(rawReceipt, 0), totalAmount);
+    } else {
+      effectiveReceipt = 0;
+    }
+
     let deptPayments = {};
     if (departmentReceipts && typeof departmentReceipts === 'object' && Object.keys(departmentReceipts).length > 0) {
       deptPayments = { ...departmentReceipts };
+      
+      // Enforce same-sign constraints per department
+      for (const [deptId, paid] of Object.entries(deptPayments)) {
+        const deptTotal = deptTotals[parseInt(deptId, 10)] || 0;
+        const numericPaid = parseFloat(paid) || 0;
+        
+        if (deptTotal > 0) {
+          deptPayments[deptId] = Math.min(Math.max(numericPaid, 0), deptTotal);
+        } else if (deptTotal < 0) {
+          deptPayments[deptId] = Math.max(Math.min(numericPaid, 0), deptTotal);
+        } else {
+          deptPayments[deptId] = 0;
+        }
+      }
     } else {
       // Fallback: proportional distribution
-      if (totalAmount > 0) {
-        let remaining = receiptAmount;
+      if (totalAmount !== 0) {
+        let remaining = effectiveReceipt;
         for (const [deptId, deptTotal] of Object.entries(deptTotals)) {
           const proportion = deptTotal / totalAmount;
-          let amount = Math.round(receiptAmount * proportion);
-          if (amount > remaining) amount = remaining;
+          let amount = Math.round(effectiveReceipt * proportion);
+          
+          if (totalAmount > 0) {
+            amount = Math.min(Math.max(amount, 0), Math.max(remaining, 0));
+          } else {
+            amount = Math.max(Math.min(amount, 0), Math.min(remaining, 0));
+          }
+          
           deptPayments[deptId] = amount;
           remaining -= amount;
         }
-        if (remaining > 0) {
+        // Distribute rounding error
+        if (remaining !== 0) {
           const firstDept = Object.keys(deptPayments)[0];
           if (firstDept) deptPayments[firstDept] += remaining;
         }
@@ -846,15 +876,27 @@ export const updateBill = async (req, res) => {
     // 9. Allocate receipt to each sell (using department pools)
     const deptRemaining = { ...deptPayments };
     const sellsData = [];
+    
     for (const item of preparedItems) {
       const deptId = item.departmentId;
       const lineTotal = item.discounted_total;
       let allocatedReceipt = 0;
-      if (deptRemaining[deptId] && deptRemaining[deptId] > 0) {
-        allocatedReceipt = Math.min(deptRemaining[deptId], lineTotal);
-        deptRemaining[deptId] -= allocatedReceipt;
+
+      const pool = deptRemaining[deptId];
+      if (pool !== undefined && pool !== 0) {
+        if (lineTotal > 0 && pool > 0) {
+          allocatedReceipt = Math.min(pool, lineTotal);
+        } else if (lineTotal < 0 && pool < 0) {
+          allocatedReceipt = Math.max(pool, lineTotal);
+        }
+        deptRemaining[deptId] = pool - allocatedReceipt;
       }
-      sellsData.push({ ...item, receipt: allocatedReceipt, remaind: lineTotal - allocatedReceipt });
+
+      sellsData.push({
+        ...item,
+        receipt: allocatedReceipt,
+        remaind: lineTotal - allocatedReceipt
+      });
     }
 
     // 10. Create new sells
@@ -885,7 +927,8 @@ export const updateBill = async (req, res) => {
       if (deptId) {
         if (!newAllByDept[deptId]) newAllByDept[deptId] = [];
         newAllByDept[deptId].push(sell.id);
-        if (sellInfo.remaind === 0) {
+        
+        if (Number(sellInfo.remaind) === 0) {
           if (!newPaidByDept[deptId]) newPaidByDept[deptId] = [];
           newPaidByDept[deptId].push(sell.id);
         } else {
@@ -899,6 +942,7 @@ export const updateBill = async (req, res) => {
       const revenue = sellInfo.discounted_total;
       const cost = costPrice * sellInfo.amount;
       const benefitAmount = revenue - cost;
+      
       const benefit = await Benefit.create({
         amount: benefitAmount,
         sellId: sell.id,
@@ -909,7 +953,7 @@ export const updateBill = async (req, res) => {
       const department = await Department.findByPk(sellInfo.departmentId, { transaction });
       if (department) {
         const numericBenefitId = typeof benefit.id === 'number' ? benefit.id : Number(benefit.id);
-        if (sellInfo.remaind === 0) {
+        if (Number(sellInfo.remaind) === 0) {
           let realizedArray = department.realizedBenefit || [];
           if (typeof realizedArray === "string") realizedArray = JSON.parse(realizedArray);
           if (!Array.isArray(realizedArray)) realizedArray = [];
@@ -927,20 +971,18 @@ export const updateBill = async (req, res) => {
       }
     }
 
-    // 11. Create Receives (positive only, per department)
+    // 11. Create Receives (Positive for receipt, Negative for decreasing paid)
     const receiveIds = [];
 
-    for (const deptId of Object.keys(deptTotals)) {
-      const deptTotal = deptTotals[deptId];
+    for (const [deptId, deptTotal] of Object.entries(deptTotals)) {
       const specifiedAmount = deptPayments[deptId] || 0;
 
-      const positiveAmount = Math.min(specifiedAmount, deptTotal); // cap at department total
-
-      if (positiveAmount > 0) {
+      // If specifiedAmount is non-zero, we create a receive (positive or negative)
+      if (specifiedAmount !== 0) {
         const receive = await Receive.create({
           customer: newCustomerId,
-          amount: positiveAmount,
-          description: `Payment for bill ${bill.billNumber} - dept ${deptId}`,
+          amount: specifiedAmount,
+          description: `Payment adjustment for bill ${bill.billNumber} - dept ${deptId}`,
           billId: billId,
           departmentId: parseInt(deptId, 10),
           sellId: null,
@@ -951,16 +993,18 @@ export const updateBill = async (req, res) => {
     }
 
     // 12. Update bill
-    const effectivePaid = Math.min(receiptAmount, totalAmount);
-    const remainingAmount = totalAmount - effectivePaid;
+    const remainingAmount = totalAmount - effectiveReceipt;
     let status = 'unpaid';
     if (remainingAmount === 0) status = 'paid';
-    else if (effectivePaid > 0) status = 'partial';
+    else if (
+      (totalAmount > 0 && effectiveReceipt > 0) ||
+      (totalAmount < 0 && effectiveReceipt < 0)
+    ) status = 'partial';
 
     await bill.update({
       customerId: newCustomerId,
       totalAmount: totalAmount,
-      paidAmount: effectivePaid,
+      paidAmount: effectiveReceipt,
       remainingAmount: remainingAmount,
       status: status,
       notes: notes !== undefined ? notes : bill.notes,

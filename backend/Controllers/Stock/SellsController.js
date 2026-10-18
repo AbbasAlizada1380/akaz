@@ -38,7 +38,6 @@ export const createSell = async (req, res) => {
       await transaction.rollback();
       return res.status(400).json({ message: "At least one item is required" });
     }
-    // Removed negative receipt restriction: `if (receipt && receipt < 0)` is gone.
 
     // --- Customer handling ---
     let finalCustomerId;
@@ -57,7 +56,9 @@ export const createSell = async (req, res) => {
       finalCustomerId = newCustomer.id;
     } else {
       await transaction.rollback();
-      return res.status(400).json({ message: "Either customerId or newCustomerName is required" });
+      return res
+        .status(400)
+        .json({ message: "Either customerId or newCustomerName is required" });
     }
 
     // --- Prepare items & validate stock ---
@@ -66,7 +67,6 @@ export const createSell = async (req, res) => {
     const deptTotals = {};
 
     for (const item of items) {
-      // Destructure each item
       const {
         existId,
         amount,
@@ -76,26 +76,33 @@ export const createSell = async (req, res) => {
         discounted_total,
       } = item;
 
-      // Removed positive amount restrictions.
-      if (!existId || amount === undefined || amount === null || unit_price === undefined || unit_price === null) {
+      if (
+        !existId ||
+        amount === undefined ||
+        amount === null ||
+        unit_price === undefined ||
+        unit_price === null
+      ) {
         await transaction.rollback();
-        return res.status(400).json({ message: "Each item must have existId, amount and unit_price" });
+        return res
+          .status(400)
+          .json({ message: "Each item must have existId, amount and unit_price" });
       }
-
-      // Removed 0-100 percent limit so negative (markups) can be passed.
 
       // Check stock
-      const stock = await StockExist.findByPk(existId, { transaction, lock: transaction.LOCK.UPDATE });
+      const stock = await StockExist.findByPk(existId, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
       if (!stock) {
         await transaction.rollback();
-        return res.status(404).json({ message: `Product with id ${existId} not found` });
+        return res
+          .status(404)
+          .json({ message: `Product with id ${existId} not found` });
       }
 
-      // Calculate what the stock WILL BE after the transaction.
-      // If amount is positive, stock goes down. If amount is negative, stock goes up.
+      // New stock = current - amount. Positive amount reduces stock, negative increases.
       const newStockAmount = stock.amount - amount;
-
-      // Only block if we are taking more than available (i.e. newStockAmount goes below 0)
       if (newStockAmount < 0) {
         await transaction.rollback();
         return res.status(400).json({
@@ -104,9 +111,11 @@ export const createSell = async (req, res) => {
       }
 
       // Compute line total
-      const finalLineTotal = discounted_total !== undefined
-        ? discounted_total
-        : (amount * unit_price - discount_amount);
+      const finalLineTotal =
+        discounted_total !== undefined
+          ? Number(discounted_total)
+          : Number(amount) * Number(unit_price) - Number(discount_amount);
+
       totalDiscountedAmount += finalLineTotal;
 
       const deptId = stock.departmentId;
@@ -124,56 +133,105 @@ export const createSell = async (req, res) => {
       });
     }
 
-    const receiptAmount = parseFloat(receipt) || 0;
-    // If the total is negative (a return) and receipt is 0, this logic still works.
-    const effectiveReceipt = Math.min(receiptAmount, totalDiscountedAmount);
+    /* ============================================================
+       RECEIPT CLAMPING — sign-aware (positive, negative, zero totals)
+       ============================================================ */
+    const rawReceipt = parseFloat(receipt) || 0;
+    let effectiveReceipt;
+
+    if (totalDiscountedAmount > 0) {
+      // Sale: 0 <= receipt <= total
+      effectiveReceipt = Math.min(Math.max(rawReceipt, 0), totalDiscountedAmount);
+    } else if (totalDiscountedAmount < 0) {
+      // Return: total <= receipt <= 0   (receipt = 0 stays 0)
+      effectiveReceipt = Math.max(Math.min(rawReceipt, 0), totalDiscountedAmount);
+    } else {
+      effectiveReceipt = 0;
+    }
+
     const remainingAmount = totalDiscountedAmount - effectiveReceipt;
 
-    // --- Determine per-department payments ---
+    /* ============================================================
+       Per-department payments — sign-aware clamping
+       ============================================================ */
     let deptPayments = {};
 
-    if (departmentReceipts && typeof departmentReceipts === 'object' && Object.keys(departmentReceipts).length > 0) {
+    if (
+      departmentReceipts &&
+      typeof departmentReceipts === "object" &&
+      Object.keys(departmentReceipts).length > 0
+    ) {
       deptPayments = { ...departmentReceipts };
 
-      // Cap each department payment to its total (works with negatives too)
       for (const [deptId, paid] of Object.entries(deptPayments)) {
-        const deptTotal = deptTotals[parseInt(deptId)] || 0;
-        // If deptTotal is positive, paid can't be greater than it.
-        // If deptTotal is negative, paid can't be less than it.
-        if (deptTotal >= 0 && paid > deptTotal) {
-          deptPayments[deptId] = deptTotal;
-        } else if (deptTotal < 0 && paid < deptTotal) {
-          deptPayments[deptId] = deptTotal;
+        const deptTotal = deptTotals[parseInt(deptId, 10)] || 0;
+        const numericPaid = parseFloat(paid) || 0;
+
+        if (deptTotal > 0) {
+          deptPayments[deptId] = Math.min(Math.max(numericPaid, 0), deptTotal);
+        } else if (deptTotal < 0) {
+          deptPayments[deptId] = Math.max(Math.min(numericPaid, 0), deptTotal);
+        } else {
+          deptPayments[deptId] = 0;
         }
       }
 
-      const totalDeptPayments = Object.values(deptPayments).reduce((a, b) => a + b, 0);
-      if (totalDeptPayments > effectiveReceipt && totalDeptPayments > 0) {
+      // Scale down if sum exceeds effectiveReceipt in the same direction
+      const totalDeptPayments = Object.values(deptPayments).reduce(
+        (a, b) => a + b,
+        0
+      );
+
+      const needsScalingForSale =
+        totalDiscountedAmount > 0 && totalDeptPayments > effectiveReceipt;
+      const needsScalingForReturn =
+        totalDiscountedAmount < 0 && totalDeptPayments < effectiveReceipt;
+
+      if (
+        (needsScalingForSale || needsScalingForReturn) &&
+        totalDeptPayments !== 0
+      ) {
         const scale = effectiveReceipt / totalDeptPayments;
         for (const deptId in deptPayments) {
           deptPayments[deptId] = Math.round(deptPayments[deptId] * scale);
         }
       }
     } else {
-      // Fallback: proportional distribution
+      // Proportional distribution — clamped per direction
       if (totalDiscountedAmount !== 0) {
         let remaining = effectiveReceipt;
-        for (const [deptId, deptTotal] of Object.entries(deptTotals)) {
+        const deptIds = Object.keys(deptTotals);
+
+        for (let i = 0; i < deptIds.length; i++) {
+          const deptId = deptIds[i];
+          const deptTotal = deptTotals[deptId];
           const proportion = deptTotal / totalDiscountedAmount;
           let amount = Math.round(effectiveReceipt * proportion);
-          if (amount > remaining) amount = remaining;
+
+          if (totalDiscountedAmount > 0) {
+            amount = Math.min(Math.max(amount, 0), Math.max(remaining, 0));
+          } else {
+            amount = Math.max(Math.min(amount, 0), Math.min(remaining, 0));
+          }
+
           deptPayments[deptId] = amount;
           remaining -= amount;
         }
-        // Adjust rounding
+
+        // Correct rounding leftovers on the first department
         if (remaining !== 0) {
           const firstDept = Object.keys(deptPayments)[0];
           if (firstDept) deptPayments[firstDept] += remaining;
         }
+      } else {
+        for (const deptId of Object.keys(deptTotals)) deptPayments[deptId] = 0;
       }
     }
 
-    // --- Allocate receipt to each sell using department pools ---
+    /* ============================================================
+       Allocate receipt to each sell via department pools
+       (declarations MUST come before the loop — TDZ safety)
+       ============================================================ */
     const deptRemaining = { ...deptPayments };
     const sellsData = [];
 
@@ -182,15 +240,15 @@ export const createSell = async (req, res) => {
       const lineTotal = item.discounted_total;
       let allocatedReceipt = 0;
 
-      if (deptRemaining[deptId] && deptRemaining[deptId] !== 0) {
-        // Allocate based on the line total (works for negative amounts too)
-        if (lineTotal > 0) {
-          allocatedReceipt = Math.min(deptRemaining[deptId], lineTotal);
-          deptRemaining[deptId] -= allocatedReceipt;
-        } else if (lineTotal < 0) {
-          allocatedReceipt = Math.max(deptRemaining[deptId], lineTotal);
-          deptRemaining[deptId] -= allocatedReceipt;
+      const pool = deptRemaining[deptId];
+      if (pool !== undefined && pool !== 0) {
+        if (lineTotal > 0 && pool > 0) {
+          allocatedReceipt = Math.min(pool, lineTotal);
+        } else if (lineTotal < 0 && pool < 0) {
+          allocatedReceipt = Math.max(pool, lineTotal);
         }
+        // else: mixed signs → leave 0
+        deptRemaining[deptId] = pool - allocatedReceipt;
       }
 
       const remaind = lineTotal - allocatedReceipt;
@@ -209,6 +267,17 @@ export const createSell = async (req, res) => {
       });
     }
 
+    /* ============================================================
+       Bill status — sign-aware
+       ============================================================ */
+    const billStatus =
+      remainingAmount === 0
+        ? "paid"
+        : (totalDiscountedAmount > 0 && effectiveReceipt > 0) ||
+          (totalDiscountedAmount < 0 && effectiveReceipt < 0)
+        ? "partial"
+        : "unpaid";
+
     // --- Create Bill ---
     const billNumber = await generateBillNumber();
     const bill = await Bill.create(
@@ -219,16 +288,18 @@ export const createSell = async (req, res) => {
         totalAmount: totalDiscountedAmount,
         paidAmount: effectiveReceipt,
         remainingAmount,
-        status: remainingAmount === 0 ? "paid" : effectiveReceipt !== 0 ? "partial" : "unpaid",
+        status: billStatus,
         notes: notes || null,
-        discount_percent: billDiscountPercent !== undefined ? billDiscountPercent : null,
-        discounted_amount: billDiscountAmount !== undefined ? billDiscountAmount : null,
+        discount_percent:
+          billDiscountPercent !== undefined ? billDiscountPercent : null,
+        discounted_amount:
+          billDiscountAmount !== undefined ? billDiscountAmount : null,
         sells: [],
       },
       { transaction }
     );
 
-    // --- Create Sells, update stock, create Benefits, and group by department ---
+    // --- Create Sells, update stock, create Benefits, group by department ---
     const createdSells = [];
     const allSellsByDept = {};
     const paidSellsByDept = {};
@@ -253,7 +324,7 @@ export const createSell = async (req, res) => {
       );
       createdSells.push(sell);
 
-      // Update stock: If amount is negative, subtracting a negative adds to stock.
+      // Update stock (subtracting negative adds stock)
       await sellInfo.stockRecord.update(
         { amount: sellInfo.stockRecord.amount - sellInfo.amount },
         { transaction }
@@ -276,26 +347,41 @@ export const createSell = async (req, res) => {
       );
 
       // Update department's benefit arrays
-      const department = await Department.findByPk(sellInfo.departmentId, { transaction });
+      const department = await Department.findByPk(sellInfo.departmentId, {
+        transaction,
+      });
       if (department) {
-        const numericBenefitId = typeof benefit.id === 'number' ? benefit.id : Number(benefit.id);
+        const numericBenefitId =
+          typeof benefit.id === "number" ? benefit.id : Number(benefit.id);
 
         if (sellInfo.remaind === 0) {
           let realizedArray = department.realizedBenefit;
           if (!realizedArray) realizedArray = [];
-          if (typeof realizedArray === "string") realizedArray = JSON.parse(realizedArray);
+          if (typeof realizedArray === "string")
+            realizedArray = JSON.parse(realizedArray);
           if (!Array.isArray(realizedArray)) realizedArray = [];
-          realizedArray = realizedArray.map(id => typeof id === 'number' ? id : Number(id));
+          realizedArray = realizedArray.map((id) =>
+            typeof id === "number" ? id : Number(id)
+          );
           realizedArray.push(numericBenefitId);
-          await department.update({ realizedBenefit: realizedArray }, { transaction });
+          await department.update(
+            { realizedBenefit: realizedArray },
+            { transaction }
+          );
         } else {
           let benefitArray = department.benifit;
           if (!benefitArray) benefitArray = [];
-          if (typeof benefitArray === "string") benefitArray = JSON.parse(benefitArray);
+          if (typeof benefitArray === "string")
+            benefitArray = JSON.parse(benefitArray);
           if (!Array.isArray(benefitArray)) benefitArray = [];
-          benefitArray = benefitArray.map(id => typeof id === 'number' ? id : Number(id));
+          benefitArray = benefitArray.map((id) =>
+            typeof id === "number" ? id : Number(id)
+          );
           benefitArray.push(numericBenefitId);
-          await department.update({ benifit: benefitArray }, { transaction });
+          await department.update(
+            { benifit: benefitArray },
+            { transaction }
+          );
         }
       }
 
@@ -314,7 +400,10 @@ export const createSell = async (req, res) => {
     }
 
     // Update bill with sell IDs
-    await bill.update({ sells: createdSells.map(s => s.id) }, { transaction });
+    await bill.update(
+      { sells: createdSells.map((s) => s.id) },
+      { transaction }
+    );
 
     // --- Create Receives per department ---
     const receiveIds = [];
@@ -359,7 +448,7 @@ export const createSell = async (req, res) => {
         discount_percent: bill.discount_percent,
         discounted_amount: bill.discounted_amount,
       },
-      sells: createdSells.map(s => ({
+      sells: createdSells.map((s) => ({
         id: s.id,
         total: s.total,
         receipt: s.receipt,
@@ -377,6 +466,9 @@ export const createSell = async (req, res) => {
   }
 };
 
+/* ============================================================
+   CustomerAccount helper — unchanged
+   ============================================================ */
 async function updateCustomerAccountAdvanced({
   customerId,
   allSellsByDept,
@@ -385,10 +477,9 @@ async function updateCustomerAccountAdvanced({
   receiveIds = [],
   transaction,
 }) {
-  // Helper to safely parse JSON fields
   const safeParse = (value) => {
     if (value === null || value === undefined) return null;
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       try {
         return JSON.parse(value);
       } catch {
@@ -417,13 +508,11 @@ async function updateCustomerAccountAdvanced({
     );
   }
 
-  // Parse existing data (if they are stored as JSON strings)
   const currentTotal = safeParse(account.total) || {};
   const currentPaid = safeParse(account.paid) || {};
   const currentUnpaid = safeParse(account.unpaid) || {};
   const currentReceive = safeParse(account.receive) || [];
 
-  // Merge function for objects with array values
   const mergeObjectArrays = (existingObj, additions) => {
     const newObj = { ...existingObj };
     for (const [deptId, ids] of Object.entries(additions)) {
@@ -449,6 +538,8 @@ async function updateCustomerAccountAdvanced({
     { transaction }
   );
 }
+
+
 /* ===============================
    GET ALL SELLS (with bill & product)
 ================================ */
@@ -765,10 +856,14 @@ export const returnSell = async (req, res) => {
 /* ===============================
    GET SELLS BY DATE RANGE
 ================================ */
+
+
 export const getSellsByDateRange = async (req, res) => {
   const { from, to, customerId, departmentId, existId } = req.query;
   if (!from || !to) {
-    return res.status(400).json({ success: false, message: "from and to dates required" });
+    return res
+      .status(400)
+      .json({ success: false, message: "from and to dates required" });
   }
 
   try {
@@ -778,8 +873,6 @@ export const getSellsByDateRange = async (req, res) => {
     const whereClause = {
       createdAt: { [Op.between]: [startDate, endDate] },
     };
-
-    // --- Setup Includes (aliases MUST match model associations) ---
 
     // 1. StockExist — alias is "sellStockExist"
     const stockInclude = {
@@ -796,30 +889,78 @@ export const getSellsByDateRange = async (req, res) => {
       whereClause.exist = existId;
     }
 
-    // 2. Bill — alias is "sellBill"
+    // 2. Bill — alias is "sellBill" (with nested Customer "billCustomer")
     const billInclude = {
       model: Bill,
       as: "sellBill",
-      attributes: ["id", "billNumber", "totalAmount", "paidAmount", "sells"],
+      attributes: [
+        "id",
+        "billNumber",
+        "totalAmount",
+        "paidAmount",
+        "sells",
+        "customerId",
+      ],
+      include: [
+        {
+          model: Customer,
+          as: "billCustomer",
+          attributes: ["id", "fullname", "phoneNumber", "address"], // adjust to your Customer schema
+          required: false,
+        },
+      ],
     };
 
     if (customerId) {
       billInclude.where = { customerId };
+      // make sure we don't drop bills without customer, but we filter — keep required false on Customer so LEFT JOIN
     }
+
+    // 3. Benefits — alias is "sellBenefits"
+    const benefitInclude = {
+      model: Benefit,
+      as: "sellBenefits",
+      attributes: [
+        "id",
+        "amount",
+        "sellId",
+        "departmentId",
+        "createdAt",
+        "updatedAt",
+      ],
+      include: [
+        {
+          model: Department,
+          as: "department",
+          attributes: ["id", "name"],
+        },
+      ],
+    };
 
     const sells = await Sells.findAll({
       where: whereClause,
-      include: [stockInclude, billInclude],
+      include: [stockInclude, billInclude, benefitInclude],
       order: [["createdAt", "DESC"]],
     });
 
-    // --- Normalize so frontend keeps working with `product` and `bill` ---
+    // --- Normalize so frontend keeps working with `product`, `bill`, `customer` ---
     const normalizedSells = sells.map((s) => {
       const plain = s.toJSON();
+      const benefits = plain.sellBenefits || [];
+      const benefitTotal = benefits.reduce(
+        (sum, b) => sum + Number(b.amount || 0),
+        0
+      );
+      const customer = plain.sellBill?.billCustomer || null;
+
       return {
         ...plain,
         product: plain.sellStockExist || null,
         bill: plain.sellBill || null,
+        customer,                       // <-- direct shortcut
+        benefits,
+        benefitTotal,
+        sellBenefit: benefits[0] || null,
       };
     });
 
@@ -841,6 +982,43 @@ export const getSellsByDateRange = async (req, res) => {
     );
     const totalRemaining = totalBillAmount - totalBillPaid;
 
+    // --- Benefits totals ---
+    const totalBenefit = normalizedSells.reduce(
+      (sum, s) => sum + s.benefitTotal,
+      0
+    );
+
+    // Benefit breakdown per department
+    const benefitsByDepartmentMap = new Map();
+    for (const s of normalizedSells) {
+      for (const b of s.benefits) {
+        const key = b.departmentId;
+        if (!benefitsByDepartmentMap.has(key)) {
+          benefitsByDepartmentMap.set(key, {
+            departmentId: key,
+            departmentName: b.department?.name || null,
+            total: 0,
+            count: 0,
+          });
+        }
+        const entry = benefitsByDepartmentMap.get(key);
+        entry.total += Number(b.amount || 0);
+        entry.count += 1;
+      }
+    }
+    const benefitsByDepartment = Array.from(
+      benefitsByDepartmentMap.values()
+    );
+
+    // --- Optional: unique customers summary ---
+    const uniqueCustomersMap = new Map();
+    for (const s of normalizedSells) {
+      if (s.customer && !uniqueCustomersMap.has(s.customer.id)) {
+        uniqueCustomersMap.set(s.customer.id, s.customer);
+      }
+    }
+    const customers = Array.from(uniqueCustomersMap.values());
+
     res.json({
       success: true,
       data: {
@@ -849,6 +1027,10 @@ export const getSellsByDateRange = async (req, res) => {
         totalAmount: totalBillAmount,
         totalReceived: totalBillPaid,
         totalRemained: totalRemaining,
+        totalBenefit,
+        benefitsByDepartment,
+        customers,                     // <-- unique customers in range
+        customerCount: customers.length,
         filters: {
           from,
           to,
@@ -860,6 +1042,10 @@ export const getSellsByDateRange = async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: "Error fetching sells", error: error.message });
+    res.status(500).json({
+      success: false,
+      message: "Error fetching sells",
+      error: error.message,
+    });
   }
 };
