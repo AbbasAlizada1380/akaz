@@ -8,6 +8,7 @@ import {
   CustomerAccount,
   StockExist,
   Department,
+  Benefit,
 } from '../../Models/index.js';
 import { Op } from 'sequelize';
 
@@ -545,7 +546,7 @@ export const getCustomerOrderItemsByType = async (req, res) => {
         {
           model: StockExist,
           as: 'sellStockExist',
-          attributes: ['name'],
+          attributes: ['name','code_number'],
           required: false,
         },
       ],
@@ -669,6 +670,99 @@ export const getCustomerOrderItemsByDateRange = async (req, res) => {
     });
   } catch (error) {
     console.error('Error in getCustomerOrderItemsByDateRange:', error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+
+/* ============================================================
+   CUSTOMER BENEFITS — fetches all benefits linked to a customer's bills
+   ============================================================ */
+export const getCustomerBenefits = async (req, res) => {
+  try {
+    const { customerId } = req.params;
+
+    // Verify customer exists (optional but good for clean error handling)
+    const customer = await Customer.findByPk(customerId, {
+      attributes: ['id', 'fullname'],
+    });
+    
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    // Fetch benefits by joining through Sells to Bill to match the customer
+    const benefits = await Benefit.findAll({
+      include: [
+        {
+          model: Sells,
+          as: 'benefitSell', // This matches your association alias
+          required: true,
+          attributes: ['id', 'billId', 'departmentId', 'amount', 'unit_price', 'total'],
+          include: [
+            {
+              model: Bill,
+              as: 'sellBill', // This matches your association alias
+              required: true,
+              where: { customerId: customerId },
+              attributes: ['id', 'billNumber', 'date'],
+            },
+            {
+              model: Department,
+              as: 'sellDepartment',
+              attributes: ['id', 'name'],
+              required: false,
+            }
+          ],
+        },
+        {
+          model: Department,
+          as: 'department', // Direct relation to Benefit's department
+          attributes: ['id', 'name'],
+          required: false,
+        }
+      ],
+      order: [[{ model: Sells, as: 'benefitSell' }, { model: Bill, as: 'sellBill' }, 'date', 'DESC']],
+    });
+
+    // Format the response
+    const formattedBenefits = benefits.map((benefit) => {
+      const b = benefit.toJSON();
+      return {
+        id: b.id,
+        benefitAmount: parseFloat(b.amount),
+        departmentId: b.departmentId,
+        departmentName: b.department?.name || b.benefitSell?.sellDepartment?.name || 'Unknown',
+        sellId: b.sellId,
+        billId: b.benefitSell?.billId,
+        billNumber: b.benefitSell?.sellBill?.billNumber,
+        billDate: b.benefitSell?.sellBill?.date,
+        sellDetails: {
+          amount: b.benefitSell?.amount,
+          unit_price: parseFloat(b.benefitSell?.unit_price || 0),
+          total: parseFloat(b.benefitSell?.total || 0),
+        }
+      };
+    });
+
+    const totalBenefit = formattedBenefits.reduce((sum, item) => sum + item.benefitAmount, 0);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        customer: {
+          id: customer.id,
+          fullname: customer.fullname,
+        },
+        benefits: formattedBenefits,
+        summary: {
+          totalBenefitsCount: formattedBenefits.length,
+          totalBenefitAmount: totalBenefit,
+        }
+      },
+    });
+  } catch (error) {
+    console.error('Error in getCustomerBenefits:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };

@@ -66,23 +66,35 @@ const SellManager = () => {
       setNotes(bill.notes || "");
 
       // Map sells – ensure numeric types for dropdowns
-      const mappedItems = sells.map((sell, index) => ({
-        id: Date.now() + index,
-        departmentId: sell.departmentId != null ? Number(sell.departmentId) : null,
-        productId: sell.exist != null ? Number(sell.exist) : null,
-        productName: allProducts.find(p => p.id === Number(sell.exist))?.name || sell.sellStockExist?.name || "",
-        amount: sell.amount,
-        unitPrice: parseFloat(sell.unit_price),
-        discountPercent: parseFloat(sell.discount_percent) || 0,
-        total: parseFloat(sell.amount) * parseFloat(sell.unit_price),
-        discountedTotal: parseFloat(sell.total) || 0,
-      }));
+      const mappedItems = sells.map((sell, index) => {
+        // Find the product to grab its details safely
+        const matchedProduct = allProducts.find(p => p.id === Number(sell.exist));
+
+        return {
+          id: Date.now() + index,
+          departmentId: sell.departmentId != null ? Number(sell.departmentId) : null,
+          productId: sell.exist != null ? Number(sell.exist) : null,
+          productName: matchedProduct?.name || sell.sellStockExist?.name || "",
+          
+          // ADDED: Map the code number from the matched product or the sell record itself
+          codeNumber: matchedProduct?.code_number != null 
+            ? String(matchedProduct.code_number) 
+            : (sell.sellStockExist?.code_number != null ? String(sell.sellStockExist.code_number) : ""),
+
+          amount: sell.amount,
+          unitPrice: parseFloat(sell.unit_price),
+          discountPercent: parseFloat(sell.discount_percent) || 0,
+          total: parseFloat(sell.amount) * parseFloat(sell.unit_price),
+          discountedTotal: parseFloat(sell.total) || 0,
+        };
+      });
 
       setItems(mappedItems.length ? mappedItems : [{
         id: Date.now(),
         departmentId: null,
         productId: null,
         productName: "",
+        codeNumber: "", // Added empty default for new blank row
         amount: "",
         unitPrice: "",
         discountPercent: 0,

@@ -12,8 +12,6 @@ import OrderDownloadrange from "./report/OrderDownloadrange";
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 const RemainOrderItems = ({ customer, onClose }) => {
-  console.log(customer);
-  
   const [remainingMoney, setRemainingMoney] = useState(0);
   const [items, setItems] = useState([]);           // sells for current page
   const [loading, setLoading] = useState(false);
@@ -197,14 +195,11 @@ const RemainOrderItems = ({ customer, onClose }) => {
               </table>
             </div>
 
-            {/* Pagination - uses server‑side data */}
-            {totalPages > 1 && (
               <Pagination
                 currentPage={currentPage}
                 totalPages={totalPages}
                 onPageChange={handlePageChange}
               />
-            )}
           </>
         )}
       </div>

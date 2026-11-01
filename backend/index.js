@@ -17,7 +17,6 @@ import CustomerAccountRoute from "./Routes/Customer/CustomerAccountRoute.js";
 import SellerAccountRoute from "./Routes/Seller/SellerAccountRoute.js";
 import ReportRoute from "./Routes/ReportRoute.js";
 import StaffRoute from "./Routes/Staff/StaffRoute.js";
-import AttendenceRoute from "./Routes/Staff/AttendenceRoute.js";
 import DepartmentTransactionRouter from "./Routes/Finance/DepartmentTransactionRouter.js";
 import BillRouter from "./Routes/Finance/BillRouter.js";
 import FactorRouter from "./Routes/Finance/FactorRouter.js";
@@ -26,6 +25,8 @@ import debtRouter from "./Routes/Debt/debtRouter.js";
 import paymentRouter from "./Routes/Debt/paymentRouter.js";
 import nonstaffRouter from "./Routes/Debt/nonstaffRouter.js";
 import databaseRoute from "./Routes/databaseRoute.js";
+import attendanceRoute from "./Routes/Staff/salary/attendanceRouter.js";
+import salaryRoute from "./Routes/Staff/salary/salaryListRouter.js";
 const FRONT_URL = process.env.FRONT_URL
 const port = 8038;
 const app = express();
@@ -82,11 +83,12 @@ app.use("/customerAccount", CustomerAccountRoute);
 app.use("/sellerAccount", SellerAccountRoute);
 app.use("/report", ReportRoute);
 app.use("/staff", StaffRoute);
-app.use("/attendance", AttendenceRoute);
+app.use("/attendance", attendanceRoute);
 app.use("/departmentTransaction", DepartmentTransactionRouter);
 app.use("/Bill", BillRouter);
 app.use("/Factor", FactorRouter);
 app.use("/benifit", BenifitRoute);
+app.use("/salary-lists",salaryRoute);
 
 app.use("/database", databaseRoute);
 //debt

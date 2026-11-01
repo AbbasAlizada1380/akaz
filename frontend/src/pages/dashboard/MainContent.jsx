@@ -16,6 +16,7 @@ import SalaryManagement from "./pages/SalaryManagement.jsx";
 import { useSelector } from 'react-redux';
 import Stakeholderpage from "./pages/stakeholderpage.jsx";
 import DebtManager from "./debt/DebtManager.jsx";
+import Salary from "./pages/salary/Salary.jsx";
 import StaffAndNonStaffTabs from "./pages/staff/StaffAndNonStaffTabs.jsx";
 const MainContent = ({ activeComponent }) => {
 
@@ -52,6 +53,8 @@ const MainContent = ({ activeComponent }) => {
         return <StaffAndNonStaffTabs />;
       case "salary":
         return <SalaryManagement />;
+      case "ُSalaries":
+        return <Salary />;
       case "debt":
         return <DebtManager />;
       case "department":

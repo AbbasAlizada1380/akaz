@@ -22,7 +22,6 @@ const OrderDownloadrange = ({ customerId }) => {
             return;
         }
 
-        // Validate date range if type is "dateRange"
         if (type === "dateRange") {
             if (!dateRange.from || !dateRange.to) {
                 alert("Please specify the date range");
@@ -40,157 +39,233 @@ const OrderDownloadrange = ({ customerId }) => {
 
         try {
             setLoading(true);
-
-            let data;
-
-            if (type === "dateRange") {
-                const response = await axios.get(
-                    `${BASE_URL}/customerAccount/customer/${customerId}/date_range`,
-                    {
-                        params: {
-                            from: dateRange.from,
-                            to: dateRange.to
-                        }
-                    }
-                );
-                data = response.data.data;
-            } else {
-                const response = await axios.get(
-                    `${BASE_URL}/customerAccount/${customerId}/${type}`
-                );
-                data = response.data;
-            }
-
-            const items = type === "dateRange" ? data.items : data.items || [];
-            const customerName = type === "dateRange"
-                ? data.customer?.fullname
-                : data.customerName || "Customer";
-            const totalCount = type === "dateRange"
-                ? data.summary?.totalItems
-                : data.totalCount || items.length;
-            const totalMoney = type === "dateRange"
-                ? data.summary?.totalMoney
-                : data.totalMoney || 0;
-            const totalReceipt = type === "dateRange"
-                ? data.summary?.totalReceipt
-                : data.totalReceipt || 0;
-            const totalRemaining = type === "dateRange"
-                ? data.summary?.totalRemaining
-                : data.totalRemaining || 0;
-
-            if (!items || items.length === 0) {
-                alert("No data found");
-                return;
-            }
-
-            const doc = new jsPDF({
-                orientation: "p",
-                unit: "pt",
-                format: "a4",
-            });
+            const doc = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
             doc.setR2L(false);
 
-            // Font
+            // Setup Font
             doc.addFileToVFS("Vazirmatn.ttf", VazirmatnTTF);
             doc.addFont("Vazirmatn.ttf", "Vazirmatn", "normal");
             doc.setFont("Vazirmatn");
-
-            // Title
-            let titleText = `${getTypeTitle(type)} Report - ${customerName}`;
-            if (type === "dateRange" && dateRange.from && dateRange.to) {
-                const fromFormatted = moment(dateRange.from).format("YYYY/M/D");
-                const toFormatted = moment(dateRange.to).format("YYYY/M/D");
-                titleText = `Sells Report from ${fromFormatted} to ${toFormatted} - ${customerName}`;
-            }
-
             doc.setFontSize(14);
-            doc.text(titleText, doc.internal.pageSize.width - 40, 120, { align: "right" });
-
-            // Table headers (without "size")
-            const headers = [
-                ["Remaining", "Received", "Total", "Quantity", "Product Name", "Date", "ID"]
-            ];
-
-            // Table body (no size field)
-            const body = items.map((item) => [
-                item.remaining?.toLocaleString() || "0",
-                item.receipt?.toLocaleString() || "0",
-                item.money?.toLocaleString() || "0",
-                item.qnty?.toLocaleString() || "0",
-                item.fileName || "-",
-                moment(item.createdAt).format("YYYY/M/D"),
-                item.id?.toString().slice(-8) || "-",
-            ]);
 
             const pageWidth = doc.internal.pageSize.width;
             const margin = 20;
-            const tableWidth = pageWidth - (margin * 2);
 
-            // Column widths for 7 columns
-            const columnWidths = {
-                0: tableWidth * 0.12, // Remaining
-                1: tableWidth * 0.12, // Received
-                2: tableWidth * 0.12, // Total
-                3: tableWidth * 0.10, // Quantity
-                4: tableWidth * 0.24, // Product Name
-                5: tableWidth * 0.16, // Date
-                6: tableWidth * 0.14, // ID
-            };
+            let currentY = 140;
 
-            autoTable(doc, {
-                startY: 140,
-                margin: { left: margin, right: margin, top: 140, bottom: 80 },
-                head: headers,
-                body: body,
-                styles: {
-                    font: "Vazirmatn",
-                    fontSize: 8,
-                    halign: "center",
-                    valign: "middle",
-                    cellPadding: 3,
-                    lineColor: [200, 200, 200],
-                    lineWidth: 0.5,
-                },
-                headStyles: {
-                    font: "Vazirmatn",
-                    fontStyle: "normal",
-                    fillColor: [220, 220, 220],
-                    textColor: 20,
-                    halign: "center",
-                    fontSize: 9,
-                },
-                columnStyles: {
-                    0: { cellWidth: columnWidths[0] },
-                    1: { cellWidth: columnWidths[1] },
-                    2: { cellWidth: columnWidths[2] },
-                    3: { cellWidth: columnWidths[3] },
-                    4: { cellWidth: columnWidths[4] },
-                    5: { cellWidth: columnWidths[5] },
-                    6: { cellWidth: columnWidths[6] },
-                },
-            });
+            // ==========================================
+            // 1. BENEFITS REPORT (DETAILS + SUBTOTAL PER BILL)
+            // ==========================================
+            if (type === "benefits") {
+                const response = await axios.get(
+                    `${BASE_URL}/customerAccount/customer/${customerId}/benefits`
+                );
+                const data = response.data.data;
+                const items = data?.benefits || [];
+                const customerName = data?.customer?.fullname || "Customer";
 
-            const today = moment().format("YYYY/M/D");
-            const y = doc.lastAutoTable.finalY + 30;
+                if (items.length === 0) {
+                    alert("No benefits found for this customer");
+                    setLoading(false);
+                    return;
+                }
 
-            doc.setFontSize(11);
-            const summaryX = pageWidth - margin;
+                const titleText = `Customer Benefits Report - ${customerName}`;
+                doc.text(titleText, pageWidth - 40, 120, { align: "right" });
 
-            doc.text(`Total sells: ${totalCount}`, summaryX, y, { align: "right" });
-            doc.text(`Total Amount: ${totalMoney?.toLocaleString()} AFN`, summaryX, y + 18, { align: "right" });
-            doc.text(`Received: ${totalReceipt?.toLocaleString()} AFN`, summaryX, y + 36, { align: "right" });
-            doc.text(`Remaining: ${totalRemaining?.toLocaleString()} AFN`, summaryX, y + 54, { align: "right" });
+                // --- GROUPING AND SUBTOTAL LOGIC START ---
+                const groupedBills = {};
 
-            if (type === "dateRange") {
-                const fromFormatted = moment(dateRange.from).format("YYYY/M/D");
-                const toFormatted = moment(dateRange.to).format("YYYY/M/D");
-                doc.text(`Date Range: ${fromFormatted} - ${toFormatted}`, summaryX, y + 72, { align: "right" });
-                doc.text(`Issued: ${today}`, summaryX, y + 90, { align: "right" });
-            } else {
-                doc.text(`Issued: ${today}`, summaryX, y + 72, { align: "right" });
+                // 1. Group items by Bill
+                items.forEach(item => {
+                    const bId = item.billId || 'unknown';
+                    if (!groupedBills[bId]) {
+                        groupedBills[bId] = {
+                            billNumber: item.billNumber || "-",
+                            billDate: item.billDate,
+                            items: [],
+                            subtotal: 0
+                        };
+                    }
+                    groupedBills[bId].items.push(item);
+                    groupedBills[bId].subtotal += (item.benefitAmount || 0);
+                });
+
+                // 2. Build the flat table body
+                const tableBody = [];
+                
+                Object.values(groupedBills).forEach((group) => {
+                    // Push individual items for this bill
+                    group.items.forEach(item => {
+                        tableBody.push([
+                            item.billNumber,
+                            item.departmentName || "-",
+                            item.sellDetails ? `${item.sellDetails.amount}x Unit(${item.sellDetails.unit_price})` : "-",
+                            item.billDate ? moment(item.billDate).format("YYYY/M/D") : "-",
+                            item.benefitAmount?.toLocaleString() || "0"
+                        ]);
+                    });
+
+                    // Push the subtotal row for this bill
+                    tableBody.push([
+                        {
+                            content: `Subtotal for Bill ${group.billNumber}`,
+                            colSpan: 4,
+                            styles: { halign: "right", fontStyle: "bold", fillColor: [245, 245, 245] }
+                        },
+                        {
+                            content: group.subtotal.toLocaleString(),
+                            styles: { fontStyle: "bold", fillColor: [245, 245, 245] }
+                        }
+                    ]);
+                });
+                // --- GROUPING AND SUBTOTAL LOGIC END ---
+
+                const headers = [
+                    ["Bill #", "Department", "Product Details", "Date", "Benefit Amount"]
+                ];
+
+                autoTable(doc, {
+                    startY: currentY,
+                    margin: { left: margin, right: margin },
+                    head: headers,
+                    body: tableBody,
+                    styles: {
+                        font: "Vazirmatn",
+                        fontSize: 9,
+                        halign: "center",
+                        valign: "middle",
+                        cellPadding: 4,
+                        lineColor: [200, 200, 200],
+                        lineWidth: 0.5,
+                    },
+                    headStyles: {
+                        font: "Vazirmatn",
+                        fillColor: [220, 220, 220],
+                        textColor: 20,
+                        halign: "center",
+                        fontSize: 10,
+                    },
+                });
+
+                currentY = doc.lastAutoTable.finalY + 30;
+                doc.setFontSize(11);
+                const summaryX = pageWidth - margin;
+
+                doc.text(`Total Bills: ${Object.keys(groupedBills).length}`, summaryX, currentY, { align: "right" });
+                doc.text(`Total Benefit Amount: ${data.summary?.totalBenefitAmount?.toLocaleString() || 0} AFN`, summaryX, currentY + 18, { align: "right" });
+                doc.text(`Issued: ${moment().format("YYYY/M/D")}`, summaryX, currentY + 36, { align: "right" });
+
+            } 
+            // ==========================================
+            // 2. SELLS REPORTS (EXISTING LOGIC)
+            // ==========================================
+            else {
+                let data;
+                if (type === "dateRange") {
+                    const response = await axios.get(
+                        `${BASE_URL}/customerAccount/customer/${customerId}/date_range`,
+                        { params: { from: dateRange.from, to: dateRange.to } }
+                    );
+                    data = response.data.data;
+                } else {
+                    const response = await axios.get(
+                        `${BASE_URL}/customerAccount/${customerId}/${type}`
+                    );
+                    data = response.data.data; 
+                }
+
+                const items = data?.items || [];
+                const customerName = data?.customerName || data?.customer?.fullname || "Customer";
+                const totalCount = data?.totalCount || data?.summary?.totalItems || items.length;
+                const totalMoney = data?.totalMoney || data?.summary?.totalMoney || 0;
+                const totalReceipt = data?.totalReceipt || data?.summary?.totalReceipt || 0;
+                const totalRemaining = data?.totalRemaining || data?.summary?.totalRemaining || 0;
+                const totalOwes = data?.totalOwes || data?.summary?.totalOwes || 0;
+                const totalOwed = data?.totalOwed || data?.summary?.totalOwed || 0;
+
+                if (items.length === 0) {
+                    alert("No data found");
+                    setLoading(false);
+                    return;
+                }
+
+                let titleText = `${getTypeTitle(type)} Report - ${customerName}`;
+                if (type === "dateRange" && dateRange.from && dateRange.to) {
+                    const fromFormatted = moment(dateRange.from).format("YYYY/M/D");
+                    const toFormatted = moment(dateRange.to).format("YYYY/M/D");
+                    titleText = `Sells Report from ${fromFormatted} to ${toFormatted} - ${customerName}`;
+                }
+
+                doc.text(titleText, pageWidth - 40, 120, { align: "right" });
+
+                const headers = [
+                    ["Remaining", "Received", "Total", "Quantity", "Product Name", "Date", "ID"]
+                ];
+
+                const body = items.map((item) => [
+                    item.remaining?.toLocaleString() || "0",
+                    item.receipt?.toLocaleString() || "0",
+                    item.money?.toLocaleString() || "0",
+                    item.qnty?.toLocaleString() || "0",
+                    item.fileName || "-",
+                    moment(item.createdAt).format("YYYY/M/D"),
+                    item.id?.toString().slice(-8) || "-",
+                ]);
+
+                const tableWidth = pageWidth - (margin * 2);
+                const columnWidths = {
+                    0: tableWidth * 0.12, 1: tableWidth * 0.12, 2: tableWidth * 0.12,
+                    3: tableWidth * 0.10, 4: tableWidth * 0.24, 5: tableWidth * 0.16, 6: tableWidth * 0.14,
+                };
+
+                autoTable(doc, {
+                    startY: currentY,
+                    margin: { left: margin, right: margin },
+                    head: headers,
+                    body: body,
+                    styles: {
+                        font: "Vazirmatn", fontSize: 8, halign: "center",
+                        valign: "middle", cellPadding: 3, lineColor: [200, 200, 200], lineWidth: 0.5,
+                    },
+                    headStyles: {
+                        font: "Vazirmatn", fontStyle: "normal", fillColor: [220, 220, 220],
+                        textColor: 20, halign: "center", fontSize: 9,
+                    },
+                    columnStyles: {
+                        0: { cellWidth: columnWidths[0] }, 1: { cellWidth: columnWidths[1] },
+                        2: { cellWidth: columnWidths[2] }, 3: { cellWidth: columnWidths[3] },
+                        4: { cellWidth: columnWidths[4] }, 5: { cellWidth: columnWidths[5] },
+                        6: { cellWidth: columnWidths[6] },
+                    },
+                });
+
+                currentY = doc.lastAutoTable.finalY + 30;
+                doc.setFontSize(11);
+                const summaryX = pageWidth - margin;
+
+                doc.text(`Total sells: ${totalCount}`, summaryX, currentY, { align: "right" });
+                doc.text(`Total Amount: ${totalMoney?.toLocaleString()} AFN`, summaryX, currentY + 18, { align: "right" });
+                doc.text(`Received: ${totalReceipt?.toLocaleString()} AFN`, summaryX, currentY + 36, { align: "right" });
+                doc.text(`Remaining: ${totalRemaining?.toLocaleString()} AFN`, summaryX, currentY + 54, { align: "right" });
+                doc.text(`Total Owes: ${totalOwes?.toLocaleString()} AFN`, summaryX, currentY + 72, { align: "right" });
+                doc.text(`Total Owed: ${totalOwed?.toLocaleString()} AFN`, summaryX, currentY + 90, { align: "right" });
+
+                let bottomY = currentY + 108;
+
+                if (type === "dateRange") {
+                    const fromFormatted = moment(dateRange.from).format("YYYY/M/D");
+                    const toFormatted = moment(dateRange.to).format("YYYY/M/D");
+                    doc.text(`Date Range: ${fromFormatted} - ${toFormatted}`, summaryX, bottomY, { align: "right" });
+                    bottomY += 18;
+                }
+                
+                doc.text(`Issued: ${moment().format("YYYY/M/D")}`, summaryX, bottomY, { align: "right" });
             }
 
-            // Page numbers
+            // ==========================================
+            // PAGE NUMBERS & SAVE (COMMON FOR BOTH)
+            // ==========================================
             const pageCount = doc.internal.getNumberOfPages();
             const pageHeight = doc.internal.pageSize.height;
             doc.setFontSize(10);
@@ -199,14 +274,14 @@ const OrderDownloadrange = ({ customerId }) => {
                 doc.text(`${i}/${pageCount}`, pageWidth - 40, pageHeight - 40, { align: "right" });
             }
 
-            // Filename
-            let filename = `${type}_${customerName}_${moment().format("YYYY-M-D")}`;
+            // Filename generation
+            let filename = `${type}_${moment().format("YYYY-M-D")}.pdf`;
             if (type === "dateRange") {
                 const fromFormatted = moment(dateRange.from).format("YYYY-M-D");
                 const toFormatted = moment(dateRange.to).format("YYYY-M-D");
-                filename = `sells${fromFormatted}_to_${toFormatted}_${customerName}.pdf`;
+                filename = `sells_${fromFormatted}_to_${toFormatted}.pdf`;
             } else {
-                filename = `${type}_${customerName}_${moment().format("YYYY-M-D")}.pdf`;
+                filename = `${type}_report_${moment().format("YYYY-M-D")}.pdf`;
             }
 
             doc.save(filename);
@@ -241,6 +316,9 @@ const OrderDownloadrange = ({ customerId }) => {
                     </option>
                     <option value="dateRange" className="text-black bg-white">
                         Date range
+                    </option>
+                    <option value="benefits" className="text-black bg-white font-bold">
+                        Customer Benefits
                     </option>
                 </select>
 
@@ -293,6 +371,8 @@ function getTypeTitle(type) {
             return "Unpaid Orders";
         case "dateRange":
             return "Date Range";
+        case "benefits":
+            return "Benefits";
         default:
             return "";
     }

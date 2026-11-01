@@ -104,49 +104,67 @@ const BillsList = ({ onEditBill }) => {
                 </tr>
               </thead>
               <tbody>
-                {bills.map((bill) => (
-                  <tr key={bill.id} className="border-t hover:bg-gray-50">
-                    <td className="px-4 py-2 font-mono">{bill.billNumber}</td>
-                    <td className="px-4 py-2">{bill.billCustomer?.fullname || "-"}</td>
-                    <td className="px-4 py-2">{new Date(bill.date).toLocaleDateString()}</td>
-                    <td className="px-4 py-2 text-right">
-                      {parseFloat(bill.totalAmount).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      {parseFloat(bill.paidAmount).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2 text-right">
-                      {parseFloat(bill.remainingAmount).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2">
-                      <span
-                        className={`px-2 py-1 rounded text-xs font-medium ${
-                          bill.status === "paid"
-                            ? "bg-green-100 text-green-800"
-                            : bill.status === "partial"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {bill.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-center space-x-2">
-                      <button
-                        onClick={() => handleViewBill(bill.id)}
-                        className="text-blue-600 hover:text-blue-800 text-sm"
-                      >
-                        View Items
-                      </button>
-                      <button
-                        onClick={() => onEditBill(bill.id)}
-                        className="text-green-600 hover:text-green-800 text-sm"
-                      >
-                        Edit
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {bills.map((bill) => {
+                  // Check if the bill is fully paid (Remaining is 0)
+                  // We use Math.abs to safely handle minor floating-point anomalies (e.g., 0.000000001)
+                  const isFullyPaid = Math.abs(parseFloat(bill.remainingAmount)) < 0.01;
+
+                  return (
+                    <tr key={bill.id} className="border-t hover:bg-gray-50">
+                      <td className="px-4 py-2 font-mono">{bill.billNumber}</td>
+                      <td className="px-4 py-2">{bill.billCustomer?.fullname || "-"}</td>
+                      <td className="px-4 py-2">{new Date(bill.date).toLocaleDateString()}</td>
+                      <td className="px-4 py-2 text-right">
+                        {parseFloat(bill.totalAmount).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {parseFloat(bill.paidAmount).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {parseFloat(bill.remainingAmount).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-2">
+                        <span
+                          className={`px-2 py-1 rounded text-xs font-medium ${
+                            bill.status === "paid"
+                              ? "bg-green-100 text-green-800"
+                              : bill.status === "partial"
+                              ? "bg-yellow-100 text-yellow-800"
+                              : "bg-red-100 text-red-800"
+                          }`}
+                        >
+                          {bill.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2 text-center space-x-2">
+                        <button
+                          onClick={() => handleViewBill(bill.id)}
+                          className="text-blue-600 hover:text-blue-800 text-sm"
+                        >
+                          View Items
+                        </button>
+                        
+                        {/* FIX: Hide or disable edit button if remaining is 0 */}
+                        {isFullyPaid ? (
+                          <button
+                            disabled
+                            title="Cannot edit a fully paid bill"
+                            className="text-gray-400 text-sm cursor-not-allowed opacity-50"
+                          >
+                            Edit
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => onEditBill(bill.id)}
+                            className="text-green-600 hover:text-green-800 text-sm"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
