@@ -4,7 +4,7 @@ import {
   Attendance,
   Staff,
   PaidSalary,
-} from  "../../../Models/index.js";
+} from "../../../Models/index.js";
 import { Op } from "sequelize";
 
 
@@ -13,12 +13,12 @@ import { Op } from "sequelize";
    Helper: build the default attendance JSON for a new period
    --------------------------------------------------------- */
 const defaultAttendanceJSON = () => ({
-  Saturday:  { attendance: false, overtime: 0 },
-  Sunday:    { attendance: false, overtime: 0 },
-  Monday:    { attendance: false, overtime: 0 },
-  Tuesday:   { attendance: false, overtime: 0 },
+  Saturday: { attendance: false, overtime: 0 },
+  Sunday: { attendance: false, overtime: 0 },
+  Monday: { attendance: false, overtime: 0 },
+  Tuesday: { attendance: false, overtime: 0 },
   Wednesday: { attendance: false, overtime: 0 },
-  Thursday:  { attendance: false, overtime: 0 },
+  Thursday: { attendance: false, overtime: 0 },
 });
 
 /* ---------------------------------------------------------
@@ -31,20 +31,20 @@ export const getAllAttendance = async (req, res) => {
     if (req.query.list) where.list = req.query.list;
     if (req.query.staffId) where.staffId = req.query.staffId;
 
-const records = await Attendance.findAll({
-  where,
-  include: [
-    {
-      model: Staff,
-      as: "attendanceStaff",                    // ✅ matches association
-      attributes: [
-        "id", "name", "fatherName", "NIC",
-        "salary", "overTimePerHour", "workingDaysPerWeek",
+    const records = await Attendance.findAll({
+      where,
+      include: [
+        {
+          model: Staff,
+          as: "attendanceStaff",                    // ✅ matches association
+          attributes: [
+            "id", "name", "fatherName", "NIC",
+            "salary", "overTimePerHour", "workingDaysPerWeek",
+          ],
+        },
       ],
-    },
-  ],
-  order: [["id", "ASC"]],
-});
+      order: [["id", "ASC"]],
+    });
 
     // Return as { attendances: [...] } so the frontend can rely on a key
     return res.status(200).json({ attendances: records });
@@ -62,7 +62,19 @@ export const getAttendanceById = async (req, res) => {
   try {
     const record = await Attendance.findByPk(req.params.id, {
       include: [
-        { model: Staff, as: "staff" },                 // ✅ REQUIRED
+        {
+          model: Staff,
+          as: "attendanceStaff",       // ✅ was "staff"
+          attributes: [
+            "id",
+            "name",
+            "fatherName",
+            "NIC",
+            "salary",
+            "overTimePerHour",
+            "workingDaysPerWeek",
+          ],
+        },
       ],
     });
     if (!record) {
@@ -127,12 +139,8 @@ export const updateAttendance = async (req, res) => {
       }
     }
 
-    // Recalculate salary/overtime/total if attendance JSON provided
-    if (updates.attendance) {
-      const { salary, overtime, total } = calculatePay(
-        staff,
-        updates.attendance
-      );
+    if (updates.attendance && updates.salary === undefined) {
+      const { salary, overtime, total } = calculatePay(staff, updates.attendance);
       updates.salary = salary;
       updates.overtime = overtime;
       updates.total = total;
@@ -354,3 +362,193 @@ function calculatePay(staff, attendanceJSON) {
     total: Number(total.toFixed(2)),
   };
 }
+
+
+export const createAttendance = async (req, res) => {
+  const transaction = await Attendance.sequelize.transaction();
+
+  try {
+    const { list, staffId } = req.body;
+
+    /* ---------------- Validate input ---------------- */
+    if (!list || !staffId) {
+      await transaction.rollback();
+      return res
+        .status(400)
+        .json({ error: "list and staffId are required" });
+    }
+
+    /* ---------------- Verify the parent list ---------------- */
+    const salaryList = await SalaryList.findByPk(list, { transaction });
+    if (!salaryList) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "Salary list not found" });
+    }
+
+    /* ---------------- Verify the staff ---------------- */
+    const staff = await Staff.findByPk(staffId, { transaction });
+    if (!staff) {
+      await transaction.rollback();
+      return res.status(404).json({ error: "Staff not found" });
+    }
+
+    /* ---------------- Prevent duplicate rows ---------------- */
+    const existing = await Attendance.findOne({
+      where: { list, staffId },
+      transaction,
+    });
+    if (existing) {
+      await transaction.rollback();
+      return res.status(409).json({
+        error: "This staff member is already in the list",
+        record: existing,
+      });
+    }
+
+    /* ---------------- Normalize receipt ---------------- */
+    let receipt = [];
+    if (Array.isArray(req.body.receipt)) {
+      receipt = req.body.receipt
+        .map((entry) => {
+          if (typeof entry === "number" || typeof entry === "string") {
+            const n = Number(entry);
+            return { amount: Number.isFinite(n) ? n : 0, note: null };
+          }
+          if (entry && typeof entry === "object") {
+            const n = Number(entry.amount ?? entry.value ?? 0);
+            return {
+              amount: Number.isFinite(n) ? n : 0,
+              note: entry.note ?? entry.description ?? null,
+            };
+          }
+          return { amount: 0, note: null };
+        })
+        .filter((e) => e.amount > 0);
+    }
+
+    /* ---------------- Fallback salary / overtime / total ---------------- */
+    // Priority: request value → staff record → 0
+    const salary = Number(
+      req.body.salary !== undefined
+        ? req.body.salary
+        : staff.salary ?? 0
+    );
+    const overtime = Number(
+      req.body.overtime !== undefined ? req.body.overtime : 0
+    );
+    const total = Number(
+      req.body.total !== undefined
+        ? req.body.total
+        : salary + overtime
+    );
+
+    /* ---------------- Default attendance JSON ---------------- */
+    const attendance =
+      req.body.attendance && typeof req.body.attendance === "object"
+        ? req.body.attendance
+        : defaultAttendanceJSON();
+
+    /* ---------------- Create the row ---------------- */
+    const record = await Attendance.create(
+      {
+        list,
+        staffId,
+        attendance,
+        salary,
+        overtime,
+        total,
+        receipt,
+        calculated: false,
+      },
+      { transaction }
+    );
+
+    /* ---------------- Sync PaidSalary from receipt ---------------- */
+    if (receipt.length > 0) {
+      await PaidSalary.bulkCreate(
+        receipt.map((entry, idx) => ({
+          attendanceId: record.id,
+          amount: entry.amount,
+          note: entry.note || `Payment #${idx + 1}`,
+        })),
+        { transaction }
+      );
+    }
+
+    /* ---------------- Recompute SalaryList aggregates ---------------- */
+    const siblings = await Attendance.findAll({
+      where: { list },
+      attributes: ["id", "staffId", "total"],
+      transaction,
+    });
+
+    const siblingIds = siblings.map((s) => s.id);
+
+    // totalPaid from PaidSalary (source of truth)
+    let totalPaid = 0;
+    if (siblingIds.length > 0) {
+      const paidRows = await PaidSalary.findAll({
+        where: { attendanceId: { [Op.in]: siblingIds } },
+        attributes: ["amount"],
+        transaction,
+      });
+      totalPaid = paidRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    }
+
+    // totalEarned from siblings' total
+    const totalEarned = siblings.reduce(
+      (sum, r) => sum + Number(r.total || 0),
+      0
+    );
+
+    // staffIds = unique ids of siblings
+    const staffIds = Array.from(
+      new Set(siblings.map((s) => Number(s.staffId)))
+    );
+
+    await SalaryList.update(
+      {
+        staffIds,
+        paid: Number(totalPaid.toFixed(2)),
+        total: Number(totalEarned.toFixed(2)),
+      },
+      { where: { id: list }, transaction }
+    );
+
+    await transaction.commit();
+
+    /* ---------------- Fetch fresh data for the response ---------------- */
+    const freshRecord = await Attendance.findByPk(record.id, {
+      include: [
+        {
+          model: Staff,
+          as: "attendanceStaff",
+          attributes: [
+            "id",
+            "name",
+            "fatherName",
+            "NIC",
+            "salary",
+            "overTimePerHour",
+            "workingDaysPerWeek",
+          ],
+        },
+      ],
+    });
+
+    const refreshedList = await SalaryList.findByPk(list);
+
+    return res.status(201).json({
+      message: "Attendance created successfully",
+      record: freshRecord,
+      salaryList: refreshedList,
+      listPaid: Number(totalPaid.toFixed(2)),
+      listTotal: Number(totalEarned.toFixed(2)),
+      staffIds,
+    });
+  } catch (error) {
+    await transaction.rollback();
+    console.error("createAttendance error:", error);
+    return res.status(500).json({ error: error.message });
+  }
+};

@@ -37,11 +37,6 @@ const Payment = sequelize.define(
       allowNull: true,
       comment: "Additional notes",
     },
-    paymentDate: {
-      type: DataTypes.DATEONLY,
-      allowNull: false,
-      comment: "The date this payment was made",
-    },
   },
   {
     timestamps: true,
@@ -54,10 +49,6 @@ const Payment = sequelize.define(
       {
         name: "payments_debt_created_idx",
         fields: ["debtId", "createdAt"],
-      },
-      {
-        name: "payments_payment_date_idx",
-        fields: ["paymentDate"],
       },
       {
         name: "payments_department_id_idx",   // new index

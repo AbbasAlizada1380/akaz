@@ -14,13 +14,14 @@ import {
 import SalaryListRow from "./SalaryListRow";
 import AddSalaryList from "./AddSalaryList";
 import moment from "moment-jalaali";
-
+import AddStaffToListModal from "./AddStaffToListModal";
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 /* Pick the staff object whether the backend alias is `staff` or `attendanceStaff` */
 const rowStaff = (row) => row?.staff || row?.attendanceStaff || null;
 
 export default function SalaryLists({ onClose }) {
+  const [showAddStaff, setShowAddStaff] = useState(false);
   const [lists, setLists] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -45,8 +46,8 @@ export default function SalaryLists({ onClose }) {
     } catch (err) {
       setError(
         err?.response?.data?.error ||
-          err.message ||
-          "Failed to load salary lists"
+        err.message ||
+        "Failed to load salary lists"
       );
     } finally {
       setLoading(false);
@@ -117,8 +118,8 @@ export default function SalaryLists({ onClose }) {
     } catch (err) {
       setError(
         err?.response?.data?.error ||
-          err.message ||
-          "Failed to load attendance"
+        err.message ||
+        "Failed to load attendance"
       );
       setAttendances([]);
     } finally {
@@ -204,8 +205,8 @@ export default function SalaryLists({ onClose }) {
     } catch (err) {
       setError(
         err?.response?.data?.error ||
-          err.message ||
-          "Failed to delete attendance"
+        err.message ||
+        "Failed to delete attendance"
       );
     } finally {
       setSavingId(null);
@@ -234,8 +235,8 @@ export default function SalaryLists({ onClose }) {
     } catch (err) {
       setError(
         err?.response?.data?.error ||
-          err.message ||
-          "Failed to delete salary list"
+        err.message ||
+        "Failed to delete salary list"
       );
     } finally {
       setSavingId(null);
@@ -262,12 +263,12 @@ export default function SalaryLists({ onClose }) {
         prev.map((r) =>
           r.id === row.id
             ? {
-                ...r,
-                salary: updated.salary ?? r.salary,
-                overtime: updated.overtime ?? r.overtime,
-                total: updated.total ?? r.total,
-                receipt: updated.receipt ?? r.receipt,
-              }
+              ...r,
+              salary: updated.salary ?? r.salary,
+              overtime: updated.overtime ?? r.overtime,
+              total: updated.total ?? r.total,
+              receipt: updated.receipt ?? r.receipt,
+            }
             : r
         )
       );
@@ -466,13 +467,12 @@ export default function SalaryLists({ onClose }) {
 
                       <td className="px-6 py-4">
                         <div
-                          className={`text-sm font-semibold ${
-                            remaining > 0
-                              ? "text-red-600"
-                              : remaining < 0
+                          className={`text-sm font-semibold ${remaining > 0
+                            ? "text-red-600"
+                            : remaining < 0
                               ? "text-yellow-600"
                               : "text-green-600"
-                          }`}
+                            }`}
                         >
                           {formatCurrency(remaining)}
                         </div>
@@ -499,11 +499,10 @@ export default function SalaryLists({ onClose }) {
                           <button
                             onClick={(e) => deleteList(list, e)}
                             disabled={savingId === `list-${list.id}`}
-                            className={`p-2 rounded-md transition ${
-                              savingId === `list-${list.id}`
-                                ? "text-gray-400 cursor-not-allowed"
-                                : "text-red-600 hover:bg-red-50"
-                            }`}
+                            className={`p-2 rounded-md transition ${savingId === `list-${list.id}`
+                              ? "text-gray-400 cursor-not-allowed"
+                              : "text-red-600 hover:bg-red-50"
+                              }`}
                             title="Delete list"
                           >
                             {savingId === `list-${list.id}` ? (
@@ -620,6 +619,7 @@ export default function SalaryLists({ onClose }) {
                           onReceiptChange={updateLocalReceipt}
                           onSave={saveAttendance}
                           onDelete={deleteAttendance}
+                          onAddStaff={() => setShowAddStaff(true)}
                           formatCurrency={formatCurrency}
                         />
                       ))}
@@ -628,6 +628,21 @@ export default function SalaryLists({ onClose }) {
                 </div>
               )}
             </div>
+            {showAddStaff && selectedList && (
+              <AddStaffToListModal
+                listId={selectedList.id}
+                existingStaffIds={attendances.map((r) => Number(r.staffId))}
+                onAdded={(newRows) => {
+                  // Append new rows locally so the user sees them immediately
+                  setAttendances((prev) => [...prev, ...newRows]);
+                  // Refresh the parent list so total/staffCount update
+                  fetchLists();
+                  setSuccessMessage("Staff added to the list");
+                  setTimeout(() => setSuccessMessage(null), 2500);
+                }}
+                onClose={() => setShowAddStaff(false)}
+              />
+            )}
           </div>
         </div>
       )}

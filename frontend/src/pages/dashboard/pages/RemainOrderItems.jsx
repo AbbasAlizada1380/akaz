@@ -6,14 +6,28 @@ import {
   FaTimes,
   FaFileInvoiceDollar,
 } from "react-icons/fa";
+import moment from "moment-jalaali";
 import Pagination from "../pagination/Pagination";
 import OrderDownloadrange from "./report/OrderDownloadrange";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatter — display only */
+const formatShamsi = (dateStr) => {
+  if (!dateStr) return "—";
+  try {
+    return moment(dateStr).format("jYYYY/jMM/jDD");
+  } catch {
+    return "—";
+  }
+};
+
 const RemainOrderItems = ({ customer, onClose }) => {
   const [remainingMoney, setRemainingMoney] = useState(0);
-  const [items, setItems] = useState([]);           // sells for current page
+  const [items, setItems] = useState([]); // sells for current page
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -21,9 +35,9 @@ const RemainOrderItems = ({ customer, onClose }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
-  const itemsPerPage = 20;   // matches backend default limit (you can change)
+  const itemsPerPage = 20;
 
-  // Fetch remaining money (from /customerAccount/debt)
+  // Fetch remaining money
   const fetchRemainData = async () => {
     try {
       const res = await axios.get(`${BASE_URL}/customerAccount/debt`);
@@ -52,7 +66,6 @@ const RemainOrderItems = ({ customer, onClose }) => {
           },
         }
       );
-      // Response structure: { data: [...], pagination: { page, limit, totalItems, totalPages } }
       setItems(res.data.data || []);
       setCurrentPage(res.data.pagination?.page || 1);
       setTotalPages(res.data.pagination?.totalPages || 1);
@@ -80,13 +93,19 @@ const RemainOrderItems = ({ customer, onClose }) => {
   if (!customer) return null;
 
   // Optional: compute totals from current page items (if needed)
-  const totalQuantity = items.reduce((sum, item) => sum + (parseInt(item.amount) || 0), 0);
-  const totalMoney = items.reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0);
+  const totalQuantity = items.reduce(
+    (sum, item) => sum + (parseInt(item.amount) || 0),
+    0
+  );
+  const totalMoney = items.reduce(
+    (sum, item) => sum + (parseFloat(item.total) || 0),
+    0
+  );
 
   return (
     <div className="mt-8 bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg shadow-lg border border-gray-100">
       {/* Header */}
-     <OrderDownloadrange customerId={customer.id}/>
+      <OrderDownloadrange customerId={customer.id} />
       <div className="flex items-center justify-between bg-gradient-to-r from-cyan-800 to-cyan-600 text-white rounded-t-lg p-4">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-white/20 rounded-full">
@@ -95,10 +114,14 @@ const RemainOrderItems = ({ customer, onClose }) => {
           <div>
             <h2 className="text-xl font-bold">Order Report</h2>
             <p className="text-sm text-white/80">
-              Customer: <span className="font-semibold">{customer.fullname}</span>
+              Customer:{" "}
+              <span className="font-semibold">{customer.fullname}</span>
             </p>
             <p className="text-sm text-white/80">
-              Total Remaining: <span className="font-semibold">{remainingMoney.toLocaleString()}</span>
+              Total Remaining:{" "}
+              <span className="font-semibold">
+                {remainingMoney.toLocaleString()}
+              </span>
             </p>
           </div>
         </div>
@@ -140,7 +163,9 @@ const RemainOrderItems = ({ customer, onClose }) => {
         ) : items.length === 0 ? (
           <div className="text-center py-12">
             <FaBoxOpen className="text-4xl text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 text-lg">No orders found for this customer</p>
+            <p className="text-gray-500 text-lg">
+              No orders found for this customer
+            </p>
           </div>
         ) : (
           <>
@@ -150,12 +175,22 @@ const RemainOrderItems = ({ customer, onClose }) => {
                 <thead className="bg-cyan-50 text-cyan-800">
                   <tr>
                     <th className="p-3 border-b font-semibold">#</th>
-                    <th className="p-3 border-b font-semibold">Product Name</th>
+                    <th className="p-3 border-b font-semibold">
+                      Product Name
+                    </th>
                     <th className="p-3 border-b font-semibold">Quantity</th>
-                    <th className="p-3 border-b font-semibold">Unit Price (Afghani)</th>
-                    <th className="p-3 border-b font-semibold">Total Amount (Afghani)</th>
-                    <th className="p-3 border-b font-semibold">Paid (Afghani)</th>
-                    <th className="p-3 border-b font-semibold">Remaining (Afghani)</th>
+                    <th className="p-3 border-b font-semibold">
+                      Unit Price (Afghani)
+                    </th>
+                    <th className="p-3 border-b font-semibold">
+                      Total Amount (Afghani)
+                    </th>
+                    <th className="p-3 border-b font-semibold">
+                      Paid (Afghani)
+                    </th>
+                    <th className="p-3 border-b font-semibold">
+                      Remaining (Afghani)
+                    </th>
                     <th className="p-3 border-b font-semibold">Date</th>
                   </tr>
                 </thead>
@@ -166,7 +201,9 @@ const RemainOrderItems = ({ customer, onClose }) => {
                       className="hover:bg-gray-50 border-b last:border-0 transition-colors"
                     >
                       <td className="p-3 text-gray-600">{item.id}</td>
-                      <td className="p-3 font-medium text-gray-800">{item.name || "—"}</td>
+                      <td className="p-3 font-medium text-gray-800">
+                        {item.name || "—"}
+                      </td>
                       <td className="p-3">
                         <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm">
                           {item.amount}
@@ -184,10 +221,9 @@ const RemainOrderItems = ({ customer, onClose }) => {
                       <td className="p-3 text-orange-600 font-semibold">
                         {parseFloat(item.remained || 0).toLocaleString()}
                       </td>
+                      {/* ✅ Shamsi date */}
                       <td className="p-3 text-gray-500 text-sm">
-                        {item.createdAt
-                          ? new Date(item.createdAt).toLocaleDateString("en-US")
-                          : "—"}
+                        {formatShamsi(item.createdAt)}
                       </td>
                     </tr>
                   ))}
@@ -195,11 +231,11 @@ const RemainOrderItems = ({ customer, onClose }) => {
               </table>
             </div>
 
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                onPageChange={handlePageChange}
-              />
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={handlePageChange}
+            />
           </>
         )}
       </div>

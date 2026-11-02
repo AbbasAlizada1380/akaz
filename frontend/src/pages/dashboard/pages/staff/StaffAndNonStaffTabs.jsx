@@ -1,7 +1,7 @@
 import { useState } from "react";
-import StaffManager from "./StaffManager";
+import StaffManager from "../salary/StaffManager.jsx";
 import NonStaffManager from "../../debt/NonStaffManager";
-import SalaryManagement from "../SalaryManagement";
+import SalaryLists from "../salary/SalaryLists.jsx";
 import DebtManager from "../../debt/DebtManager";
 
 const StaffAndNonStaffTabs = () => {
@@ -201,7 +201,7 @@ const StaffAndNonStaffTabs = () => {
             )}
             {activeTab === "salary" && (
               <div className="animate-fadeIn">
-                <SalaryManagement/>
+                <SalaryLists/>
               </div>
             )}
             {activeTab === "nonstaff" && (

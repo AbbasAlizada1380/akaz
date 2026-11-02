@@ -10,7 +10,6 @@ import {
 } from "react-icons/fa";
 import { useSelector } from "react-redux";
 import moment from "moment-jalaali";
-import StockIncomeManager from "./StockIncomeManager";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 const limit = 20;

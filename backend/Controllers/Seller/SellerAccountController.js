@@ -4,8 +4,8 @@ import sequelize from '../../dbconnection.js';
 import Sell from "../../Models/Stock/Sells.js";
 import {Department} from "../../Models/index.js";
 import { Op } from "sequelize";
-import { StockIncome,Factor } from "../../Models/index.js";
-
+import { StockIncome,Factor,StockExist } from "../../Models/index.js";
+import moment from "moment"; // Use standard moment for strict date math
 
 // @desc    Create a new seller account
 export const createSellerAccount = async (req, res) => {
@@ -308,16 +308,15 @@ export const getSellersWithUnpaid = async (req, res) => {
   }
 };
 
-// @desc Get seller sells from total
 export const getSellerSellsFromTotal = async (req, res) => {
     try {
         const { sellerId } = req.params;
 
         let page = parseInt(req.query.page) || 1;
         let limit = parseInt(req.query.limit) || 10;
-
         const offset = (page - 1) * limit;
 
+        // 1. Find the seller's account
         const account = await SellerAccount.findOne({
             where: { sellerId },
         });
@@ -329,8 +328,24 @@ export const getSellerSellsFromTotal = async (req, res) => {
         const sellIds = account.total || [];
         const totalItems = sellIds.length;
 
+        // If no sells, return empty early
+        if (totalItems === 0) {
+            return res.status(200).json({
+                data: [],
+                pagination: { page, limit, totalItems: 0, totalPages: 0 },
+            });
+        }
+
+        // 2. Fetch StockIncome and JOIN StockExist to get the product name & prices
         const sells = await StockIncome.findAll({
             where: { id: sellIds },
+            include: [
+                {
+                    model: StockExist,
+                    as: 'stockIncomeStockExist', // Ensure this matches your association in index.js
+                    attributes: ['id', 'name', 'code_number', 'unit_price', 'sell_price'] 
+                }
+            ],
             order: [['createdAt', 'DESC']],
             offset,
             limit,
@@ -347,15 +362,17 @@ export const getSellerSellsFromTotal = async (req, res) => {
         });
 
     } catch (error) {
+        console.error("Error fetching seller sells:", error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
 // @desc    Get seller sells within a date range (for PDF report)
 // @route   GET /api/sellerAccount/seller/:sellerId/date_range?from=YYYY-MM-DD&to=YYYY-MM-DD
+
 export const getSellerSellsDateRange = async (req, res) => {
     try {
         const { sellerId } = req.params;
-        const { from, to } = req.query;
+        const { from, to } = req.query; // Expected format: "YYYY-MM-DD"
 
         if (!from || !to) {
             return res.status(400).json({ message: 'Both from and to dates are required' });
@@ -369,19 +386,33 @@ export const getSellerSellsDateRange = async (req, res) => {
             return res.status(404).json({ message: 'Seller not found' });
         }
 
-        // Build date filter
-        const dateFilter = {
-            [Op.between]: [new Date(from), new Date(to)]
-        };
+        // ✅ THE FIX: Explicitly construct start and end of the day strings
+        // e.g., from = "2026-11-01", to = "2026-11-01"
+        // startDate = "2026-11-01 00:00:00"
+        // endDate = "2026-11-01 23:59:59"
+        const startDate = moment(from).startOf('day').format('YYYY-MM-DD HH:mm:ss');
+        const endDate = moment(to).endOf('day').format('YYYY-MM-DD HH:mm:ss');
 
-        // Fetch all sells for this seller within the date range
+        console.log(`[Debug] Fetching sales from ${startDate} to ${endDate} for seller ${sellerId}`);
+
+        // Fetch all sells for this seller within the date range + JOIN StockExist
         const sells = await StockIncome.findAll({
             where: {
                 sellerId,
-                createdAt: dateFilter
+                // ✅ Use Op.gte and Op.lte with explicit boundaries
+                createdAt: {
+                    [Op.gte]: startDate,
+                    [Op.lte]: endDate
+                }
             },
+            include: [
+                {
+                    model: StockExist,
+                    as: 'stockIncomeStockExist',
+                    attributes: ['id', 'name', 'code_number', 'unit_price', 'sell_price']
+                }
+            ],
             order: [['createdAt', 'DESC']],
-            raw: true
         });
 
         // Prepare summary totals
@@ -391,12 +422,12 @@ export const getSellerSellsDateRange = async (req, res) => {
         let totalRemaining = 0;
 
         sells.forEach(sell => {
-            totalMoney += parseFloat(sell.money) || 0;
+            totalMoney += parseFloat(sell.total) || 0;
             totalReceipt += parseFloat(sell.receipt) || 0;
             totalRemaining += parseFloat(sell.remaind) || 0;
         });
 
-        // Format items as expected by frontend (keys: remaining, receipt, money, qnty, fileName, createdAt, id)
+        // Format items including the new StockExist fields
         const items = sells.map(sell => ({
             id: sell.id,
             remaind: sell.remaind,
@@ -404,7 +435,12 @@ export const getSellerSellsDateRange = async (req, res) => {
             money: sell.money,
             qnty: sell.qnty,
             fileName: sell.fileName,
-            createdAt: sell.createdAt
+            amount: sell.amount,
+            createdAt: sell.createdAt,
+            name: sell.stockIncomeStockExist?.name || '-',
+            code_number: sell.stockIncomeStockExist?.code_number || '-',
+            unit_price: sell.stockIncomeStockExist?.unit_price || 0,
+            sell_price: sell.stockIncomeStockExist?.sell_price || 0,
         }));
 
         res.status(200).json({

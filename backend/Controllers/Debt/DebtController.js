@@ -269,7 +269,7 @@ export const getDebtReport = async (req, res) => {
         {
           model: Payment,
           as: "debtPayments",
-          attributes: ["id", "amount", "paymentDate", "description", "departmentId"],
+          attributes: ["id", "amount", "description", "departmentId"],
           include: [
             { model: Department, as: "paymentDepartment", attributes: ["id", "name"] },
           ],

@@ -6,10 +6,24 @@ import {
   FaTimes,
   FaFileInvoiceDollar,
 } from "react-icons/fa";
+import moment from "moment-jalaali";
 import Pagination from "../pagination/Pagination";
 import SellerIncomeDownload from "./report/StockIncomeDownload";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatter — display only */
+const formatShamsi = (dateStr) => {
+  if (!dateStr) return "—";
+  try {
+    return moment(dateStr).format("jYYYY/jMM/jDD");
+  } catch {
+    return "—";
+  }
+};
 
 const SellerSells = ({ seller, onClose }) => {
   const [items, setItems] = useState([]);           // sells for current page
@@ -29,9 +43,8 @@ const SellerSells = ({ seller, onClose }) => {
       setLoading(true);
       setError("");
       // Adjust the endpoint according to your backend.
-      // Example: /selleraccount/seller/{sellerId}/sells?page=...
       const res = await axios.get(
-        `${BASE_URL}/selleraccount/seller/${seller.id}/sells`,
+        `${BASE_URL}/sellerAccount/seller/${seller.id}/sells`,
         {
           params: {
             page,
@@ -129,17 +142,14 @@ const SellerSells = ({ seller, onClose }) => {
           <>
             {/* Table */}
             <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white shadow-sm mb-4">
-              <SellerIncomeDownload sellerId={seller.id}/>
+              <SellerIncomeDownload sellerId={seller.id} />
               <table className="w-full text-center">
                 <thead className="bg-cyan-50 text-cyan-800">
                   <tr>
                     <th className="p-3 border-b font-semibold">#</th>
                     <th className="p-3 border-b font-semibold">Product Name</th>
+                    <th className="p-3 border-b font-semibold">Code Number</th>
                     <th className="p-3 border-b font-semibold">Quantity</th>
-                    <th className="p-3 border-b font-semibold">Unit Price (Afghani)</th>
-                    <th className="p-3 border-b font-semibold">Total Amount (Afghani)</th>
-                    <th className="p-3 border-b font-semibold">Paid (Afghani)</th>
-                    <th className="p-3 border-b font-semibold">Remaining (Afghani)</th>
                     <th className="p-3 border-b font-semibold">Date</th>
                   </tr>
                 </thead>
@@ -150,28 +160,20 @@ const SellerSells = ({ seller, onClose }) => {
                       className="hover:bg-gray-50 border-b last:border-0 transition-colors"
                     >
                       <td className="p-3 text-gray-600">{item.id}</td>
-                      <td className="p-3 font-medium text-gray-800">{item.name || "—"}</td>
+                      <td className="p-3 font-medium text-gray-800">
+                        {item.stockIncomeStockExist?.name || "—"}
+                      </td>
+                      <td className="p-3 font-medium text-gray-800">
+                        {item.stockIncomeStockExist?.code_number || "—"}
+                      </td>
                       <td className="p-3">
                         <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm">
-                          {item.quantity}
+                          {item.amount}
                         </span>
                       </td>
-                      <td className="p-3 text-green-700 font-semibold">
-                        {parseFloat(item.unitPrice || 0).toLocaleString()}
-                      </td>
-                      <td className="p-3 text-purple-700 font-bold">
-                        {parseFloat(item.total || 0).toLocaleString()}
-                      </td>
-                      <td className="p-3 text-purple-700 font-bold">
-                        {parseFloat(item.received || 0).toLocaleString()}
-                      </td>
-                      <td className="p-3 text-orange-600 font-semibold">
-                        {parseFloat(item.remaining || 0).toLocaleString()}
-                      </td>
+                      {/* ✅ Shamsi Date */}
                       <td className="p-3 text-gray-500 text-sm">
-                        {item.createdAt
-                          ? new Date(item.createdAt).toLocaleDateString("en-US")
-                          : "—"}
+                        {formatShamsi(item.createdAt)}
                       </td>
                     </tr>
                   ))}

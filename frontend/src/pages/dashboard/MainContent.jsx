@@ -1,18 +1,11 @@
-// import Customer from "./pages/ServiceManger";
 import Dashboard from "./pages/dashboard";
-// import S_Transaction from "./pages/RentManager";
-import Report from "./pages/reports";
-import Orders from "./pages/DepartmentManager";
-import OrdersList from "./pages/MemberManager";
 import AddUser from "./pages/AddUser";
 import DepartmentManager from "./pages/DepartmentManager";
-import MemberManager from "./pages/MemberManager";
 import MemberManagement from "./pages/MemberManager";
 import ExpenseManager from "./pages/expense/ExpenseManages";
 import Stock from "./pages/Stock";
 import BusinessManagement from "./pages/BusinessManagement.jsx";
 import Finance from "./pages/finance/Finance.jsx";
-import SalaryManagement from "./pages/SalaryManagement.jsx";
 import { useSelector } from 'react-redux';
 import Stakeholderpage from "./pages/stakeholderpage.jsx";
 import DebtManager from "./debt/DebtManager.jsx";
@@ -51,8 +44,6 @@ const MainContent = ({ activeComponent }) => {
         return <Finance />;
       case "staff":
         return <StaffAndNonStaffTabs />;
-      case "salary":
-        return <SalaryManagement />;
       case "ُSalaries":
         return <Salary />;
       case "debt":

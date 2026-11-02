@@ -6,6 +6,9 @@ import Pagination from "../../pagination/Pagination";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
 const PaymentsManager = () => {
   const [departments, setDepartments] = useState([]);
   const [selectedDeptId, setSelectedDeptId] = useState("all");
@@ -13,7 +16,11 @@ const PaymentsManager = () => {
   const [endDate, setEndDate] = useState("");
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [meta, setMeta] = useState({ currentPage: 1, totalPages: 1, totalItems: 0 });
+  const [meta, setMeta] = useState({
+    currentPage: 1,
+    totalPages: 1,
+    totalItems: 0,
+  });
   const [deptLoading, setDeptLoading] = useState(true);
 
   const limit = 15;
@@ -38,7 +45,8 @@ const PaymentsManager = () => {
       const params = { page, limit };
       if (startDate) params.startDate = startDate;
       if (endDate) params.endDate = endDate;
-      if (selectedDeptId !== "all") params.departmentId = parseInt(selectedDeptId);
+      if (selectedDeptId !== "all")
+        params.departmentId = parseInt(selectedDeptId);
 
       const response = await axios.get(`${BASE_URL}/payment/`, { params });
       setPayments(response.data.data || []);
@@ -49,7 +57,7 @@ const PaymentsManager = () => {
       });
     } catch (err) {
       console.error("Error fetching payments:", err);
-      alert("خطا در دریافت اطلاعات پرداخت‌ها");
+      alert("Failed to load payments");
     } finally {
       setLoading(false);
     }
@@ -65,62 +73,95 @@ const PaymentsManager = () => {
     }
   };
 
-  const formatCurrency = (amount) => amount.toLocaleString("fa-AF") + " افغانی";
-  const formatJalaliDate = (dateStr) => dateStr ? moment(dateStr).format("jYYYY/jMM/jDD") : "";
+  const formatCurrency = (amount) =>
+    new Intl.NumberFormat("en-US").format(Number(amount || 0)) + " AFN";
+
+  /* ✅ Shamsi formatter — display only */
+  const formatJalaliDate = (dateStr) => {
+    if (!dateStr) return "—";
+    try {
+      return moment(dateStr).format("jYYYY/jMM/jDD");
+    } catch {
+      return "—";
+    }
+  };
 
   // Helper to get debtor name (staff or non‑staff)
   const getDebtorName = (payment) => {
     const debt = payment.paymentDebt;
-    if (!debt) return "-";
+    if (!debt) return "—";
     if (debt.debtStaff?.name) return debt.debtStaff.name;
     if (debt.debtNonStaff?.name) return debt.debtNonStaff.name;
-    return "-";
+    return "—";
   };
 
   return (
-    <div className="p-6 bg-gray-50 min-h-screen" dir="rtl">
+    <div className="p-6 bg-gray-50 min-h-screen">
       <div className="bg-white rounded-xl shadow-md p-6">
-        <h2 className="text-xl font-bold mb-4">مدیریت پرداخت‌ها</h2>
+        <h2 className="text-xl font-bold mb-4">Payments Management</h2>
 
         <PaymentReport
           departmentId={selectedDeptId !== "all" ? selectedDeptId : null}
-          departmentName={selectedDeptId !== "all" ? departments.find(d => d.id === parseInt(selectedDeptId))?.name : null}
+          departmentName={
+            selectedDeptId !== "all"
+              ? departments.find((d) => d.id === parseInt(selectedDeptId))
+                  ?.name
+              : null
+          }
           startDate={startDate}
           endDate={endDate}
         />
 
         {/* Payments Table */}
         {deptLoading ? (
-          <div className="text-center py-8">در حال بارگذاری...</div>
+          <div className="text-center py-8">Loading departments...</div>
         ) : loading ? (
-          <div className="text-center py-8">در حال دریافت داده‌ها...</div>
+          <div className="text-center py-8">Loading payments...</div>
         ) : payments.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">هیچ پرداختی یافت نشد</div>
+          <div className="text-center py-8 text-gray-500">
+            No payments found
+          </div>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="min-w-full bg-white border rounded-lg">
                 <thead className="bg-gray-100">
                   <tr>
-                    <th className="px-4 py-2 border">شناسه</th>
-                    <th className="px-4 py-2 border">بدهکار</th>    {/* new column */}
-                    <th className="px-4 py-2 border">هدف</th>
-                    <th className="px-4 py-2 border">مبلغ</th>
-                    <th className="px-4 py-2 border">تاریخ پرداخت</th>
-                    <th className="px-4 py-2 border">توضیحات</th>
-                    <th className="px-4 py-2 border">دپارتمان</th>
+                    <th className="px-4 py-2 border text-left">ID</th>
+                    <th className="px-4 py-2 border text-left">Debtor</th>
+                    <th className="px-4 py-2 border text-left">Purpose</th>
+                    <th className="px-4 py-2 border text-right">Amount</th>
+                    <th className="px-4 py-2 border text-left">
+                      Payment Date
+                    </th>
+                    <th className="px-4 py-2 border text-left">
+                      Description
+                    </th>
+                    <th className="px-4 py-2 border text-left">Department</th>
                   </tr>
                 </thead>
                 <tbody>
                   {payments.map((p) => (
                     <tr key={p.id} className="hover:bg-gray-50 text-center">
                       <td className="px-4 py-2 border">{p.id}</td>
-                      <td className="px-4 py-2 border">{getDebtorName(p)}</td>   {/* debtor name */}
-                      <td className="px-4 py-2 border">{p.paymentDebt?.purpose || "-"}</td>
-                      <td className="px-4 py-2 border">{formatCurrency(p.amount)}</td>
-                      <td className="px-4 py-2 border">{formatJalaliDate(p.paymentDate)}</td>
-                      <td className="px-4 py-2 border">{p.description || "-"}</td>
-                      <td className="px-4 py-2 border">{p.paymentDepartment?.name || "-"}</td>
+                      <td className="px-4 py-2 border">
+                        {getDebtorName(p)}
+                      </td>
+                      <td className="px-4 py-2 border">
+                        {p.paymentDebt?.purpose || "—"}
+                      </td>
+                      <td className="px-4 py-2 border text-right">
+                        {formatCurrency(p.amount)}
+                      </td>
+                      <td className="px-4 py-2 border">
+                        {formatJalaliDate(p.paymentDate)}
+                      </td>
+                      <td className="px-4 py-2 border">
+                        {p.description || "—"}
+                      </td>
+                      <td className="px-4 py-2 border">
+                        {p.paymentDepartment?.name || "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -133,7 +174,7 @@ const PaymentsManager = () => {
               onPageChange={handlePageChange}
             />
             <div className="text-center text-sm text-gray-500 mt-2">
-              مجموع: {meta.totalItems} پرداخت
+              Total: {meta.totalItems} payments
             </div>
           </>
         )}

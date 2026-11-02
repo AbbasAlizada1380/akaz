@@ -1,14 +1,9 @@
 // components/SalaryListRow.jsx
 import React from "react";
-import { FaClock, FaTrash } from "react-icons/fa";
+import { FaClock, FaTrash, FaUserPlus } from "react-icons/fa";
 import ReceiptEditor from "./ReceiptEditor";
 import { sumReceipt } from "./ReceiptCell";
 
-/**
- * Kept for backwards compatibility with SalaryLists.jsx which imports
- * { DAYS, DAY_LABELS_FA } from this file. The weekly grid is no longer
- * rendered inside the row.
- */
 const DAYS = [
   "Saturday",
   "Sunday",
@@ -27,31 +22,20 @@ const DAY_LABELS_FA = {
   Thursday: "پنجشنبه",
 };
 
-/**
- * Props:
- *   - row
- *   - onChange(rowId, day, field, value)         // still used for days (kept for compat)
- *   - onReceiptChange(rowId, arrayOfNumbers)
- *   - onSave(row)
- *   - saving
- *   - formatCurrency
- *   - onChangeField(rowId, field, value)          // NEW: generic field updater
- *   - onDelete(row)
- */
 export default function SalaryListRow({
   row,
   onChange,
   onReceiptChange,
-  onChangeField,        // ✅ NEW
+  onChangeField,
   onSave,
   saving,
   onDelete,
+  onAddStaff,                 // ✅ NEW
   formatCurrency,
 }) {
   const paid = sumReceipt(row.receipt);
   const remaining = Number(row.total || 0) - paid;
 
-  /* Helper — prefer onChangeField if provided, otherwise fall back to onChange */
   const setField = (field, value) => {
     if (typeof onChangeField === "function") {
       onChangeField(row.id, field, value);
@@ -111,17 +95,13 @@ export default function SalaryListRow({
         </div>
       </td>
 
-      {/* Total — editable, defaults to salary+overtime if blank */}
+      {/* Total — editable */}
       <td className="px-3 py-3 whitespace-nowrap">
-        {numberInput(
-          row.total,
-          (v) => setField("total", v),
-          {
-            title: "Total (salary + overtime)",
-            className:
-              "w-24 text-sm font-bold text-primary border border-gray-200 rounded px-2 py-1 text-right focus:ring-1 focus:ring-primary focus:border-primary disabled:bg-gray-100",
-          }
-        )}
+        {numberInput(row.total, (v) => setField("total", v), {
+          title: "Total (salary + overtime)",
+          className:
+            "w-24 text-sm font-bold text-primary border border-gray-200 rounded px-2 py-1 text-right focus:ring-1 focus:ring-primary focus:border-primary disabled:bg-gray-100",
+        })}
       </td>
 
       {/* Receipt — editable */}
@@ -133,12 +113,12 @@ export default function SalaryListRow({
         />
       </td>
 
-      {/* Paid (read-only, derived from receipt) */}
+      {/* Paid */}
       <td className="px-3 py-3 text-sm text-emerald-700 whitespace-nowrap">
         {formatCurrency(paid)}
       </td>
 
-      {/* Remaining (read-only, derived) */}
+      {/* Remaining */}
       <td
         className={`px-3 py-3 text-sm font-bold whitespace-nowrap ${
           remaining > 0
@@ -151,7 +131,7 @@ export default function SalaryListRow({
         {formatCurrency(remaining)}
       </td>
 
-      {/* Action */}
+      {/* Actions */}
       <td className="px-3 py-3 text-center">
         <div className="flex items-center justify-center gap-2">
           <button
@@ -174,6 +154,17 @@ export default function SalaryListRow({
             )}
           </button>
 
+          {onAddStaff && (
+            <button
+              onClick={onAddStaff}
+              disabled={saving}
+              className="p-2 rounded-lg text-xs text-primary hover:bg-primary/10 transition disabled:opacity-50"
+              title="Add staff to this list"
+            >
+              <FaUserPlus />
+            </button>
+          )}
+
           <button
             onClick={() => onDelete?.(row)}
             disabled={saving}
@@ -188,6 +179,7 @@ export default function SalaryListRow({
           </button>
         </div>
       </td>
+      
     </tr>
   );
 }

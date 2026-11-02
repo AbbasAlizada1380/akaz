@@ -168,7 +168,7 @@ export const getPaymentsByDebtId = async (req, res) => {
 
     const payments = await Payment.findAll({
       where: { debtId: parseInt(debtId) },
-      order: [["paymentDate", "DESC"]],
+      order: [["createdAt", "DESC"]],
       include: [{ model: Debt, as: "paymentDebt", attributes: ["id", "purpose", "amount", "remainingAmount", "departmentId"] }],
     });
 

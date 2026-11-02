@@ -13,28 +13,28 @@ import {
 
 const SellerAccountRoute = express.Router();
 
-// CRUD routes
+// CRUD
 SellerAccountRoute.post('/create', createSellerAccount);
+
+// Date range (must come BEFORE /:sellerId/:type)
 SellerAccountRoute.get('/seller/:sellerId/date_range', getSellerSellsDateRange);
 
-// Type-based reports (all, paid, unpaid)
+// ✅ NEW — what the frontend is actually calling
+SellerAccountRoute.get('/seller/:sellerId/sells', getSellerSellsFromTotal);
+
+// Keep the trailing-slash variant too if other code uses it
+SellerAccountRoute.get('/seller/:sellerId/', getSellerSellsFromTotal);
+
+// Type-based (all, paid, unpaid) — MUST be after the specific routes
 SellerAccountRoute.get('/:sellerId/:type', getSellerSellsByType);
+
 // unpaid (debt)
 SellerAccountRoute.get('/debt', getSellersWithUnpaid);
 
-// seller sells
-SellerAccountRoute.get('/seller/:sellerId/', getSellerSellsFromTotal);
-
-// get all
+// get all / one / update / delete
 SellerAccountRoute.get('/', getSellerAccounts);
-
-// get one
 SellerAccountRoute.get('/:id', getSellerAccountById);
-
-// update
 SellerAccountRoute.put('/:id', updateSellerAccount);
-
-// delete
 SellerAccountRoute.delete('/:id', deleteSellerAccount);
 
 export default SellerAccountRoute;
