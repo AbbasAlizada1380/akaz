@@ -4,14 +4,59 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment-jalaali";
 
+// ── Shamsi DatePicker ──
+import DatePickerRaw from "react-multi-date-picker";
+import persianRaw from "react-date-object/calendars/persian";
+import persian_faRaw from "react-date-object/locales/persian_fa";
+
 import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 
-moment.locale("en");
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+/* ✅ Vite CJS/ESM interop */
+const unwrap = (mod) => (mod && mod.default ? mod.default : mod);
+const DatePicker = unwrap(DatePickerRaw);
+const persian = unwrap(persianRaw);
+const persian_fa = unwrap(persian_faRaw);
+
+/* ✅ Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatters — display only */
+const formatShamsi = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD");
+  } catch {
+    return "";
+  }
+};
+
+const formatShamsiFilename = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY-jMM-jDD");
+  } catch {
+    return "";
+  }
+};
+
+/* ✅ Gregorian formatter — for backend storage */
+const formatGregorian = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("YYYY-MM-DD");
+  } catch {
+    return "";
+  }
+};
 
 const PayDateDownload = () => {
     const [from, setFrom] = useState("");
     const [to, setTo] = useState("");
+    const [fromDate, setFromDate] = useState(null);
+    const [toDate, setToDate] = useState(null);
+    
     const [sellers, setSellers] = useState([]);
     const [selectedSeller, setSelectedSeller] = useState("");
     const [loading, setLoading] = useState(false);
@@ -34,6 +79,18 @@ const PayDateDownload = () => {
         }
     };
 
+    const handleFromChange = (date) => {
+        setFromDate(date);
+        const jsDate = date?.toDate ? date.toDate() : date;
+        setFrom(formatGregorian(jsDate));
+    };
+
+    const handleToChange = (date) => {
+        setToDate(date);
+        const jsDate = date?.toDate ? date.toDate() : date;
+        setTo(formatGregorian(jsDate));
+    };
+
     const handleDownload = async () => {
         if (!from || !to) {
             alert("Please select a date range");
@@ -41,10 +98,10 @@ const PayDateDownload = () => {
         }
 
         // Validate date range
-        const fromDate = new Date(from);
-        const toDate = new Date(to);
+        const fromD = new Date(from);
+        const toD = new Date(to);
 
-        if (fromDate > toDate) {
+        if (fromD > toD) {
             alert("Start date cannot be later than end date");
             return;
         }
@@ -82,10 +139,10 @@ const PayDateDownload = () => {
             doc.addFont("Vazirmatn.ttf", "Vazirmatn", "normal");
             doc.setFont("Vazirmatn");
 
-            // Format dates in Gregorian
-            const formattedFrom = moment(from).format("YYYY/M/D");
-            const formattedTo = moment(to).format("YYYY/M/D");
-            const today = moment().format("YYYY/M/D");
+            /* ✅ Shamsi dates for Title */
+            const formattedFrom = formatShamsi(from);
+            const formattedTo = formatShamsi(to);
+            const today = formatShamsi(new Date());
 
             // Get selected seller name for display
             const selectedSellerName = selectedSeller
@@ -106,11 +163,11 @@ const PayDateDownload = () => {
                 ["Amount (AFN)", "Seller", "Date", "Payment ID"]
             ];
 
-            // Table body - Using Gregorian format for dates
+            // Table body - ✅ Shamsi dates
             const body = data.pays.map((pay) => [
                 parseFloat(pay.amount).toLocaleString(),
                 pay.sellerInfo?.fullname || "Unknown",
-                moment(pay.createdAt).format("YYYY/M/D"),
+                formatShamsi(pay.createdAt),
                 pay.id.toString().slice(-8) || "-", // Last 8 digits of ID
             ]);
 
@@ -171,7 +228,7 @@ const PayDateDownload = () => {
             doc.text(`Total Payments: ${data.totalCount || 0}`, summaryX, y, { align: "right" });
             doc.text(`Total Amount: ${(data.totalAmount || 0).toLocaleString()} AFN`, summaryX, y + 18, { align: "right" });
 
-            // Date range and export info
+            // Date range and export info - ✅ Shamsi
             doc.text(`Period: ${formattedFrom} to ${formattedTo}`, summaryX, y + 36, { align: "right" });
             doc.text(`Generated on: ${today}`, summaryX, y + 54, { align: "right" });
 
@@ -191,9 +248,9 @@ const PayDateDownload = () => {
                 );
             }
 
-            // Generate filename
+            // Generate filename - ✅ Shamsi
             const sellerPart = selectedSellerName !== "All Sellers" ? `_${selectedSellerName}` : "";
-            const filename = `payments_${formattedFrom}_to_${formattedTo}${sellerPart}_${today}.pdf`;
+            const filename = `payments_${formatShamsiFilename(from)}_to_${formatShamsiFilename(to)}${sellerPart}.pdf`;
 
             doc.save(filename);
 
@@ -233,24 +290,34 @@ const PayDateDownload = () => {
                     )}
                 </div>
 
-                {/* Date Range Selection */}
+                {/* ✅ Shamsi Date Pickers */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                         <label className="text-sm font-medium text-gray-700">From Date</label>
-                        <input
-                            type="date"
-                            value={from}
-                            onChange={(e) => setFrom(e.target.value)}
-                            className="w-full border p-2.5 rounded bg-white text-black"
+                        <DatePicker
+                            value={fromDate}
+                            onChange={handleFromChange}
+                            calendar={persian}
+                            locale={persian_fa}
+                            calendarPosition="bottom-right"
+                            format="YYYY/MM/DD"
+                            editable={false}
+                            inputClass="w-full border p-2.5 rounded bg-white text-black cursor-pointer"
+                            placeholder="Select Start Date"
                         />
                     </div>
                     <div className="space-y-1">
                         <label className="text-sm font-medium text-gray-700">To Date</label>
-                        <input
-                            type="date"
-                            value={to}
-                            onChange={(e) => setTo(e.target.value)}
-                            className="w-full border p-2.5 rounded bg-white text-black"
+                        <DatePicker
+                            value={toDate}
+                            onChange={handleToChange}
+                            calendar={persian}
+                            locale={persian_fa}
+                            calendarPosition="bottom-right"
+                            format="YYYY/MM/DD"
+                            editable={false}
+                            inputClass="w-full border p-2.5 rounded bg-white text-black cursor-pointer"
+                            placeholder="Select End Date"
                         />
                     </div>
                 </div>

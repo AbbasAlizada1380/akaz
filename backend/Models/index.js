@@ -132,7 +132,12 @@ Benefit.associate = (models) => {
   });
   Benefit.belongsTo(models.Department, {
     foreignKey: 'departmentId',
-    as: 'department',
+    as: 'department', // Used by getBenefitsWithFilters
+  });
+  // ✅ ADD THIS: Alias specifically for Department Benefit reports
+  Benefit.belongsTo(models.Department, {
+    foreignKey: 'departmentId',
+    as: 'benefitDepartment', 
   });
 };
 

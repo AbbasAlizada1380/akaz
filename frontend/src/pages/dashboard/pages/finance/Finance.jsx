@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { useSelector } from "react-redux"; // <-- import for role check
 import Receive from "./Receive";
 import Pay from "./Pay";
-import ExistingStock from "../StockExistManager";
 import BenefitsManager from "./BenefitsManager";
 
 const Finance = () => {

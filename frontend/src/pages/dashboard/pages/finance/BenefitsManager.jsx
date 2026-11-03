@@ -1,11 +1,25 @@
 // BenefitsManager.jsx
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import moment from "moment-jalaali";
 import Pagination from "../../pagination/Pagination.jsx"; // adjust path
 import BenefitReportDownload from "../report/BenefitReportDownload;.jsx";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 const ITEMS_PER_PAGE = 20; // must match the `limit` sent to backend
+
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatter */
+const formatShamsi = (date) => {
+  if (!date) return "—";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD HH:mm");
+  } catch {
+    return "—";
+  }
+};
 
 const BenefitsManager = () => {
   const [benefits, setBenefits] = useState([]);
@@ -148,8 +162,9 @@ const BenefitsManager = () => {
                     <td className="px-4 py-2 border-b text-right">
                       {benefit.department?.name || "—"}
                     </td>
+                    {/* ✅ Shamsi Date */}
                     <td className="px-4 py-2 border-b text-right">
-                      {new Date(benefit.createdAt).toLocaleString()}
+                      {formatShamsi(benefit.createdAt)}
                     </td>
                   </tr>
                 ))}

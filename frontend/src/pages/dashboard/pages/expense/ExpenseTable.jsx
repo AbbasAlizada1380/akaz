@@ -1,6 +1,10 @@
 import React from "react";
-import Pagination from "../../pagination/Pagination"; // adjust path to your Pagination component
+import Pagination from "../../pagination/Pagination"; 
 import ExpenseDateDownload from "../report/ExpenseDateDownload";
+import moment from "moment-jalaali";
+
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
 
 const ExpenseTable = ({
   expenses = [],
@@ -13,13 +17,14 @@ const ExpenseTable = ({
   onEdit,
   onDelete,
 }) => {
+  /* ✅ Shamsi date formatter */
   const formatDate = (dateString) => {
-    if (!dateString) return "-";
-    return new Date(dateString).toLocaleDateString("en-US", {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
+    if (!dateString) return "—";
+    try {
+      return moment(dateString).format("jYYYY/jMM/jDD");
+    } catch {
+      return "—";
+    }
   };
 
   const formatCurrency = (amount) => {
@@ -101,6 +106,7 @@ const ExpenseTable = ({
                   <td className="px-6 py-4 text-sm text-gray-600">
                     {expense.expenseDepartment?.name || "N/A"}
                   </td>
+                  {/* ✅ Shamsi Date */}
                   <td className="px-6 py-4 text-sm text-gray-500">
                     {formatDate(expense.createdAt)}
                   </td>

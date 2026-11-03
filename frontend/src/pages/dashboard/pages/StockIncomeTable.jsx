@@ -1,9 +1,23 @@
 // components/StockIncomeTable.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import moment from "moment-jalaali";
 import Pagination from '../pagination/Pagination.jsx';
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatter — display only */
+const formatShamsi = (date) => {
+  if (!date) return "—";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD HH:mm");
+  } catch {
+    return "—";
+  }
+};
 
 const StockIncomeTable = ({ incomes, totalRecords, currentPage, totalPages, onPageChange }) => {
     const [factorModes, setFactorModes] = useState({});
@@ -38,11 +52,9 @@ const StockIncomeTable = ({ incomes, totalRecords, currentPage, totalPages, onPa
     }, [incomes]);
 
     const getModeForIncome = (income) => {
-        // If income has FactorId, get mode from factor
         if (income.FactorId && factorModes[income.FactorId]) {
             return factorModes[income.FactorId];
         }
-        // Fallback: check if income has mode field directly (for backward compatibility)
         return income.mode || 'stock';
     };
 
@@ -65,6 +77,8 @@ const StockIncomeTable = ({ incomes, totalRecords, currentPage, totalPages, onPa
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Net Unit Price</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sell Price</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Expense</th>
+                            {/* ✅ NEW: Shamsi Date column */}
+                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                         </tr>
                     </thead>
@@ -92,6 +106,8 @@ const StockIncomeTable = ({ incomes, totalRecords, currentPage, totalPages, onPa
                                     <td className="px-6 py-3 text-sm text-gray-600">{inc.net_unite_price}</td>
                                     <td className="px-6 py-3 text-sm text-gray-600">{inc.sell_price}</td>
                                     <td className="px-6 py-3 text-sm text-gray-600">{inc.expense}</td>
+                                    {/* ✅ Shamsi Date cell */}
+                                    <td className="px-6 py-3 text-sm text-gray-500">{formatShamsi(inc.createdAt)}</td>
                                     <td className="px-6 py-3 text-sm">
                                         <span className={`px-2 py-1 rounded text-xs font-medium ${
                                             mode === 'stock' 
@@ -106,7 +122,8 @@ const StockIncomeTable = ({ incomes, totalRecords, currentPage, totalPages, onPa
                         })}
                         {incomes.length === 0 && (
                             <tr>
-                                <td colSpan="10" className="px-6 py-12 text-center text-gray-400">
+                                {/* ✅ Updated colSpan from 10 to 11 for new Date column */}
+                                <td colSpan="11" className="px-6 py-12 text-center text-gray-400">
                                     No income records found
                                 </td>
                             </tr>

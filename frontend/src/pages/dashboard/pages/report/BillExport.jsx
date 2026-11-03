@@ -9,14 +9,32 @@ import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatters */
+const formatShamsi = (date) => {
+  if (!date) return "—";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD");
+  } catch {
+    return "—";
+  }
+};
+
+const formatShamsiLong = (date) => {
+  if (!date) return "—";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD HH:mm");
+  } catch {
+    return "—";
+  }
+};
+
 const formatCurrency = (amount) => {
   const num = parseFloat(amount);
   if (isNaN(num)) return "0 ؋";
   return num.toLocaleString() + " ؋";
-};
-
-const formatDate = (date) => {
-  return moment(date).format("YYYY/MM/DD HH:mm");
 };
 
 const BillExport = ({ billId, billData: propBillData }) => {
@@ -64,19 +82,17 @@ const BillExport = ({ billId, billData: propBillData }) => {
     doc.setFontSize(16);
     doc.text(`Invoice #${bill.billNumber}`, doc.internal.pageSize.getWidth() - 40, 40, { align: "right" });
     doc.setFontSize(10);
-    doc.text(`Date: ${formatDate(bill.date)}`, doc.internal.pageSize.getWidth() - 40, 65, { align: "right" });
+    /* ✅ Shamsi bill date */
+    doc.text(`Date: ${formatShamsi(bill.date)}`, doc.internal.pageSize.getWidth() - 40, 65, { align: "right" });
     doc.text(`Customer: ${customer.fullname || "-"}`, doc.internal.pageSize.getWidth() - 40, 80, { align: "right" });
     if (customer.phoneNumber) doc.text(`Phone: ${customer.phoneNumber}`, doc.internal.pageSize.getWidth() - 40, 95, { align: "right" });
     if (bill.notes) doc.text(`Notes: ${bill.notes}`, doc.internal.pageSize.getWidth() - 40, 110, { align: "right" });
 
     let startY = 130;
     
-    // ADDED CODE # TO HEADERS
     const headers = [["Code #", "Product", "Quantity", "Unit Price", "Discount %", "Total"]];
     
-    // ADDED CODE # TO TABLE BODY
     const body = items.map((item) => {
-      // Check both common namespaces for the code number just in case
       const productData = item.sellStockExist || item.product || {};
       const codeNumber = productData.code_number ?? productData.codeNumber ?? "-";
 
@@ -122,7 +138,8 @@ const BillExport = ({ billId, billData: propBillData }) => {
       doc.setPage(i);
       doc.setFontSize(9);
       doc.text(`${i}/${pageCount}`, pageWidth - 40, pageHeight - 30, { align: "right" });
-      doc.text(`Generated: ${moment().format("YYYY/MM/DD HH:mm")}`, pageWidth - 40, pageHeight - 15, { align: "right" });
+      /* ✅ Shamsi generated date */
+      doc.text(`Generated: ${formatShamsiLong(new Date())}`, pageWidth - 40, pageHeight - 15, { align: "right" });
     }
     doc.save(`Invoice_${bill.billNumber}.pdf`);
   };
@@ -142,19 +159,17 @@ const BillExport = ({ billId, billData: propBillData }) => {
 
     invoiceRows.push(["Zangera Omid"]);
     invoiceRows.push([`Invoice #${bill.billNumber}`]);
-    invoiceRows.push([`Date: ${formatDate(bill.date)}`]);
+    /* ✅ Shamsi bill date */
+    invoiceRows.push([`Date: ${formatShamsi(bill.date)}`]);
     invoiceRows.push([`Customer: ${customer.fullname || "-"}`]);
     if (customer.phoneNumber) invoiceRows.push([`Phone: ${customer.phoneNumber}`]);
     if (customer.address) invoiceRows.push([`Address: ${customer.address}`]);
     if (bill.notes) invoiceRows.push([`Notes: ${bill.notes}`]);
     invoiceRows.push([]);
     
-    // ADDED CODE # TO HEADERS
     invoiceRows.push(["Code #", "Product", "Quantity", "Unit Price", "Discount %", "Total"]);
     
-    // ADDED CODE # TO ROWS
     items.forEach((item) => {
-      // Check both common namespaces for the code number just in case
       const productData = item.sellStockExist || item.product || {};
       const codeNumber = productData.code_number ?? productData.codeNumber ?? "-";
 
@@ -169,7 +184,6 @@ const BillExport = ({ billId, billData: propBillData }) => {
     });
     
     invoiceRows.push([]);
-    // UPDATED TOTALS TO MATCH NEW 6-COLUMN LAYOUT
     invoiceRows.push(["Total:", "", "", "", "", parseFloat(bill.totalAmount).toFixed(2)]);
     if (bill.discount_percent && parseFloat(bill.discount_percent) > 0) {
       invoiceRows.push(["Discount:", `${bill.discount_percent}%`, "", "", "", parseFloat(bill.discounted_amount).toFixed(2)]);
@@ -178,13 +192,13 @@ const BillExport = ({ billId, billData: propBillData }) => {
     invoiceRows.push(["Remaining:", "", "", "", "", parseFloat(bill.remainingAmount).toFixed(2)]);
     invoiceRows.push(["Status:", bill.status === "paid" ? "Paid" : bill.status === "partial" ? "Partial" : "Unpaid"]);
     invoiceRows.push([]);
-    invoiceRows.push([`Generated: ${moment().format("YYYY/MM/DD HH:mm")}`]);
+    /* ✅ Shamsi generated date */
+    invoiceRows.push([`Generated: ${formatShamsiLong(new Date())}`]);
 
     const wsInvoice = XLSX.utils.aoa_to_sheet(invoiceRows);
 
-    // --- UPDATED Column widths (fits A4 portrait with new column) ---
     wsInvoice["!cols"] = [
-      { wch: 10 },  // Code # (new)
+      { wch: 10 },  // Code #
       { wch: 28 },  // Product
       { wch: 8 },   // Quantity
       { wch: 10 },  // Unit Price
@@ -192,12 +206,10 @@ const BillExport = ({ billId, billData: propBillData }) => {
       { wch: 12 },  // Total
     ];
 
-    // --- Merges & centering ---
     if (!wsInvoice["!merges"]) wsInvoice["!merges"] = [];
-    wsInvoice["!merges"].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } }); // Business name (extended to col F)
-    wsInvoice["!merges"].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 5 } }); // Invoice # (extended to col F)
+    wsInvoice["!merges"].push({ s: { r: 0, c: 0 }, e: { r: 0, c: 5 } });
+    wsInvoice["!merges"].push({ s: { r: 1, c: 0 }, e: { r: 1, c: 5 } });
 
-    // Center the two merged cells
     const titleCell = wsInvoice[XLSX.utils.encode_cell({ r: 0, c: 0 })];
     if (titleCell) {
       titleCell.s = titleCell.s || {};
@@ -209,10 +221,9 @@ const BillExport = ({ billId, billData: propBillData }) => {
       invoiceNumCell.s.alignment = { horizontal: "center", vertical: "center" };
     }
 
-    // --- Text wrapping for Product column (Shifted to column index 1 because of Code #) ---
     const range = XLSX.utils.decode_range(wsInvoice["!ref"] || "A1:F100");
     for (let R = range.s.r; R <= range.e.r; R++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: R, c: 1 }); // Column index 1 is Product
+      const cellAddress = XLSX.utils.encode_cell({ r: R, c: 1 });
       if (wsInvoice[cellAddress]) {
         wsInvoice[cellAddress].s = wsInvoice[cellAddress].s || {};
         wsInvoice[cellAddress].s.alignment = wsInvoice[cellAddress].s.alignment || {};
@@ -220,18 +231,16 @@ const BillExport = ({ billId, billData: propBillData }) => {
       }
     }
 
-    // --- Print settings for A4 (standard margins, fit width) ---
     wsInvoice["!pageSetup"] = {
-      orientation: "portrait",          // A4 portrait
-      paperSize: 9,                     // A4
-      fitToWidth: 1,                    // All columns on one page
-      fitToHeight: 0,                   // Rows can break across pages
-      scale: 95,                        // Slight shrink for safety
+      orientation: "portrait",
+      paperSize: 9,
+      fitToWidth: 1,
+      fitToHeight: 0,
+      scale: 95,
       horizontalDpi: 300,
       verticalDpi: 300,
     };
 
-    // Standard A4 margins (in inches) – adjust as preferred
     wsInvoice["!margins"] = {
       left: 0.7,
       right: 0.7,
@@ -241,7 +250,6 @@ const BillExport = ({ billId, billData: propBillData }) => {
       footer: 0.3,
     };
 
-    // Set print area to the used range (avoid printing empty cells)
     if (wsInvoice["!ref"]) {
       wsInvoice["!printArea"] = { s: { r: 0, c: 0 }, e: range.e };
     }
@@ -263,7 +271,6 @@ const BillExport = ({ billId, billData: propBillData }) => {
       };
     });
     const wsRaw = XLSX.utils.json_to_sheet(rawData);
-    // Added an extra column size for Code #
     wsRaw["!cols"] = [{ wch: 10 }, { wch: 10 }, { wch: 28 }, { wch: 8 }, { wch: 10 }, { wch: 8 }, { wch: 12 }, { wch: 12 }];
     wsRaw["!pageSetup"] = { orientation: "portrait", paperSize: 9, fitToWidth: 1, fitToHeight: 0 };
     wsRaw["!margins"] = { left: 0.7, right: 0.7, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 };

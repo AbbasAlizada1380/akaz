@@ -3,15 +3,75 @@ import axios from "axios";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment-jalaali";
+
+// ── Shamsi DatePicker ──
+import DatePickerRaw from "react-multi-date-picker";
+import persianRaw from "react-date-object/calendars/persian";
+import persian_faRaw from "react-date-object/locales/persian_fa";
+
 import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
+/* ✅ Vite CJS/ESM interop */
+const unwrap = (mod) => (mod && mod.default ? mod.default : mod);
+const DatePicker = unwrap(DatePickerRaw);
+const persian = unwrap(persianRaw);
+const persian_fa = unwrap(persian_faRaw);
+
+/* ✅ Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatters — display only */
+const formatShamsi = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD");
+  } catch {
+    return "";
+  }
+};
+
+const formatShamsiLong = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD HH:mm");
+  } catch {
+    return "";
+  }
+};
+
+const formatShamsiFilename = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY-jMM-jDD");
+  } catch {
+    return "";
+  }
+};
+
+/* ✅ Gregorian formatter — for backend storage */
+const formatGregorian = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("YYYY-MM-DD");
+  } catch {
+    return "";
+  }
+};
+
 const BenefitReportDownload = () => {
   const [departments, setDepartments] = useState([]);
   const [selectedDeptId, setSelectedDeptId] = useState("all");
+  
+  // Keep Gregorian strings for the backend
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  
+  // DateObjects for the UI
+  const [fromDate, setFromDate] = useState(null);
+  const [toDate, setToDate] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [deptLoading, setDeptLoading] = useState(true);
 
@@ -29,16 +89,28 @@ const BenefitReportDownload = () => {
     fetchDepartments();
   }, []);
 
+  const handleFromChange = (date) => {
+    setFromDate(date);
+    const jsDate = date?.toDate ? date.toDate() : date;
+    setStartDate(formatGregorian(jsDate));
+  };
+
+  const handleToChange = (date) => {
+    setToDate(date);
+    const jsDate = date?.toDate ? date.toDate() : date;
+    setEndDate(formatGregorian(jsDate));
+  };
+
   const handleDownload = async () => {
     if (!startDate || !endDate) {
-      alert("لطفاً تاریخ شروع و پایان را انتخاب کنید");
+      alert("Please select both start and end dates");
       return;
     }
 
     setLoading(true);
     try {
       let benefits = [];
-      let deptName = "همه دپارتمان‌ها";
+      let deptName = "All Departments";
       let response;
 
       if (selectedDeptId === "all") {
@@ -66,13 +138,9 @@ const BenefitReportDownload = () => {
       }
 
       if (!benefits || benefits.length === 0) {
-        alert("هیچ سودی در این بازه زمانی یافت نشد");
+        alert("No benefits found in this date range");
         return;
       }
-
-      // Format dates in Gregorian (YYYY/MM/DD)
-      const formatGregorian = (dateStr) => moment(dateStr).format("YYYY/MM/DD");
-      const formatGregorianDateTime = (dateStr) => moment(dateStr).format("YYYY/MM/DD HH:mm");
 
       const doc = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
       doc.addFileToVFS("Vazirmatn.ttf", VazirmatnTTF);
@@ -80,16 +148,18 @@ const BenefitReportDownload = () => {
       doc.setFont("Vazirmatn");
 
       doc.setFontSize(14);
-      const title = `گزارش سود ${deptName} از تاریخ ${formatGregorian(startDate)} تا ${formatGregorian(endDate)}`;
+      /* ✅ Shamsi dates in title */
+      const title = `Benefit Report - ${deptName} (${formatShamsi(startDate)} to ${formatShamsi(endDate)})`;
       doc.text(title, 550, 40, { align: "right" });
 
-      const headers = [["شناسه", "مبلغ (افغانی)", "شناسه فروش", "دپارتمان", "تاریخ ایجاد"]];
+      const headers = [["ID", "Amount (AFN)", "Sell ID", "Department", "Created At"]];
       const data = benefits.map((benefit) => [
         benefit.id,
-        benefit.amount.toLocaleString("fa-AF"),
+        benefit.amount.toLocaleString("en-US"),
         benefit.sellId,
         benefit.department?.name || "-",
-        formatGregorianDateTime(benefit.createdAt),
+        /* ✅ Shamsi dates in rows */
+        formatShamsiLong(benefit.createdAt),
       ]);
 
       autoTable(doc, {
@@ -111,44 +181,65 @@ const BenefitReportDownload = () => {
       const totalAmount = benefits.reduce((sum, b) => sum + parseFloat(b.amount), 0);
       const finalY = doc.lastAutoTable.finalY + 30;
       doc.setFontSize(12);
-      doc.text(`مجموع کل سود: ${totalAmount.toLocaleString("fa-AF")} افغانی`, 550, finalY, { align: "right" });
-      doc.text("امضاء و مهر:", 550, finalY + 30, { align: "right" });
+      doc.text(`Total Amount: ${totalAmount.toLocaleString("en-US")} AFN`, 550, finalY, { align: "right" });
+      doc.text("Signature & Stamp:", 550, finalY + 30, { align: "right" });
       doc.line(400, finalY + 32, 550, finalY + 32);
 
-      doc.save(`Benefit_Report_${deptName}_${startDate}_to_${endDate}.pdf`);
+      /* ✅ Shamsi filename */
+      doc.save(`Benefit_Report_${deptName}_${formatShamsiFilename(startDate)}_to_${formatShamsiFilename(endDate)}.pdf`);
     } catch (err) {
       console.error("Error downloading benefit report:", err);
-      alert("خطا در دریافت اطلاعات!");
+      alert("Failed to fetch data!");
     } finally {
       setLoading(false);
     }
   };
 
-  if (deptLoading) return <div className="p-6 text-center">در حال بارگذاری دپارتمان‌ها...</div>;
+  if (deptLoading) return <div className="p-6 text-center">Loading departments...</div>;
 
   return (
     <div className="p-6 bg-white rounded shadow">
-      <h3 className="text-lg font-bold mb-4">دانلود گزارش سود</h3>
+      <h3 className="text-lg font-bold mb-4">Download Benefit Report</h3>
       <div className="flex flex-wrap gap-4 items-end">
         <div>
-          <label className="block text-sm mb-1">دپارتمان</label>
+          <label className="block text-sm mb-1">Department</label>
           <select value={selectedDeptId} onChange={(e) => setSelectedDeptId(e.target.value)} className="border rounded px-3 py-2">
-            <option value="all">همه دپارتمان‌ها</option>
+            <option value="all">All Departments</option>
             {departments.map((dept) => (
               <option key={dept.id} value={dept.id}>{dept.name}</option>
             ))}
           </select>
         </div>
         <div>
-          <label className="block text-sm mb-1">تاریخ شروع</label>
-          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border rounded px-3 py-2" />
+          <label className="block text-sm mb-1">Start Date</label>
+          <DatePicker
+            value={fromDate}
+            onChange={handleFromChange}
+            calendar={persian}
+            locale={persian_fa}
+            calendarPosition="bottom-right"
+            format="YYYY/MM/DD"
+            editable={false}
+            inputClass="border rounded px-3 py-2 bg-white cursor-pointer"
+            placeholder="Select Start Date"
+          />
         </div>
         <div>
-          <label className="block text-sm mb-1">تاریخ پایان</label>
-          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border rounded px-3 py-2" />
+          <label className="block text-sm mb-1">End Date</label>
+          <DatePicker
+            value={toDate}
+            onChange={handleToChange}
+            calendar={persian}
+            locale={persian_fa}
+            calendarPosition="bottom-right"
+            format="YYYY/MM/DD"
+            editable={false}
+            inputClass="border rounded px-3 py-2 bg-white cursor-pointer"
+            placeholder="Select End Date"
+          />
         </div>
         <button onClick={handleDownload} disabled={loading} className="bg-primary text-white px-5 py-2 rounded hover:bg-primary/90 transition">
-          {loading ? "در حال دانلود..." : "دانلود PDF"}
+          {loading ? "Generating..." : "Download PDF"}
         </button>
       </div>
     </div>

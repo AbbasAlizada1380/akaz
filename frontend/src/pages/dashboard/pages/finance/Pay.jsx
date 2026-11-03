@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
+import moment from "moment-jalaali";
 import Pagination from "../../pagination/Pagination";
 import SellerReport from "./SellerReport";
 import PayDateDownload from "../report/PayDateDownload";
@@ -7,6 +8,19 @@ import PayDateDownload from "../report/PayDateDownload";
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 const SELLER_API = `${BASE_URL}/selleraccount/debt`;
 const DEPARTMENT_API = `${BASE_URL}/department`;
+
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatter — display only */
+const formatShamsi = (date) => {
+  if (!date) return "—";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD HH:mm");
+  } catch {
+    return "—";
+  }
+};
 
 const initialForm = {
   seller: "",
@@ -19,8 +33,8 @@ export default function Pay() {
   const [activeTab, setActiveTab] = useState("payments");
   const [pays, setPays] = useState([]);
   const [sellers, setSellers] = useState([]);
-  const [departments, setDepartments] = useState([]); // all departments for filter
-  const [sellerDepartments, setSellerDepartments] = useState([]); // departments for selected seller (for form)
+  const [departments, setDepartments] = useState([]);
+  const [sellerDepartments, setSellerDepartments] = useState([]);
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
   const [page, setPage] = useState(1);
@@ -53,14 +67,14 @@ export default function Pay() {
     try {
       const res = await axios.get(SELLER_API);
       if (res.data.success && Array.isArray(res.data.data)) {
-        const transformed = res.data.data.map(item => ({
+        const transformed = res.data.data.map((item) => ({
           id: item.seller.id,
           fullname: item.seller.fullname,
           phoneNumber: item.seller.phoneNumber,
           department: item.seller.department,
           isActive: item.seller.isActive,
           totalUnpaidAmount: item.totalDue,
-          departmentBreakdown: item.departmentBreakdown || [], // ✅ store breakdown
+          departmentBreakdown: item.departmentBreakdown || [],
           departmentsCount: item.departmentsCount || 0,
         }));
         setSellers(transformed);
@@ -100,22 +114,24 @@ export default function Pay() {
   // Update sellerDepartments when seller selection changes
   useEffect(() => {
     if (form.seller) {
-      const selected = sellers.find(s => s.id === parseInt(form.seller));
+      const selected = sellers.find((s) => s.id === parseInt(form.seller));
       if (selected && selected.departmentBreakdown) {
         setSellerDepartments(selected.departmentBreakdown);
-        // Auto-select if only one department
         if (selected.departmentBreakdown.length === 1) {
-          setForm(prev => ({ ...prev, departmentId: selected.departmentBreakdown[0].departmentId.toString() }));
+          setForm((prev) => ({
+            ...prev,
+            departmentId: selected.departmentBreakdown[0].departmentId.toString(),
+          }));
         } else {
-          setForm(prev => ({ ...prev, departmentId: "" }));
+          setForm((prev) => ({ ...prev, departmentId: "" }));
         }
       } else {
         setSellerDepartments([]);
-        setForm(prev => ({ ...prev, departmentId: "" }));
+        setForm((prev) => ({ ...prev, departmentId: "" }));
       }
     } else {
       setSellerDepartments([]);
-      setForm(prev => ({ ...prev, departmentId: "" }));
+      setForm((prev) => ({ ...prev, departmentId: "" }));
     }
   }, [form.seller, sellers]);
 
@@ -186,7 +202,6 @@ export default function Pay() {
   };
 
   const handleEdit = (pay) => {
-    // Set form fields
     setForm({
       seller: pay.seller,
       departmentId: pay.departmentId || "",
@@ -195,8 +210,7 @@ export default function Pay() {
     });
     setEditingId(pay.id);
 
-    // Update sellerDepartments based on the pay's seller
-    const selected = sellers.find(s => s.id === pay.seller);
+    const selected = sellers.find((s) => s.id === pay.seller);
     if (selected && selected.departmentBreakdown) {
       setSellerDepartments(selected.departmentBreakdown);
     } else {
@@ -225,17 +239,6 @@ export default function Pay() {
   };
 
   const handleCancel = () => resetForm();
-
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString("en-US", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
 
   return (
     <div className="min-h-screen p-4 md:p-6">
@@ -345,7 +348,6 @@ export default function Pay() {
                     </select>
                   </div>
 
-                  {/* Department dropdown - shows only departments with unpaid amounts for selected seller */}
                   <div className="space-y-2">
                     <label className="block text-sm font-semibold text-gray-700">
                       Department
@@ -534,9 +536,10 @@ export default function Pay() {
                               {pay.description || <span className="text-gray-400 italic">No description</span>}
                             </div>
                           </td>
+                          {/* ✅ Shamsi Date */}
                           <td className="px-6 py-4">
                             <div className="flex items-center space-x-2 text-sm text-gray-600">
-                              <span>{formatDate(pay.createdAt)}</span>
+                              <span>{formatShamsi(pay.createdAt)}</span>
                             </div>
                           </td>
                           <td className="px-6 py-4">

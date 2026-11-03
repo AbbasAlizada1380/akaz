@@ -1,8 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { FiPlus, FiEdit2, FiTrash2, FiX, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import moment from "moment-jalaali";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatter — display only */
+const formatShamsi = (date) => {
+  if (!date) return "—";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD HH:mm");
+  } catch {
+    return "—";
+  }
+};
 
 const DepartmentTransactionManager = () => {
     // State
@@ -281,7 +295,7 @@ const DepartmentTransactionManager = () => {
                         </thead>
                         <tbody className="divide-y divide-gray-200 bg-white">
                             {loading ? (
-                                <td><td colSpan="6" className="px-6 py-12 text-center text-gray-500">Loading...</td></td>
+                                <tr><td colSpan="6" className="px-6 py-12 text-center text-gray-500">Loading...</td></tr>
                             ) : transactions.length === 0 ? (
                                 <tr><td colSpan="6" className="px-6 py-12 text-center text-gray-500">No transactions found</td></tr>
                             ) : (
@@ -295,7 +309,8 @@ const DepartmentTransactionManager = () => {
                                                 {tr.is_deposit ? 'Deposit' : 'Withdraw'}
                                             </span>
                                         </td>
-                                        <td className="px-6 py-4 text-sm text-gray-500">{new Date(tr.createdAt).toLocaleString()}</td>
+                                        {/* ✅ Shamsi Date */}
+                                        <td className="px-6 py-4 text-sm text-gray-500">{formatShamsi(tr.createdAt)}</td>
                                         <td className="px-6 py-4">
                                             <button onClick={() => handleEdit(tr)} className="text-blue-600 hover:text-blue-800 mr-3" title="Edit">
                                                 <FiEdit2 size={18} />

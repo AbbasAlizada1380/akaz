@@ -4,7 +4,6 @@ import Seller from "../../Models/Seller/Seller.js";
 import StockIncome from "../../Models/Stock/StockIncome.js";
 import StockExist from "../../Models/Stock/StockExist.js"; // ← Add this import
 import { Op } from "sequelize";
-
 /* ===============================
    GET ALL FACTORS (with seller, incomes list)
 ================================ */
@@ -133,6 +132,7 @@ export const getFactorById = async (req, res) => {
 /* ===============================
    GET FACTORS BY DATE RANGE
 ================================ */
+
 export const getFactorsByDateRange = async (req, res) => {
   const { from, to, sellerId } = req.query;
   if (!from || !to) {
@@ -143,8 +143,10 @@ export const getFactorsByDateRange = async (req, res) => {
   }
 
   try {
-    const startDate = new Date(`${from}T00:00:00`);
-    const endDate = new Date(`${to}T23:59:59`);
+    // ✅ FIX: Use raw MySQL strings to avoid timezone issues.
+    // This ensures a record created at 04:12 AM on the 'to' date is included.
+    const startDate = `${from} 00:00:00`;
+    const endDate = `${to} 23:59:59`;
 
     const whereClause = {
       createdAt: { [Op.between]: [startDate, endDate] },
@@ -158,7 +160,7 @@ export const getFactorsByDateRange = async (req, res) => {
       include: [
         {
           model: Seller,
-          as: "factorSeller", // ← CHANGED from "seller" to "factorSeller"
+          as: "factorSeller",
           attributes: ["id", "fullname", "phoneNumber"],
         },
       ],

@@ -276,7 +276,8 @@ export const getBenefitsByDepartmentAndDate = async (req, res) => {
   }
 };
 
-// ✅ FIXED: Get Benefits with Filters - using correct alias
+
+// ✅ FIXED: Get Benefits with Filters
 export const getBenefitsWithFilters = async (req, res) => {
   try {
     const { departmentId, startDate, endDate, page = 1, limit = 10 } = req.query;
@@ -294,12 +295,13 @@ export const getBenefitsWithFilters = async (req, res) => {
     }
 
     const offset = (parseInt(page) - 1) * parseInt(limit);
+    
     const { count, rows } = await Benefit.findAndCountAll({
       where: whereClause,
       include: [
         {
           model: Department,
-          as: "benefitDepartment", // FIXED: changed from "department" to "benefitDepartment"
+          as: "department", // Matches the first alias in Models/index.js
           attributes: ["id", "name"]
         },
         {
@@ -314,10 +316,10 @@ export const getBenefitsWithFilters = async (req, res) => {
       order: [["createdAt", "DESC"]],
     });
 
-    // Transform data to include department name
+    // Transform data to include department name flatly for easier frontend access
     const transformedBenefits = rows.map(benefit => ({
       ...benefit.toJSON(),
-      departmentName: benefit.benefitDepartment?.name,
+      departmentName: benefit.department?.name || benefit.benefitDepartment?.name, 
     }));
 
     res.status(200).json({

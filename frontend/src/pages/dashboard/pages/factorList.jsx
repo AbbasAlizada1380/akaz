@@ -1,9 +1,54 @@
 // components/FactorManager.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import moment from "moment-jalaali";
+
+// ── Shamsi DatePicker ──
+import DatePickerRaw from "react-multi-date-picker";
+import persianRaw from "react-date-object/calendars/persian";
+import persian_faRaw from "react-date-object/locales/persian_fa";
+
 import Pagination from '../pagination/Pagination.jsx';
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+/* ✅ Vite CJS/ESM interop */
+const unwrap = (mod) => (mod && mod.default ? mod.default : mod);
+const DatePicker = unwrap(DatePickerRaw);
+const persian = unwrap(persianRaw);
+const persian_fa = unwrap(persian_faRaw);
+
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatters — display only */
+const formatShamsi = (date) => {
+    if (!date) return "—";
+    try {
+        return moment(date).format("jYYYY/jMM/jDD");
+    } catch {
+        return "—";
+    }
+};
+
+const formatShamsiLong = (date) => {
+    if (!date) return "—";
+    try {
+        return moment(date).format("jYYYY/jMM/jDD HH:mm");
+    } catch {
+        return "—";
+    }
+};
+
+/* ✅ Gregorian formatter — for backend storage */
+const formatGregorian = (date) => {
+    if (!date) return "";
+    try {
+        return moment(date).format("YYYY-MM-DD");
+    } catch {
+        return "";
+    }
+};
 
 const FactorManager = ({ refreshKey }) => {
     // State
@@ -29,10 +74,14 @@ const FactorManager = ({ refreshKey }) => {
         mode: 'stock',
     });
 
-    // Filters
+    // Filter UI state (Date objects)
     const [filterSellerId, setFilterSellerId] = useState('');
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
+    const [fromDate, setFromDate] = useState(null);
+    const [toDate, setToDate] = useState(null);
+
+    // Applied filter state (Gregorian strings for backend)
+    const [appliedDateFrom, setAppliedDateFrom] = useState('');
+    const [appliedDateTo, setAppliedDateTo] = useState('');
 
     // Pagination
     const [currentPage, setCurrentPage] = useState(1);
@@ -40,7 +89,7 @@ const FactorManager = ({ refreshKey }) => {
     const [totalItems, setTotalItems] = useState(0);
     const limit = 10;
 
-    // Fetch factors with pagination and filters
+    // Fetch factors with pagination and applied filters
     const fetchFactors = async () => {
         setLoading(true);
         try {
@@ -53,11 +102,11 @@ const FactorManager = ({ refreshKey }) => {
             
             if (filterSellerId) {
                 url = `${BASE_URL}/factor/seller/${filterSellerId}`;
-                if (dateFrom && dateTo) {
-                    url = `${BASE_URL}/factor/range?from=${dateFrom}&to=${dateTo}&sellerId=${filterSellerId}`;
+                if (appliedDateFrom && appliedDateTo) {
+                    url = `${BASE_URL}/factor/range?from=${appliedDateFrom}&to=${appliedDateTo}&sellerId=${filterSellerId}`;
                 }
-            } else if (dateFrom && dateTo) {
-                url = `${BASE_URL}/factor/range?from=${dateFrom}&to=${dateTo}`;
+            } else if (appliedDateFrom && appliedDateTo) {
+                url = `${BASE_URL}/factor/range?from=${appliedDateFrom}&to=${appliedDateTo}`;
             }
             
             const res = await axios.get(url);
@@ -96,14 +145,32 @@ const FactorManager = ({ refreshKey }) => {
         fetchSellers();
     }, []);
 
+    /* ✅ Fetch triggered by pagination and refreshKey only, NOT by date picker changes */
     useEffect(() => {
         fetchFactors();
-    }, [currentPage, filterSellerId, dateFrom, dateTo, showPendingOnly, refreshKey]);
+    }, [currentPage, showPendingOnly, refreshKey]);
 
-    // Reset to page 1 when filters change
+    // Reset to page 1 when the showPendingOnly toggle changes
     useEffect(() => {
         setCurrentPage(1);
-    }, [filterSellerId, dateFrom, dateTo, showPendingOnly]);
+    }, [showPendingOnly]);
+
+    /* ✅ Helper to convert DateObject to Gregorian string */
+    const toGregorianString = (dateObj) => {
+        if (!dateObj) return '';
+        const jsDate = dateObj?.toDate ? dateObj.toDate() : dateObj;
+        return formatGregorian(jsDate);
+    };
+
+    /* ✅ Apply filters button handler */
+    const handleApplyFilters = () => {
+        setAppliedDateFrom(toGregorianString(fromDate));
+        setAppliedDateTo(toGregorianString(toDate));
+        setCurrentPage(1);
+        // Manually trigger fetch since the state change alone won't
+        // (because we removed applied dates from the useEffect deps)
+        setTimeout(() => fetchFactors(), 0);
+    };
 
     // View factor details
     const handleView = async (id) => {
@@ -234,10 +301,13 @@ const FactorManager = ({ refreshKey }) => {
     // Clear filters
     const clearFilters = () => {
         setFilterSellerId('');
-        setDateFrom('');
-        setDateTo('');
+        setFromDate(null);
+        setToDate(null);
+        setAppliedDateFrom('');
+        setAppliedDateTo('');
         setShowPendingOnly(false);
         setCurrentPage(1);
+        setTimeout(() => fetchFactors(), 0);
     };
 
     if (error) return <div className="p-6 text-red-500">Error: {error}</div>;
@@ -245,7 +315,7 @@ const FactorManager = ({ refreshKey }) => {
     return (
         <div className="p-6 bg-gray-50 min-h-screen">
             <div className="max-w-7xl mx-auto">
-                {/* Header with Create Button and Filters */}
+                {/* Header with Create Button */}
                 <div className="flex flex-wrap justify-between items-center mb-6 gap-4">
                     <h1 className="text-2xl font-bold text-gray-900">Factors Management</h1>
                     <button
@@ -258,7 +328,7 @@ const FactorManager = ({ refreshKey }) => {
 
                 {/* Filters */}
                 <div className="bg-white p-4 rounded-lg shadow-sm mb-6">
-                    <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Seller</label>
                             <select
@@ -274,20 +344,30 @@ const FactorManager = ({ refreshKey }) => {
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Date From</label>
-                            <input
-                                type="date"
-                                value={dateFrom}
-                                onChange={(e) => setDateFrom(e.target.value)}
-                                className="w-full border rounded-md px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500"
+                            <DatePicker
+                                value={fromDate}
+                                onChange={setFromDate}
+                                calendar={persian}
+                                locale={persian_fa}
+                                calendarPosition="bottom-right"
+                                format="YYYY/MM/DD"
+                                editable={false}
+                                inputClass="w-full border rounded-md px-3 py-2 bg-white cursor-pointer"
+                                placeholder="Select From Date"
                             />
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-1">Date To</label>
-                            <input
-                                type="date"
-                                value={dateTo}
-                                onChange={(e) => setDateTo(e.target.value)}
-                                className="w-full border rounded-md px-3 py-2 focus:ring-cyan-500 focus:border-cyan-500"
+                            <DatePicker
+                                value={toDate}
+                                onChange={setToDate}
+                                calendar={persian}
+                                locale={persian_fa}
+                                calendarPosition="bottom-right"
+                                format="YYYY/MM/DD"
+                                editable={false}
+                                inputClass="w-full border rounded-md px-3 py-2 bg-white cursor-pointer"
+                                placeholder="Select To Date"
                             />
                         </div>
                         <div className="flex items-center">
@@ -300,6 +380,15 @@ const FactorManager = ({ refreshKey }) => {
                                 />
                                 <span className="ml-2 text-sm text-gray-700">Show Pending Only</span>
                             </label>
+                        </div>
+                        {/* ✅ Apply Filters Button */}
+                        <div className="flex items-end">
+                            <button
+                                onClick={handleApplyFilters}
+                                className="w-full px-4 py-2 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 transition font-medium"
+                            >
+                                Apply Filters
+                            </button>
                         </div>
                         <div className="flex items-end">
                             <button
@@ -360,7 +449,8 @@ const FactorManager = ({ refreshKey }) => {
                                             <td className="px-6 py-4">
                                                 <span className={getStatusBadge(factor.status)}>{factor.status}</span>
                                             </td>
-                                            <td className="px-6 py-4 text-sm">{new Date(factor.createdAt).toLocaleDateString()}</td>
+                                            {/* ✅ Shamsi Date */}
+                                            <td className="px-6 py-4 text-sm">{formatShamsi(factor.createdAt)}</td>
                                             <td className="px-6 py-4 text-center space-x-2">
                                                 <button
                                                     onClick={() => handleView(factor.id)}
@@ -438,7 +528,8 @@ const FactorManager = ({ refreshKey }) => {
                             <div className="space-y-2 mb-4">
                                 <p><strong>Mode:</strong> <span className={getModeBadge(selectedFactor.mode)}>{selectedFactor.mode}</span></p>
                                 <p><strong>Seller:</strong> {selectedFactor.factorSeller?.fullname || '-'}</p>
-                                <p><strong>Date:</strong> {new Date(selectedFactor.createdAt).toLocaleString()}</p>
+                                {/* ✅ Shamsi Date in modal */}
+                                <p><strong>Date:</strong> {formatShamsiLong(selectedFactor.createdAt)}</p>
                                 <p><strong>Total:</strong> {formatCurrency(selectedFactor.totalAmount)}</p>
                                 <p><strong>Paid:</strong> {formatCurrency(selectedFactor.paidAmount)}</p>
                                 <p><strong>Remaining:</strong> {formatCurrency(selectedFactor.remainingAmount)}</p>
@@ -597,4 +688,4 @@ const FactorManager = ({ refreshKey }) => {
     );
 };
 
-export default FactorManager;   
+export default FactorManager;

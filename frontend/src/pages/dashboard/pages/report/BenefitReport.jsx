@@ -4,16 +4,74 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment-jalaali";
 
+// ── Shamsi DatePicker ──
+import DatePickerRaw from "react-multi-date-picker";
+import persianRaw from "react-date-object/calendars/persian";
+import persian_faRaw from "react-date-object/locales/persian_fa";
+
 import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 
-moment.locale("en");
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+/* ✅ Vite CJS/ESM interop */
+const unwrap = (mod) => (mod && mod.default ? mod.default : mod);
+const DatePicker = unwrap(DatePickerRaw);
+const persian = unwrap(persianRaw);
+const persian_fa = unwrap(persian_faRaw);
+
+/* ✅ Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatters — display only */
+const formatShamsi = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD");
+  } catch {
+    return "";
+  }
+};
+
+const formatShamsiLong = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD HH:mm");
+  } catch {
+    return "";
+  }
+};
+
+const formatShamsiFilename = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY-jMM-jDD");
+  } catch {
+    return "";
+  }
+};
+
+/* ✅ Gregorian formatter — for backend storage */
+const formatGregorian = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("YYYY-MM-DD");
+  } catch {
+    return "";
+  }
+};
 
 const BenefitReport = () => {
   const [departments, setDepartments] = useState([]);
   const [selectedDeptId, setSelectedDeptId] = useState(""); // "" means all departments
+  
+  // Keep Gregorian strings for the backend
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  
+  // DateObjects for the UI
+  const [fromDate, setFromDate] = useState(null);
+  const [toDate, setToDate] = useState(null);
+
   const [loading, setLoading] = useState(false);
   const [loadingDepts, setLoadingDepts] = useState(false);
 
@@ -32,6 +90,25 @@ const BenefitReport = () => {
     } finally {
       setLoadingDepts(false);
     }
+  };
+
+  const handleFromChange = (date) => {
+    setFromDate(date);
+    const jsDate = date?.toDate ? date.toDate() : date;
+    setStartDate(formatGregorian(jsDate));
+  };
+
+  const handleToChange = (date) => {
+    setToDate(date);
+    const jsDate = date?.toDate ? date.toDate() : date;
+    setEndDate(formatGregorian(jsDate));
+  };
+
+  const clearDateRange = () => {
+    setStartDate("");
+    setEndDate("");
+    setFromDate(null);
+    setToDate(null);
   };
 
   const handleDownload = async () => {
@@ -57,7 +134,7 @@ const BenefitReport = () => {
         // Specific department: use /department/:id/benefits
         url = `${BASE_URL}/department/${selectedDeptId}/benefits?${params.toString()}`;
         response = await axios.get(url);
-        const dept = departments.find(d => d.id === parseInt(selectedDeptId));
+        const dept = departments.find((d) => d.id === parseInt(selectedDeptId));
         if (dept) deptName = dept.name;
       } else {
         // All departments: use /department/report (getBenefitsWithFilters)
@@ -81,22 +158,22 @@ const BenefitReport = () => {
         return;
       }
 
-      const today = moment().format("YYYY/MM/DD");
+      const today = formatShamsi(new Date());
 
       // Prepare date range text for PDF
       let dateRangeText = "";
       if (startDate && endDate) {
-        dateRangeText = ` (from ${moment(startDate).format("YYYY/MM/DD")} to ${moment(endDate).format("YYYY/MM/DD")})`;
+        dateRangeText = ` (from ${formatShamsi(startDate)} to ${formatShamsi(endDate)})`;
       } else if (startDate) {
-        dateRangeText = ` (from ${moment(startDate).format("YYYY/MM/DD")})`;
+        dateRangeText = ` (from ${formatShamsi(startDate)})`;
       } else if (endDate) {
-        dateRangeText = ` (until ${moment(endDate).format("YYYY/MM/DD")})`;
+        dateRangeText = ` (until ${formatShamsi(endDate)})`;
       }
 
       const doc = new jsPDF({ orientation: "p", unit: "pt", format: "a4" });
       doc.setR2L(false); // English (left‑to‑right) layout
 
-      // Add Persian font (for numbers / Persian text if needed)
+      // Add Persian font
       doc.addFileToVFS("Vazirmatn.ttf", VazirmatnTTF);
       doc.addFont("Vazirmatn.ttf", "Vazirmatn", "normal");
       doc.setFont("Vazirmatn");
@@ -113,13 +190,14 @@ const BenefitReport = () => {
       // Table headers
       const headers = [["ID", "Amount (AFN)", "Sell ID", "Department", "Created At"]];
 
-      // Table body – use department.name if available, otherwise fallback
+      // Table body
       const body = benefits.map((b) => [
         b.id,
-        parseFloat(b.amount).toLocaleString("eng-en"),
+        parseFloat(b.amount).toLocaleString("en-US"),
         b.sellId,
         b.department?.name || b.departmentName || "—",
-        moment(b.createdAt).format("YYYY/MM/DD HH:mm"),
+        /* ✅ Shamsi row date */
+        formatShamsiLong(b.createdAt),
       ]);
 
       autoTable(doc, {
@@ -149,17 +227,18 @@ const BenefitReport = () => {
 
       doc.setFontSize(11);
       doc.text(`Total Benefits: ${benefits.length}`, 40, finalY, { align: "left" });
-      doc.text(`Total Amount: ${totalAmount.toLocaleString("eng-en")} AFN`, 40, finalY + 20, { align: "left" });
+      doc.text(`Total Amount: ${totalAmount.toLocaleString("en-US")} AFN`, 40, finalY + 20, { align: "left" });
+      /* ✅ Shamsi issued date */
       doc.text(`Report Generated: ${today}`, 40, finalY + 40, { align: "left" });
 
       // Create filename with date range and department info
       let fileNameSuffix = "";
       if (startDate && endDate) {
-        fileNameSuffix = `${moment(startDate).format("YYYYMMDD")}_to_${moment(endDate).format("YYYYMMDD")}`;
+        fileNameSuffix = `${formatShamsiFilename(startDate)}_to_${formatShamsiFilename(endDate)}`;
       } else if (startDate) {
-        fileNameSuffix = `from_${moment(startDate).format("YYYYMMDD")}`;
+        fileNameSuffix = `from_${formatShamsiFilename(startDate)}`;
       } else if (endDate) {
-        fileNameSuffix = `until_${moment(endDate).format("YYYYMMDD")}`;
+        fileNameSuffix = `until_${formatShamsiFilename(endDate)}`;
       } else {
         fileNameSuffix = "all";
       }
@@ -171,11 +250,6 @@ const BenefitReport = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const clearDateRange = () => {
-    setStartDate("");
-    setEndDate("");
   };
 
   return (
@@ -208,11 +282,16 @@ const BenefitReport = () => {
           <label className="block text-sm font-medium text-gray-700">
             Start Date (optional)
           </label>
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className="mt-1 w-full border p-2 rounded"
+          <DatePicker
+            value={fromDate}
+            onChange={handleFromChange}
+            calendar={persian}
+            locale={persian_fa}
+            calendarPosition="bottom-right"
+            format="YYYY/MM/DD"
+            editable={false}
+            inputClass="mt-1 w-full border p-2 rounded bg-white cursor-pointer"
+            placeholder="Select Start Date"
           />
         </div>
 
@@ -220,11 +299,16 @@ const BenefitReport = () => {
           <label className="block text-sm font-medium text-gray-700">
             End Date (optional)
           </label>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className="mt-1 w-full border p-2 rounded"
+          <DatePicker
+            value={toDate}
+            onChange={handleToChange}
+            calendar={persian}
+            locale={persian_fa}
+            calendarPosition="bottom-right"
+            format="YYYY/MM/DD"
+            editable={false}
+            inputClass="mt-1 w-full border p-2 rounded bg-white cursor-pointer"
+            placeholder="Select End Date"
           />
         </div>
       </div>

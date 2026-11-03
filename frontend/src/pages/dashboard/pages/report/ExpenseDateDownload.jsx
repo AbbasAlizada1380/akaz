@@ -4,15 +4,59 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment-jalaali";
 
+// ── Shamsi DatePicker ──
+import DatePickerRaw from "react-multi-date-picker";
+import persianRaw from "react-date-object/calendars/persian";
+import persian_faRaw from "react-date-object/locales/persian_fa";
+
 import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 
-moment.locale("en");
-
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+/* ✅ Vite CJS/ESM interop */
+const unwrap = (mod) => (mod && mod.default ? mod.default : mod);
+const DatePicker = unwrap(DatePickerRaw);
+const persian = unwrap(persianRaw);
+const persian_fa = unwrap(persian_faRaw);
+
+/* ✅ Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatters */
+const formatShamsi = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD");
+  } catch {
+    return "";
+  }
+};
+
+const formatShamsiFilename = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY-jMM-jDD");
+  } catch {
+    return "";
+  }
+};
+
+/* ✅ Gregorian formatter — for backend storage */
+const formatGregorian = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("YYYY-MM-DD");
+  } catch {
+    return "";
+  }
+};
 
 const ExpenseDateDownload = () => {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [fromDate, setFromDate] = useState(null);
+  const [toDate, setToDate] = useState(null);
+  
   const [departmentId, setDepartmentId] = useState("");
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -31,6 +75,18 @@ const ExpenseDateDownload = () => {
     };
     fetchDepartments();
   }, []);
+
+  const handleFromChange = (date) => {
+    setFromDate(date);
+    const jsDate = date?.toDate ? date.toDate() : date;
+    setFrom(formatGregorian(jsDate));
+  };
+
+  const handleToChange = (date) => {
+    setToDate(date);
+    const jsDate = date?.toDate ? date.toDate() : date;
+    setTo(formatGregorian(jsDate));
+  };
 
   const handleDownload = async () => {
     if (!from || !to) {
@@ -71,9 +127,12 @@ const ExpenseDateDownload = () => {
 
       const margin = 40;
       const pageWidth = doc.internal.pageSize.getWidth();
-      const formattedFrom = moment(from).format("YYYY/MM/DD");
-      const formattedTo = moment(to).format("YYYY/MM/DD");
-      const today = moment().format("YYYY/MM/DD");
+      
+      /* ✅ Shamsi Dates */
+      const formattedFrom = formatShamsi(from);
+      const formattedTo = formatShamsi(to);
+      const today = formatShamsi(new Date());
+      
       const departmentLabel = departmentName === "All_Departments" ? "All Departments" : departmentName;
 
       // ========== TITLE ==========
@@ -185,9 +244,10 @@ const ExpenseDateDownload = () => {
           ["ID", "Date", "Amount (AFN)", "Purpose", "By", "Department", "Description"]
         ];
         
+        /* ✅ Shamsi dates in detailed rows */
         const detailedBody = expenses.map((expense) => [
           expense.id.toString(),
-          moment(expense.createdAt).format("YYYY/MM/DD"),
+          formatShamsi(expense.createdAt),
           Number(expense.amount).toLocaleString(),
           expense.purpose || "—",
           expense.by || "Unknown",
@@ -243,7 +303,10 @@ const ExpenseDateDownload = () => {
       }
 
       // Save PDF
-      const filename = `Expense_Report_${departmentName}_${formattedFrom}_to_${formattedTo}.pdf`;
+      /* ✅ Shamsi dates in filename */
+      const formattedFromFile = formatShamsiFilename(from);
+      const formattedToFile = formatShamsiFilename(to);
+      const filename = `Expense_Report_${departmentName}_${formattedFromFile}_to_${formattedToFile}.pdf`;
       doc.save(filename);
       
     } catch (err) {
@@ -265,31 +328,39 @@ const ExpenseDateDownload = () => {
       </p>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* From Date */}
+        {/* ✅ Shamsi From Date */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
             From Date <span className="text-red-500">*</span>
           </label>
-          <input
-            type="date"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-            className="mt-1 w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
+          <DatePicker
+            value={fromDate}
+            onChange={handleFromChange}
+            calendar={persian}
+            locale={persian_fa}
+            calendarPosition="bottom-right"
+            format="YYYY/MM/DD"
+            editable={false}
+            inputClass="mt-1 w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white cursor-pointer"
+            placeholder="Select Start Date"
           />
         </div>
 
-        {/* To Date */}
+        {/* ✅ Shamsi To Date */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
             To Date <span className="text-red-500">*</span>
           </label>
-          <input
-            type="date"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            className="mt-1 w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            required
+          <DatePicker
+            value={toDate}
+            onChange={handleToChange}
+            calendar={persian}
+            locale={persian_fa}
+            calendarPosition="bottom-right"
+            format="YYYY/MM/DD"
+            editable={false}
+            inputClass="mt-1 w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white cursor-pointer"
+            placeholder="Select End Date"
           />
         </div>
 

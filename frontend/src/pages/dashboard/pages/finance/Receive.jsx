@@ -10,6 +10,28 @@ import VazirmatnTTF from '../../../../../public/ttf/Vazirmatn.js';
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatters — display only */
+const formatShamsi = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD HH:mm");
+  } catch {
+    return "";
+  }
+};
+
+const formatShamsiFilename = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY-jMM-jDD");
+  } catch {
+    return "";
+  }
+};
+
 const initialForm = {
   customer: '',
   description: '',
@@ -107,7 +129,6 @@ const Receive = () => {
   };
 
   const handleDeptAmountChange = (deptId, value) => {
-    // ⚠️ Keep the raw value as string while the user types (including "-")
     setDepartmentAmounts((prev) => ({ ...prev, [deptId]: value }));
   };
 
@@ -141,17 +162,6 @@ const Receive = () => {
     return dept ? dept.name : `Department ${deptId}`;
   };
 
-  /**
-   * Sign-aware validation.
-   *
-   * For each department:
-   *   - |payment| cannot exceed |deptDue|
-   *   - payment must be in the SAME direction as deptDue (both positive, or
-   *     both negative). A positive payment cannot clear a negative return,
-   *     and vice versa.
-   *
-   * Total cannot exceed total abs open either.
-   */
   const validatePayment = () => {
     if (!form.customer) {
       alert('Please select a customer');
@@ -173,7 +183,6 @@ const Receive = () => {
         const deptDue = toNum(getMaxForDepartment(deptId));
         const deptName = getDepartmentName(deptId);
 
-        // Same-sign rule (both > 0, both < 0, or deptDue === 0)
         if (deptDue !== 0 && Math.sign(amount) !== Math.sign(deptDue)) {
           alert(
             `Amount for ${deptName} (${amount}) has the wrong direction. ` +
@@ -185,7 +194,6 @@ const Receive = () => {
           return false;
         }
 
-        // Magnitude rule
         if (Math.abs(amount) > Math.abs(deptDue)) {
           alert(
             `Amount for ${deptName} (${amount}) exceeds the balance ` +
@@ -195,7 +203,6 @@ const Receive = () => {
         }
       }
 
-      // Global magnitude check
       const totalAbsDue = (selectedCustomerData.departments || []).reduce(
         (sum, d) => sum + Math.abs(toNum(d.amount)),
         0
@@ -228,7 +235,6 @@ const Receive = () => {
     for (const [deptId, rawVal] of Object.entries(departmentAmounts)) {
       const amount = toNum(rawVal);
       if (amount !== 0) {
-        // ⚠️ Send negative amounts as-is
         payload[`department${deptId}`] = amount;
         hasNonZero = true;
       }
@@ -297,9 +303,6 @@ const Receive = () => {
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= totalPages) setPage(newPage);
   };
-
-  const formatDate = (dateString) =>
-    moment(dateString).format('YYYY/MM/DD HH:mm');
 
   const getCustomerName = (customerId) => {
     const cust = customers.find((c) => c.customer?.id === customerId);
@@ -388,7 +391,7 @@ const Receive = () => {
     const total = getSelectedTotal();
 
     const billNumber = `RB-${Date.now().toString().slice(-6)}`;
-    const dateStr = moment().format('YYYY/MM/DD HH:mm');
+    const dateStr = formatShamsi(new Date()); // ✅ Shamsi date
 
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -439,7 +442,7 @@ const Receive = () => {
     const headers = [['#', 'Date', 'Description', 'Amount']];
     const body = selectedItems.map((item, index) => [
       index + 1,
-      formatDate(item.createdAt),
+      formatShamsi(item.createdAt), // ✅ Shamsi row date
       item.description || '-',
       toNum(item.amount).toFixed(2),
     ]);
@@ -482,7 +485,7 @@ const Receive = () => {
         align: 'right',
       });
       doc.text(
-        `Generated: ${moment().format('YYYY/MM/DD HH:mm')}`,
+        `Generated: ${formatShamsi(new Date())}`, // ✅ Shamsi generated date
         pageWidth - 40,
         pageHeight - 15,
         { align: 'right' }
@@ -624,7 +627,6 @@ const Receive = () => {
                                 </label>
                                 <input
                                   type="number"
-                                  /* ⚠️ NO min="0" — negatives allowed */
                                   value={current}
                                   onChange={(e) =>
                                     handleDeptAmountChange(
@@ -890,8 +892,9 @@ const Receive = () => {
                                 {Math.abs(amt).toFixed(2)}
                               </span>
                             </td>
+                            {/* ✅ Shamsi Date */}
                             <td className="px-6 py-4 text-sm text-gray-600">
-                              {formatDate(receive.createdAt)}
+                              {formatShamsi(receive.createdAt)}
                             </td>
                             <td className="px-6 py-4 text-gray-600">
                               {receive.description || (
@@ -1015,7 +1018,7 @@ const Receive = () => {
                               <tr key={r.id} className="border-t">
                                 <td className="px-3 py-2">{idx + 1}</td>
                                 <td className="px-3 py-2">
-                                  {formatDate(r.createdAt)}
+                                  {formatShamsi(r.createdAt)}
                                 </td>
                                 <td className="px-3 py-2">
                                   {r.description || '-'}

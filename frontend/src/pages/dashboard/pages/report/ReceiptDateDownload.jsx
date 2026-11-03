@@ -4,14 +4,59 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import moment from "moment-jalaali";
 
+// ── Shamsi DatePicker ──
+import DatePickerRaw from "react-multi-date-picker";
+import persianRaw from "react-date-object/calendars/persian";
+import persian_faRaw from "react-date-object/locales/persian_fa";
+
 import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 
-moment.locale("en");
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+/* ✅ Vite CJS/ESM interop */
+const unwrap = (mod) => (mod && mod.default ? mod.default : mod);
+const DatePicker = unwrap(DatePickerRaw);
+const persian = unwrap(persianRaw);
+const persian_fa = unwrap(persian_faRaw);
+
+/* ✅ Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatters — display only */
+const formatShamsi = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD");
+  } catch {
+    return "";
+  }
+};
+
+const formatShamsiFilename = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("jYYYY-jMM-jDD");
+  } catch {
+    return "";
+  }
+};
+
+/* ✅ Gregorian formatter — for backend storage */
+const formatGregorian = (date) => {
+  if (!date) return "";
+  try {
+    return moment(date).format("YYYY-MM-DD");
+  } catch {
+    return "";
+  }
+};
 
 const ReceiptDateDownload = () => {
     const [from, setFrom] = useState("");
     const [to, setTo] = useState("");
+    const [fromDate, setFromDate] = useState(null);
+    const [toDate, setToDate] = useState(null);
+    
     const [customers, setCustomers] = useState([]);
     const [selectedCustomer, setSelectedCustomer] = useState("");
     const [loading, setLoading] = useState(false);
@@ -34,6 +79,18 @@ const ReceiptDateDownload = () => {
         }
     };
 
+    const handleFromChange = (date) => {
+        setFromDate(date);
+        const jsDate = date?.toDate ? date.toDate() : date;
+        setFrom(formatGregorian(jsDate));
+    };
+
+    const handleToChange = (date) => {
+        setToDate(date);
+        const jsDate = date?.toDate ? date.toDate() : date;
+        setTo(formatGregorian(jsDate));
+    };
+
     const handleDownload = async () => {
         if (!from || !to) {
             alert("Please select a date range");
@@ -41,10 +98,10 @@ const ReceiptDateDownload = () => {
         }
 
         // Validate date range
-        const fromDate = new Date(from);
-        const toDate = new Date(to);
+        const fromD = new Date(from);
+        const toD = new Date(to);
 
-        if (fromDate > toDate) {
+        if (fromD > toD) {
             alert("Start date cannot be later than end date");
             return;
         }
@@ -82,10 +139,10 @@ const ReceiptDateDownload = () => {
             doc.addFont("Vazirmatn.ttf", "Vazirmatn", "normal");
             doc.setFont("Vazirmatn");
 
-            // Format dates in Gregorian
-            const formattedFrom = moment(from).format("YYYY/M/D");
-            const formattedTo = moment(to).format("YYYY/M/D");
-            const today = moment().format("YYYY/M/D");
+            /* ✅ Shamsi dates for Title */
+            const formattedFrom = formatShamsi(from);
+            const formattedTo = formatShamsi(to);
+            const today = formatShamsi(new Date());
 
             // Get selected customer name for display
             const selectedCustomerName = selectedCustomer
@@ -106,12 +163,12 @@ const ReceiptDateDownload = () => {
                 ["Amount (AFN)", "Customer", "Date", "Receipt ID"]
             ];
 
-            // Table body - Using Gregorian format for dates
+            // Table body - ✅ Shamsi dates
             const body = data.receives.map((receive) => [
                 parseFloat(receive.amount).toLocaleString(),
                 receive.customerInfo?.fullname || "Unknown",
-                moment(receive.createdAt).format("YYYY/M/D"),
-                receive.id.toString().slice(-8) || "-", // Show last 8 digits of ID for better fit
+                formatShamsi(receive.createdAt),
+                receive.id.toString().slice(-8) || "-",
             ]);
 
             // Calculate available width
@@ -121,10 +178,10 @@ const ReceiptDateDownload = () => {
 
             // Calculate column widths
             const columnWidths = {
-                0: tableWidth * 0.30, // Amount - 30%
-                1: tableWidth * 0.30, // Customer - 30%
-                2: tableWidth * 0.20, // Date - 20%
-                3: tableWidth * 0.20, // Receipt ID - 20%
+                0: tableWidth * 0.30, // Amount
+                1: tableWidth * 0.30, // Customer
+                2: tableWidth * 0.20, // Date
+                3: tableWidth * 0.20, // Receipt ID
             };
 
             autoTable(doc, {
@@ -171,7 +228,7 @@ const ReceiptDateDownload = () => {
             doc.text(`Total Receipts: ${data.totalCount || 0}`, summaryX, y, { align: "right" });
             doc.text(`Total Amount: ${(data.totalAmount || 0).toLocaleString()} AFN`, summaryX, y + 18, { align: "right" });
 
-            // Date range and export info
+            // Date range and export info - ✅ Shamsi
             doc.text(`Period: ${formattedFrom} to ${formattedTo}`, summaryX, y + 36, { align: "right" });
             doc.text(`Generated on: ${today}`, summaryX, y + 54, { align: "right" });
 
@@ -191,9 +248,9 @@ const ReceiptDateDownload = () => {
                 );
             }
 
-            // Generate filename
+            // Generate filename - ✅ Shamsi
             const customerPart = selectedCustomerName !== "All Customers" ? `_${selectedCustomerName}` : "";
-            const filename = `receipts_${formattedFrom}_to_${formattedTo}${customerPart}_${today}.pdf`;
+            const filename = `receipts_${formatShamsiFilename(from)}_to_${formatShamsiFilename(to)}${customerPart}.pdf`;
 
             doc.save(filename);
 
@@ -233,24 +290,34 @@ const ReceiptDateDownload = () => {
                     )}
                 </div>
 
-                {/* Date Range Selection */}
+                {/* ✅ Shamsi Date Pickers */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="space-y-1">
                         <label className="text-sm font-medium text-gray-700">From Date</label>
-                        <input
-                            type="date"
-                            value={from}
-                            onChange={(e) => setFrom(e.target.value)}
-                            className="w-full border p-2.5 rounded bg-white text-black"
+                        <DatePicker
+                            value={fromDate}
+                            onChange={handleFromChange}
+                            calendar={persian}
+                            locale={persian_fa}
+                            calendarPosition="bottom-right"
+                            format="YYYY/MM/DD"
+                            editable={false}
+                            inputClass="w-full border p-2.5 rounded bg-white text-black cursor-pointer"
+                            placeholder="Select Start Date"
                         />
                     </div>
                     <div className="space-y-1">
                         <label className="text-sm font-medium text-gray-700">To Date</label>
-                        <input
-                            type="date"
-                            value={to}
-                            onChange={(e) => setTo(e.target.value)}
-                            className="w-full border p-2.5 rounded bg-white text-black"
+                        <DatePicker
+                            value={toDate}
+                            onChange={handleToChange}
+                            calendar={persian}
+                            locale={persian_fa}
+                            calendarPosition="bottom-right"
+                            format="YYYY/MM/DD"
+                            editable={false}
+                            inputClass="w-full border p-2.5 rounded bg-white text-black cursor-pointer"
+                            placeholder="Select End Date"
                         />
                     </div>
                 </div>

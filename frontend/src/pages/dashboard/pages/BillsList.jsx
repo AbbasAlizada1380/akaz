@@ -1,10 +1,24 @@
 // BillsList.jsx
 import React, { useState, useEffect } from "react";
 import axios from "axios";
+import moment from "moment-jalaali";
 import Pagination from "../pagination/Pagination.jsx";
 import BillExport from "./report/BillExport.jsx";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
+
+/* ✅ Load Persian locale once */
+moment.loadPersian({ usePersianDigits: false, dialect: "persian-modern" });
+
+/* ✅ Shamsi formatter */
+const formatShamsi = (date) => {
+  if (!date) return "—";
+  try {
+    return moment(date).format("jYYYY/jMM/jDD");
+  } catch {
+    return "—";
+  }
+};
 
 const BillsList = ({ onEditBill }) => {
   const [bills, setBills] = useState([]);
@@ -106,14 +120,14 @@ const BillsList = ({ onEditBill }) => {
               <tbody>
                 {bills.map((bill) => {
                   // Check if the bill is fully paid (Remaining is 0)
-                  // We use Math.abs to safely handle minor floating-point anomalies (e.g., 0.000000001)
                   const isFullyPaid = Math.abs(parseFloat(bill.remainingAmount)) < 0.01;
 
                   return (
                     <tr key={bill.id} className="border-t hover:bg-gray-50">
                       <td className="px-4 py-2 font-mono">{bill.billNumber}</td>
                       <td className="px-4 py-2">{bill.billCustomer?.fullname || "-"}</td>
-                      <td className="px-4 py-2">{new Date(bill.date).toLocaleDateString()}</td>
+                      {/* ✅ Shamsi Date */}
+                      <td className="px-4 py-2">{formatShamsi(bill.date)}</td>
                       <td className="px-4 py-2 text-right">
                         {parseFloat(bill.totalAmount).toFixed(2)}
                       </td>
@@ -144,7 +158,6 @@ const BillsList = ({ onEditBill }) => {
                           View Items
                         </button>
                         
-                        {/* FIX: Hide or disable edit button if remaining is 0 */}
                         {isFullyPaid ? (
                           <button
                             disabled
@@ -194,7 +207,8 @@ const BillsList = ({ onEditBill }) => {
             </div>
             <div className="space-y-2 mb-4">
               <p><strong>Customer:</strong> {selectedBillData.bill.billCustomer?.fullname || "-"}</p>
-              <p><strong>Date:</strong> {new Date(selectedBillData.bill.date).toLocaleDateString()}</p>
+              {/* ✅ Shamsi Date in Modal */}
+              <p><strong>Date:</strong> {formatShamsi(selectedBillData.bill.date)}</p>
               <p><strong>Total:</strong> {parseFloat(selectedBillData.bill.totalAmount).toFixed(2)}</p>
               <p><strong>Paid:</strong> {parseFloat(selectedBillData.bill.paidAmount).toFixed(2)}</p>
               <p><strong>Remaining:</strong> {parseFloat(selectedBillData.bill.remainingAmount).toFixed(2)}</p>
