@@ -84,6 +84,18 @@ export const getExpenses = async (req, res) => {
     if (req.query.departmentId) {
       where.departmentId = parseInt(req.query.departmentId);
     }
+
+    // ✅ Filter by purpose (exact match).
+    // Use ?purpose=... from the frontend filter dropdown.
+    if (req.query.purpose) {
+      where.purpose = req.query.purpose;
+    }
+
+    // ✅ Filter by purpose partial match (optional).
+    // Use ?purposeLike=Repair to find "Repair Rent", "Home Repair", etc.
+    if (req.query.purposeLike) {
+      where.purpose = { [Op.like]: `%${req.query.purposeLike}%` };
+    }
     
     // Filter by date range (uses expenses_dept_created_idx composite index)
     if (req.query.startDate && req.query.endDate) {
@@ -116,11 +128,12 @@ export const getExpenses = async (req, res) => {
       where.calculated = req.query.calculated === 'true';
     }
     
-    // Search by purpose or by (basic text search)
+    // Search by purpose, by, or description (basic text search)
     if (req.query.search) {
       where[Op.or] = [
         { purpose: { [Op.like]: `%${req.query.search}%` } },
-        { by: { [Op.like]: `%${req.query.search}%` } }
+        { by: { [Op.like]: `%${req.query.search}%` } },
+        { description: { [Op.like]: `%${req.query.search}%` } },
       ];
     }
 
@@ -132,7 +145,7 @@ export const getExpenses = async (req, res) => {
       include: [
         {
           model: Department,
-          as: "expenseDepartment", // Fixed: changed from "department" to "expenseDepartment"
+          as: "expenseDepartment",
           attributes: ["id", "name", "isActive"]
         }
       ]
@@ -297,20 +310,18 @@ export const deleteExpense = async (req, res) => {
 ================================ */
 export const getExpensesByDateRange = async (req, res) => {
   try {
-    // Support multiple parameter naming conventions
-    let { from, to, startDate, endDate, departmentId } = req.query;
+    // ✅ Added purpose to the destructured query
+    let { from, to, startDate, endDate, departmentId, purpose } = req.query;
     
-    // Use startDate/endDate if from/to are not provided
     const fromDateParam = from || startDate;
     const toDateParam = to || endDate;
 
     if (!fromDateParam || !toDateParam) {
       return res.status(400).json({ 
-        message: "Both 'from' and 'to' dates are required. Use query params: ?from=2024-01-01&to=2024-12-31 or ?startDate=2024-01-01&endDate=2024-12-31" 
+        message: "Both 'from' and 'to' dates are required. Use query params: ?from=2024-01-01&to=2024-12-31" 
       });
     }
 
-    // Validate date formats
     const fromDate = new Date(fromDateParam);
     const toDate = new Date(toDateParam);
     
@@ -320,37 +331,40 @@ export const getExpensesByDateRange = async (req, res) => {
       });
     }
     
-    // Set time boundaries
     fromDate.setHours(0, 0, 0, 0);
     toDate.setHours(23, 59, 59, 999);
 
-    // Build where clause
+    // ✅ Build dynamic where clause
     const where = {
       createdAt: {
         [Op.between]: [fromDate, toDate],
       },
     };
 
-    // Add department filter if provided (uses composite index)
     if (departmentId) {
       where.departmentId = parseInt(departmentId);
     }
 
-    console.log(`Fetching expenses from ${fromDate} to ${toDate}${departmentId ? ` for department ${departmentId}` : ''}`);
+    // ✅ Add purpose filter if provided
+    if (purpose) {
+      where.purpose = purpose;
+    }
+
+    console.log(`Fetching expenses from ${fromDate} to ${toDate}${departmentId ? ` for department ${departmentId}` : ''}${purpose ? ` for purpose ${purpose}` : ''}`);
 
     const expenses = await Expense.findAll({
       where,
       include: [
         {
           model: Department,
-          as: "expenseDepartment", // Fixed: changed from "department" to "expenseDepartment"
+          as: "expenseDepartment", 
           attributes: ["id", "name", "isActive"]
         }
       ],
       order: [["createdAt", "DESC"]],
     });
 
-    // Calculate summary statistics
+    // Summary statistics
     const summary = {
       totalCount: expenses.length,
       totalAmount: expenses.reduce((sum, e) => sum + parseFloat(e.amount), 0),
@@ -365,7 +379,6 @@ export const getExpensesByDateRange = async (req, res) => {
         : 0,
     };
 
-    // Group by department if multiple departments
     const byDepartment = {};
     expenses.forEach(expense => {
       const deptName = expense.expenseDepartment?.name || "Unknown";

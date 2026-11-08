@@ -56,11 +56,17 @@ const Attendance = sequelize.define(
       defaultValue: 0,
       comment: "Calculated based on total overtime hours * overtimePerHour",
     },
+    tax: {
+      type: DataTypes.DECIMAL(10, 2),
+      allowNull: false,
+      defaultValue: 0,
+      comment: "Calculated based on salary + overtime",
+    },
     total: {
       type: DataTypes.DECIMAL(10, 2),
       allowNull: false,
       defaultValue: 0,
-      comment: "salary + overtime",
+      comment: "salary + overtime - tax",
     },
     receipt: {
       type: DataTypes.JSON,

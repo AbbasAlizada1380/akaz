@@ -7,8 +7,6 @@ import {
 } from "../../../Models/index.js";
 import { Op } from "sequelize";
 
-
-
 /* ---------------------------------------------------------
    Helper: build the default attendance JSON for a new period
    --------------------------------------------------------- */
@@ -22,8 +20,36 @@ const defaultAttendanceJSON = () => ({
 });
 
 /* ---------------------------------------------------------
+   PAY CALCULATION HELPER
+   total = salary + overtime - tax
+   --------------------------------------------------------- */
+function calculatePay(staff, attendanceJSON) {
+  const dailySalary = Number(staff.salary) / Number(staff.workingDaysPerWeek);
+  const overtimeRate = Number(staff.overTimePerHour);
+
+  let daysWorked = 0;
+  let overtimeHours = 0;
+
+  for (const day of Object.values(attendanceJSON)) {
+    if (day?.attendance) daysWorked += 1;
+    if (day?.overtime) overtimeHours += Number(day.overtime) || 0;
+  }
+
+  const salary = dailySalary * daysWorked;
+  const overtime = overtimeRate * overtimeHours;
+  const tax = 0; // default; can be derived later
+  const total = salary + overtime - tax;
+
+  return {
+    salary: Number(salary.toFixed(2)),
+    overtime: Number(overtime.toFixed(2)),
+    tax: Number(tax.toFixed(2)),
+    total: Number(total.toFixed(2)),
+  };
+}
+
+/* ---------------------------------------------------------
    READ ALL attendance records (optionally filtered by list)
-   GET /api/attendance?list=1
    --------------------------------------------------------- */
 export const getAllAttendance = async (req, res) => {
   try {
@@ -36,7 +62,7 @@ export const getAllAttendance = async (req, res) => {
       include: [
         {
           model: Staff,
-          as: "attendanceStaff",                    // ✅ matches association
+          as: "attendanceStaff",
           attributes: [
             "id", "name", "fatherName", "NIC",
             "salary", "overTimePerHour", "workingDaysPerWeek",
@@ -46,7 +72,6 @@ export const getAllAttendance = async (req, res) => {
       order: [["id", "ASC"]],
     });
 
-    // Return as { attendances: [...] } so the frontend can rely on a key
     return res.status(200).json({ attendances: records });
   } catch (error) {
     console.error("getAllAttendance error:", error);
@@ -56,7 +81,6 @@ export const getAllAttendance = async (req, res) => {
 
 /* ---------------------------------------------------------
    READ ONE
-   GET /api/attendance/:id
    --------------------------------------------------------- */
 export const getAttendanceById = async (req, res) => {
   try {
@@ -64,7 +88,7 @@ export const getAttendanceById = async (req, res) => {
       include: [
         {
           model: Staff,
-          as: "attendanceStaff",       // ✅ was "staff"
+          as: "attendanceStaff",
           attributes: [
             "id",
             "name",
@@ -86,8 +110,6 @@ export const getAttendanceById = async (req, res) => {
     return res.status(500).json({ error: error.message });
   }
 };
-
-
 
 export const updateAttendance = async (req, res) => {
   const transaction = await Attendance.sequelize.transaction();
@@ -113,7 +135,7 @@ export const updateAttendance = async (req, res) => {
        ========================================================= */
     const updates = { ...req.body };
 
-    // ✅ Normalize receipt — accepts numbers OR { amount, note } objects
+    // Normalize receipt — accepts numbers OR { amount, note } objects
     if ("receipt" in updates) {
       const raw = updates.receipt;
 
@@ -139,10 +161,12 @@ export const updateAttendance = async (req, res) => {
       }
     }
 
+    // Recompute pay when attendance JSON is sent and no manual salary override
     if (updates.attendance && updates.salary === undefined) {
-      const { salary, overtime, total } = calculatePay(staff, updates.attendance);
+      const { salary, overtime, tax, total } = calculatePay(staff, updates.attendance);
       updates.salary = salary;
       updates.overtime = overtime;
+      updates.tax = tax;
       updates.total = total;
       updates.calculated = true;
     }
@@ -154,26 +178,19 @@ export const updateAttendance = async (req, res) => {
     await record.reload({ transaction });
 
     /* =========================================================
-       4) ✅ SYNC PaidSalary FROM THE UPDATED RECEIPT
-       
-       Rule: 
-         - delete all existing PaidSalary rows for this attendance
-         - re-create one PaidSalary per receipt entry
+       4) SYNC PaidSalary FROM THE UPDATED RECEIPT
        ========================================================= */
     if ("receipt" in updates) {
       const receiptArr = Array.isArray(record.receipt) ? record.receipt : [];
 
-      // Delete old rows
       await PaidSalary.destroy({
         where: { attendanceId: record.id },
         transaction,
       });
 
-      // Re-create one PaidSalary per receipt entry
       if (receiptArr.length > 0) {
         await PaidSalary.bulkCreate(
           receiptArr.map((entry, idx) => {
-            // entry is now { amount, note } after normalization
             const amount =
               typeof entry === "object"
                 ? Number(entry.amount) || 0
@@ -195,10 +212,7 @@ export const updateAttendance = async (req, res) => {
     }
 
     /* =========================================================
-       5) ✅ RECOMPUTE the parent SalaryList.paid + .total
-       
-       - totalEarned = sum of ALL siblings' `total` (what should be paid)
-       - totalPaid   = sum of ALL siblings' PaidSalary amounts (what was paid)
+       5) RECOMPUTE the parent SalaryList.paid + .total
        ========================================================= */
     const siblings = await Attendance.findAll({
       where: { list: record.list },
@@ -208,7 +222,6 @@ export const updateAttendance = async (req, res) => {
 
     const siblingIds = siblings.map((s) => s.id);
 
-    // Compute totalPaid from PaidSalary (source of truth)
     let totalPaid = 0;
     if (siblingIds.length > 0) {
       const paidRows = await PaidSalary.findAll({
@@ -219,14 +232,13 @@ export const updateAttendance = async (req, res) => {
       totalPaid = paidRows.reduce((s, r) => s + Number(r.amount || 0), 0);
     }
 
-    // Compute totalEarned from siblings' total
     const totalEarned = siblings.reduce(
       (sum, r) => sum + Number(r.total || 0),
       0
     );
 
     /* =========================================================
-       6) ✅ UPDATE the parent SalaryList
+       6) UPDATE the parent SalaryList
        ========================================================= */
     await SalaryList.update(
       {
@@ -239,7 +251,6 @@ export const updateAttendance = async (req, res) => {
       }
     );
 
-    // Fetch the refreshed list
     const salaryList = await SalaryList.findByPk(record.list, { transaction });
 
     await transaction.commit();
@@ -255,10 +266,10 @@ export const updateAttendance = async (req, res) => {
     return res.status(200).json({
       message: "Updated successfully",
       record,
-      payments,                    // ✅ PaidSalary rows for this attendance
-      salaryList,                  // ✅ refreshed parent list
-      listPaid: Number(totalPaid.toFixed(2)),    // ✅ convenience
-      listTotal: Number(totalEarned.toFixed(2)), // ✅ convenience
+      payments,
+      salaryList,
+      listPaid: Number(totalPaid.toFixed(2)),
+      listTotal: Number(totalEarned.toFixed(2)),
     });
   } catch (error) {
     await transaction.rollback();
@@ -269,9 +280,7 @@ export const updateAttendance = async (req, res) => {
 
 /* ---------------------------------------------------------
    DELETE
-   DELETE /api/attendance/:id
    --------------------------------------------------------- */
-
 export const deleteAttendance = async (req, res) => {
   const transaction = await Attendance.sequelize.transaction();
 
@@ -290,34 +299,44 @@ export const deleteAttendance = async (req, res) => {
     // 2) Fetch remaining siblings for this list
     const siblings = await Attendance.findAll({
       where: { list: listId },
-      attributes: ["staffId", "receipt", "total"],
+      attributes: ["id", "staffId", "total"],
       transaction,
     });
 
-    // 3) Recompute derived fields
-    const staffIds = siblings.map((s) => s.staffId);
+    const siblingIds = siblings.map((s) => s.id);
 
-    const totalPaid = siblings.reduce((sum, r) => {
-      const arr = Array.isArray(r.receipt) ? r.receipt : [];
-      return sum + arr.reduce((a, b) => a + (Number(b) || 0), 0);
-    }, 0);
+    // 3) totalPaid from PaidSalary (source of truth)
+    let totalPaid = 0;
+    if (siblingIds.length > 0) {
+      const paidRows = await PaidSalary.findAll({
+        where: { attendanceId: { [Op.in]: siblingIds } },
+        attributes: ["amount"],
+        transaction,
+      });
+      totalPaid = paidRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    }
 
+    // 4) totalEarned from remaining siblings
     const totalEarned = siblings.reduce(
       (sum, r) => sum + Number(r.total || 0),
       0
     );
 
-    // 4) Update the parent SalaryList
+    // 5) staffIds = unique ids of remaining siblings
+    const staffIds = Array.from(
+      new Set(siblings.map((s) => Number(s.staffId)))
+    );
+
+    // 6) Update the parent SalaryList
     await SalaryList.update(
       {
         staffIds,
-        paid: totalPaid,
-        total: totalEarned,
+        paid: Number(totalPaid.toFixed(2)),
+        total: Number(totalEarned.toFixed(2)),
       },
       { where: { id: listId }, transaction }
     );
 
-    // 5) Return the refreshed list
     const salaryList = await SalaryList.findByPk(listId, { transaction });
 
     await transaction.commit();
@@ -326,8 +345,8 @@ export const deleteAttendance = async (req, res) => {
       message: "Deleted successfully",
       deletedId: Number(req.params.id),
       salaryList,
-      listPaid: totalPaid,
-      listTotal: totalEarned,
+      listPaid: Number(totalPaid.toFixed(2)),
+      listTotal: Number(totalEarned.toFixed(2)),
       staffIds,
     });
   } catch (error) {
@@ -338,39 +357,14 @@ export const deleteAttendance = async (req, res) => {
 };
 
 /* ---------------------------------------------------------
-   PAY CALCULATION HELPER
+   CREATE
    --------------------------------------------------------- */
-function calculatePay(staff, attendanceJSON) {
-  const dailySalary = Number(staff.salary) / Number(staff.workingDaysPerWeek);
-  const overtimeRate = Number(staff.overTimePerHour);
-
-  let daysWorked = 0;
-  let overtimeHours = 0;
-
-  for (const day of Object.values(attendanceJSON)) {
-    if (day?.attendance) daysWorked += 1;
-    if (day?.overtime) overtimeHours += Number(day.overtime) || 0;
-  }
-
-  const salary = dailySalary * daysWorked;
-  const overtime = overtimeRate * overtimeHours;
-  const total = salary + overtime;
-
-  return {
-    salary: Number(salary.toFixed(2)),
-    overtime: Number(overtime.toFixed(2)),
-    total: Number(total.toFixed(2)),
-  };
-}
-
-
 export const createAttendance = async (req, res) => {
   const transaction = await Attendance.sequelize.transaction();
 
   try {
     const { list, staffId } = req.body;
 
-    /* ---------------- Validate input ---------------- */
     if (!list || !staffId) {
       await transaction.rollback();
       return res
@@ -378,21 +372,18 @@ export const createAttendance = async (req, res) => {
         .json({ error: "list and staffId are required" });
     }
 
-    /* ---------------- Verify the parent list ---------------- */
     const salaryList = await SalaryList.findByPk(list, { transaction });
     if (!salaryList) {
       await transaction.rollback();
       return res.status(404).json({ error: "Salary list not found" });
     }
 
-    /* ---------------- Verify the staff ---------------- */
     const staff = await Staff.findByPk(staffId, { transaction });
     if (!staff) {
       await transaction.rollback();
       return res.status(404).json({ error: "Staff not found" });
     }
 
-    /* ---------------- Prevent duplicate rows ---------------- */
     const existing = await Attendance.findOne({
       where: { list, staffId },
       transaction,
@@ -426,27 +417,31 @@ export const createAttendance = async (req, res) => {
         .filter((e) => e.amount > 0);
     }
 
-    /* ---------------- Fallback salary / overtime / total ---------------- */
-    // Priority: request value → staff record → 0
-    const salary = Number(
-      req.body.salary !== undefined
-        ? req.body.salary
-        : staff.salary ?? 0
-    );
-    const overtime = Number(
-      req.body.overtime !== undefined ? req.body.overtime : 0
-    );
-    const total = Number(
-      req.body.total !== undefined
-        ? req.body.total
-        : salary + overtime
-    );
-
-    /* ---------------- Default attendance JSON ---------------- */
+    /* ---------------- Attendance JSON ---------------- */
     const attendance =
       req.body.attendance && typeof req.body.attendance === "object"
         ? req.body.attendance
         : defaultAttendanceJSON();
+
+    /* ---------------- Salary / overtime / tax / total ----------------
+       Priority: explicit request value → calculated from attendance → 0
+       ---------------------------------------------------------------- */
+    const calculated = calculatePay(staff, attendance);
+
+    const salary = Number(
+      req.body.salary !== undefined ? req.body.salary : calculated.salary
+    );
+    const overtime = Number(
+      req.body.overtime !== undefined ? req.body.overtime : calculated.overtime
+    );
+    const tax = Number(
+      req.body.tax !== undefined ? req.body.tax : calculated.tax
+    );
+    const total = Number(
+      req.body.total !== undefined
+        ? req.body.total
+        : salary + overtime - tax
+    );
 
     /* ---------------- Create the row ---------------- */
     const record = await Attendance.create(
@@ -456,9 +451,10 @@ export const createAttendance = async (req, res) => {
         attendance,
         salary,
         overtime,
+        tax,
         total,
         receipt,
-        calculated: false,
+        calculated: true,
       },
       { transaction }
     );
@@ -484,7 +480,6 @@ export const createAttendance = async (req, res) => {
 
     const siblingIds = siblings.map((s) => s.id);
 
-    // totalPaid from PaidSalary (source of truth)
     let totalPaid = 0;
     if (siblingIds.length > 0) {
       const paidRows = await PaidSalary.findAll({
@@ -495,13 +490,11 @@ export const createAttendance = async (req, res) => {
       totalPaid = paidRows.reduce((s, r) => s + Number(r.amount || 0), 0);
     }
 
-    // totalEarned from siblings' total
     const totalEarned = siblings.reduce(
       (sum, r) => sum + Number(r.total || 0),
       0
     );
 
-    // staffIds = unique ids of siblings
     const staffIds = Array.from(
       new Set(siblings.map((s) => Number(s.staffId)))
     );

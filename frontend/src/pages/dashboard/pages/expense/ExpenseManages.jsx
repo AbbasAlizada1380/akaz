@@ -6,6 +6,26 @@ import { useSelector } from "react-redux";
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 const limit = 10;
 
+/* ======================
+   Expense Categories
+====================== */
+const EXPENSE_CATEGORIES = [
+  { en: "Repair Rent", fa: "کرایه تعمیر" },
+  { en: "Administrative Expenses", fa: "مصارف اداری" },
+  { en: "Urban Transport", fa: "کرایه شهری" },
+  { en: "Procurement & Goods", fa: "تدارکات و اجناس" },
+  { en: "Advertising & Entertainment", fa: "اعلانات و ضیافت" },
+  { en: "Utilities (Electricity, Water, etc.)", fa: "برق، آب، تلفن و..." },
+  { en: "Maintenance & Security", fa: "ترمیم، حفظ و مراقبت" },
+  { en: "Travel & Food", fa: "سفر و ماکول" },
+  { en: "Marketing", fa: "مارکتینگ" },
+  { en: "Informal Payments", fa: "پرداخت‌های غیررسمی" },
+  { en: "Salaries Tax", fa: "مالیه معاشات" },
+  { en: "Rent Tax", fa: "مالیه کرایه" },
+  { en: "Quarterly Tax", fa: "مالیه ربع وار" },
+  { en: "Net Revenue Tax", fa: "مالیه عواید خالص" }
+];
+
 const ExpenseManager = () => {
   const [expenses, setExpenses] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -185,15 +205,21 @@ const ExpenseManager = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   <span className="text-red-500">*</span> Expense Purpose
                 </label>
-                <input
+                <select
                   required
-                  placeholder="Example: Office equipment purchase"
                   value={form.purpose}
                   onChange={(e) =>
                     setForm({ ...form, purpose: e.target.value })
                   }
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary"
-                />
+                  className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-primary focus:border-primary bg-white"
+                >
+                  <option value="" disabled>Select an expense category</option>
+                  {EXPENSE_CATEGORIES.map((cat, index) => (
+                    <option key={index} value={`${cat.en} (${cat.fa})`}>
+                      {cat.en} ({cat.fa})
+                    </option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">

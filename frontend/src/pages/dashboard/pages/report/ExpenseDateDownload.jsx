@@ -13,6 +13,26 @@ import VazirmatnTTF from "../../../../../public/ttf/Vazirmatn.js";
 
 const BASE_URL = import.meta.env.VITE_BASE_URL;
 
+/* ======================
+   Expense Categories
+====================== */
+const EXPENSE_CATEGORIES = [
+  { en: "Repair Rent", fa: "کرایه تعمیر" },
+  { en: "Administrative Expenses", fa: "مصارف اداری" },
+  { en: "Urban Transport", fa: "کرایه شهری" },
+  { en: "Procurement & Goods", fa: "تدارکات و اجناس" },
+  { en: "Advertising & Entertainment", fa: "اعلانات و ضیافت" },
+  { en: "Utilities (Electricity, Water, etc.)", fa: "برق، آب، تلفن و..." },
+  { en: "Maintenance & Security", fa: "ترمیم، حفظ و مراقبت" },
+  { en: "Travel & Food", fa: "سفر و ماکول" },
+  { en: "Marketing", fa: "مارکتینگ" },
+  { en: "Informal Payments", fa: "پرداخت‌های غیررسمی" },
+  { en: "Salaries Tax", fa: "مالیه معاشات" },
+  { en: "Rent Tax", fa: "مالیه کرایه" },
+  { en: "Quarterly Tax", fa: "مالیه ربع وار" },
+  { en: "Net Revenue Tax", fa: "مالیه عواید خالص" }
+];
+
 /* ✅ Vite CJS/ESM interop */
 const unwrap = (mod) => (mod && mod.default ? mod.default : mod);
 const DatePicker = unwrap(DatePickerRaw);
@@ -58,6 +78,7 @@ const ExpenseDateDownload = () => {
   const [toDate, setToDate] = useState(null);
   
   const [departmentId, setDepartmentId] = useState("");
+  const [purpose, setPurpose] = useState(""); // ✅ NEW: Purpose filter state
   const [departments, setDepartments] = useState([]);
   const [loading, setLoading] = useState(false);
   const [reportType, setReportType] = useState("summary"); // summary, detailed, both
@@ -101,6 +122,9 @@ const ExpenseDateDownload = () => {
       if (departmentId) {
         params.departmentId = departmentId;
       }
+      if (purpose) {
+        params.purpose = purpose; // ✅ NEW: Send purpose to backend
+      }
 
       const { data } = await axios.get(`${BASE_URL}/expense/date-range`, { params });
 
@@ -117,6 +141,12 @@ const ExpenseDateDownload = () => {
       if (departmentId) {
         const selectedDept = departments.find(d => d.id === parseInt(departmentId));
         departmentName = selectedDept?.name || `Dept_${departmentId}`;
+      }
+
+      // ✅ Purpose filename segment
+      let purposeName = "";
+      if (purpose) {
+        purposeName = `_${purpose.replace(/[^a-zA-Z0-9]/g, "_")}`;
       }
 
       const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
@@ -141,7 +171,11 @@ const ExpenseDateDownload = () => {
       doc.setFontSize(12);
       doc.text(`Department: ${departmentLabel}`, margin, 65, { align: "left" });
       doc.text(`Period: ${formattedFrom} to ${formattedTo}`, margin, 85, { align: "left" });
-      doc.text(`Generated: ${today}`, margin, 105, { align: "left" });
+      // ✅ Show purpose in PDF header if filtered
+      if (purpose) {
+        doc.text(`Purpose: ${purpose}`, margin, 105, { align: "left" });
+      }
+      doc.text(`Generated: ${today}`, margin, purpose ? 125 : 105, { align: "left" });
 
       // Calculate summary statistics
       const totalAmount = expenses.reduce((sum, exp) => sum + Number(exp.amount), 0);
@@ -167,7 +201,7 @@ const ExpenseDateDownload = () => {
         });
       }
 
-      let currentY = 130;
+      let currentY = purpose ? 150 : 130;
 
       // ========== SUMMARY SECTION ==========
       if (reportType === "summary" || reportType === "both") {
@@ -306,7 +340,7 @@ const ExpenseDateDownload = () => {
       /* ✅ Shamsi dates in filename */
       const formattedFromFile = formatShamsiFilename(from);
       const formattedToFile = formatShamsiFilename(to);
-      const filename = `Expense_Report_${departmentName}_${formattedFromFile}_to_${formattedToFile}.pdf`;
+      const filename = `Expense_Report_${departmentName}${purposeName}_${formattedFromFile}_to_${formattedToFile}.pdf`;
       doc.save(filename);
       
     } catch (err) {
@@ -324,10 +358,10 @@ const ExpenseDateDownload = () => {
         Expense Report by Date Range
       </h2>
       <p className="text-sm text-gray-600">
-        Generate expense reports filtered by date range and department.
+        Generate expense reports filtered by date range, department, and purpose.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* ✅ Shamsi From Date */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
@@ -383,6 +417,25 @@ const ExpenseDateDownload = () => {
           </select>
         </div>
 
+        {/* ✅ NEW: Purpose Selection */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700">
+            Purpose (Optional)
+          </label>
+          <select
+            value={purpose}
+            onChange={(e) => setPurpose(e.target.value)}
+            className="mt-1 w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-sm"
+          >
+            <option value="">All Purposes</option>
+            {EXPENSE_CATEGORIES.map((cat, index) => (
+              <option key={index} value={`${cat.en} (${cat.fa})`}>
+                {cat.en} ({cat.fa})
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Report Type */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
@@ -401,9 +454,17 @@ const ExpenseDateDownload = () => {
       </div>
 
       {/* Info Box */}
-      {departmentId && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800">
-          <span className="font-semibold">ℹ️ Info:</span> Showing expenses for selected department only.
+      {(departmentId || purpose) && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-800 space-y-1">
+          <span className="font-semibold">ℹ️ Info:</span> Showing expenses
+          {departmentId && " for the selected department"}
+          {departmentId && purpose && " and"}
+          {purpose && (
+            <>
+              {" "}with purpose <span className="font-semibold">{purpose}</span>
+            </>
+          )}
+          .
         </div>
       )}
 

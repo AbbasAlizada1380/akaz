@@ -1,5 +1,7 @@
 // controllers/salaryList.controller.js
 import { SalaryList, Attendance, Staff, PaidSalary } from "../../../Models/index.js";
+import { Op } from "sequelize";
+
 /* ---------------------------------------------------------
    Default attendance JSON for a new period
    --------------------------------------------------------- */
@@ -14,6 +16,7 @@ const defaultAttendanceJSON = () => ({
 
 /* ---------------------------------------------------------
    Calculate pay for one staff member given an attendance JSON
+   total = salary + overtime - tax
    --------------------------------------------------------- */
 function calculatePay(staff, attendanceJSON) {
   const dailySalary = Number(staff.salary || 0) / Number(staff.workingDaysPerWeek || 1);
@@ -29,11 +32,13 @@ function calculatePay(staff, attendanceJSON) {
 
   const salary = dailySalary * daysWorked;
   const overtime = overtimeRate * overtimeHours;
-  const total = salary + overtime;
+  const tax = 0; // default tax; can be derived later
+  const total = salary + overtime - tax;
 
   return {
     salary: Number(salary.toFixed(2)),
     overtime: Number(overtime.toFixed(2)),
+    tax: Number(tax.toFixed(2)),
     total: Number(total.toFixed(2)),
   };
 }
@@ -69,7 +74,7 @@ export const createSalaryList = async (req, res) => {
     // 2. Build attendance rows and compute each row's pay
     const attendanceRows = activeStaff.map((s) => {
       const attendance = defaultAttendanceJSON();
-      const { salary, overtime, total } = calculatePay(s, attendance);
+      const { salary, overtime, tax, total } = calculatePay(s, attendance);
 
       return {
         list: null,               // set after SalaryList is created
@@ -77,6 +82,7 @@ export const createSalaryList = async (req, res) => {
         attendance,
         salary,
         overtime,
+        tax,
         total,
         calculated: true,         // we already calculated it
       };
@@ -94,7 +100,7 @@ export const createSalaryList = async (req, res) => {
         name,
         range,
         staffIds,
-        total: listTotal,         // ✅ sum of all attendance totals
+        total: listTotal,
         paid: 0,
       },
       { transaction }
@@ -162,7 +168,6 @@ export const updateSalaryList = async (req, res) => {
 };
 
 /* DELETE */
-
 export const deleteSalaryList = async (req, res) => {
   const transaction = await SalaryList.sequelize.transaction();
 
@@ -196,11 +201,9 @@ export const deleteSalaryList = async (req, res) => {
   }
 };
 
-
 export const getPaidSalariesDailyReport = async (req, res) => {
   try {
     const { from, to } = req.query;
-    const { Op } = await import("sequelize");
 
     /* ---------- 1. Build WHERE clause ---------- */
     const where = {};
@@ -217,7 +220,7 @@ export const getPaidSalariesDailyReport = async (req, res) => {
         {
           model: Attendance,
           as: "attendance",
-          attributes: ["id", "staffId", "list", "salary", "overtime", "total"],
+          attributes: ["id", "staffId", "list", "salary", "overtime", "tax", "total"],
           include: [
             { model: Staff, as: "staff", attributes: ["id", "name"] },
             {
@@ -244,6 +247,9 @@ export const getPaidSalariesDailyReport = async (req, res) => {
       listId: p.attendance?.list || null,
       listName: p.attendance?.salaryList?.name || "—",
       listRange: p.attendance?.salaryList?.range || "—",
+      attendanceSalary: Number(p.attendance?.salary || 0),
+      attendanceOvertime: Number(p.attendance?.overtime || 0),
+      attendanceTax: Number(p.attendance?.tax || 0),
       attendanceTotal: Number(p.attendance?.total || 0),
     }));
 
@@ -251,7 +257,7 @@ export const getPaidSalariesDailyReport = async (req, res) => {
     const dayMap = new Map(); // date → { totalPaid, count, payments[] }
 
     for (const p of flat) {
-      if (!p.date) continue; // skip rows without a date
+      if (!p.date) continue;
 
       if (!dayMap.has(p.date)) {
         dayMap.set(p.date, {
@@ -288,8 +294,8 @@ export const getPaidSalariesDailyReport = async (req, res) => {
       totalPaid: Number(totalPaid.toFixed(2)),
       totalCount,
       daysCount,
-      days,       // aggregated per day
-      payments: flat, // flat list (in case client wants it)
+      days,
+      payments: flat,
     });
   } catch (err) {
     console.error("getPaidSalariesDailyReport error:", err);

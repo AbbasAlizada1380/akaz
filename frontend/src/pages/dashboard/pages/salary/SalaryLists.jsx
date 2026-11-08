@@ -20,6 +20,12 @@ const BASE_URL = import.meta.env.VITE_BASE_URL;
 /* Pick the staff object whether the backend alias is `staff` or `attendanceStaff` */
 const rowStaff = (row) => row?.staff || row?.attendanceStaff || null;
 
+const toNumber = (v) => {
+  if (v === "" || v === null || v === undefined) return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
 export default function SalaryLists({ onClose }) {
   const [showAddStaff, setShowAddStaff] = useState(false);
   const [lists, setLists] = useState([]);
@@ -113,7 +119,10 @@ export default function SalaryLists({ onClose }) {
       const res = await axios.get(`${BASE_URL}/attendance`, {
         params: { list: list.id },
       });
-      const rows = res.data.attendances || res.data || [];
+      const rows = (res.data.attendances || res.data || []).map((r) => ({
+        ...r,
+        tax: r.tax ?? 0, // defensive default
+      }));
       setAttendances(rows);
     } catch (err) {
       setError(
@@ -149,24 +158,37 @@ export default function SalaryLists({ onClose }) {
     );
   };
 
-  /* ✅ Generic field updater — used by the row for salary / overtime / total */
+  /* ✅ Generic field updater — used by the row for salary / overtime / tax / total */
   const updateLocalField = (id, field, value) => {
     setAttendances((prev) =>
       prev.map((row) => {
         if (row.id !== id) return row;
 
-        const next = { ...row, [field]: value === "" ? 0 : value };
+        const cleanValue = value === "" ? 0 : value;
+        const next = { ...row, [field]: cleanValue };
 
-        // Auto-recompute total when salary or overtime changes,
-        // unless the user has hand-edited the total away from salary+overtime.
-        if (field === "salary" || field === "overtime") {
-          const prevAutoTotal =
-            Number(row.salary || 0) + Number(row.overtime || 0);
-          const wasAutoTotal = Number(row.total || 0) === prevAutoTotal;
+        // Auto-recompute total when salary / overtime / tax changes,
+        // unless the user has hand-edited the total away from the
+        // formula salary + overtime - tax.
+        if (field === "salary" || field === "overtime" || field === "tax") {
+          const prevAutoTotal = Number(
+            (
+              toNumber(row.salary) +
+              toNumber(row.overtime) -
+              toNumber(row.tax)
+            ).toFixed(2)
+          );
+          const wasAutoTotal = toNumber(row.total) === prevAutoTotal;
+
           if (wasAutoTotal) {
-            const newAutoTotal =
-              Number(next.salary || 0) + Number(next.overtime || 0);
-            next.total = Number(newAutoTotal.toFixed(2));
+            const newAutoTotal = Number(
+              (
+                toNumber(next.salary) +
+                toNumber(next.overtime) -
+                toNumber(next.tax)
+              ).toFixed(2)
+            );
+            next.total = newAutoTotal;
           }
         }
 
@@ -181,6 +203,25 @@ export default function SalaryLists({ onClose }) {
         row.id === id ? { ...row, receipt: receiptArray } : row
       )
     );
+  };
+
+  /* Refresh the parent list card totals so the modal header / list table stay in sync */
+  const refreshSelectedList = async () => {
+    if (!selectedList) return;
+    try {
+      const res = await axios.get(`${BASE_URL}/salary-lists/${selectedList.id}`);
+      const fresh = res.data?.salaryList || res.data;
+      if (fresh) {
+        setSelectedList((prev) =>
+          prev && prev.id === fresh.id ? { ...prev, ...fresh } : prev
+        );
+        setLists((prev) =>
+          prev.map((l) => (l.id === fresh.id ? { ...l, ...fresh } : l))
+        );
+      }
+    } catch {
+      /* non-fatal — list card just stays slightly stale */
+    }
   };
 
   /* ---------------- Delete one attendance row ---------------- */
@@ -200,6 +241,7 @@ export default function SalaryLists({ onClose }) {
       await axios.delete(`${BASE_URL}/attendance/${row.id}`);
       setAttendances((prev) => prev.filter((r) => r.id !== row.id));
       fetchLists();
+      refreshSelectedList();
       setSuccessMessage("Attendance record deleted");
       setTimeout(() => setSuccessMessage(null), 2500);
     } catch (err) {
@@ -251,9 +293,10 @@ export default function SalaryLists({ onClose }) {
       const res = await axios.put(`${BASE_URL}/attendance/${row.id}`, {
         // ✅ Only send editable money fields + receipt.
         // We deliberately do NOT send `attendance`, so the backend
-        // won't overwrite the user's manual salary/overtime/total.
+        // won't overwrite the user's manual salary/overtime/tax/total.
         salary: Number(row.salary || 0),
         overtime: Number(row.overtime || 0),
+        tax: Number(row.tax || 0),
         total: Number(row.total || 0),
         receipt: row.receipt ?? [],
       });
@@ -266,12 +309,26 @@ export default function SalaryLists({ onClose }) {
               ...r,
               salary: updated.salary ?? r.salary,
               overtime: updated.overtime ?? r.overtime,
+              tax: updated.tax ?? r.tax,
               total: updated.total ?? r.total,
               receipt: updated.receipt ?? r.receipt,
             }
             : r
         )
       );
+
+      // If backend returned refreshed parent list, use it directly
+      if (res.data?.salaryList) {
+        const fresh = res.data.salaryList;
+        setSelectedList((prev) =>
+          prev && prev.id === fresh.id ? { ...prev, ...fresh } : prev
+        );
+        setLists((prev) =>
+          prev.map((l) => (l.id === fresh.id ? { ...l, ...fresh } : l))
+        );
+      } else {
+        refreshSelectedList();
+      }
 
       fetchLists();
       setSuccessMessage("Attendance saved");
@@ -467,12 +524,13 @@ export default function SalaryLists({ onClose }) {
 
                       <td className="px-6 py-4">
                         <div
-                          className={`text-sm font-semibold ${remaining > 0
-                            ? "text-red-600"
-                            : remaining < 0
-                              ? "text-yellow-600"
-                              : "text-green-600"
-                            }`}
+                          className={`text-sm font-semibold ${
+                            remaining > 0
+                              ? "text-red-600"
+                              : remaining < 0
+                                ? "text-yellow-600"
+                                : "text-green-600"
+                          }`}
                         >
                           {formatCurrency(remaining)}
                         </div>
@@ -499,10 +557,11 @@ export default function SalaryLists({ onClose }) {
                           <button
                             onClick={(e) => deleteList(list, e)}
                             disabled={savingId === `list-${list.id}`}
-                            className={`p-2 rounded-md transition ${savingId === `list-${list.id}`
-                              ? "text-gray-400 cursor-not-allowed"
-                              : "text-red-600 hover:bg-red-50"
-                              }`}
+                            className={`p-2 rounded-md transition ${
+                              savingId === `list-${list.id}`
+                                ? "text-gray-400 cursor-not-allowed"
+                                : "text-red-600 hover:bg-red-50"
+                            }`}
                             title="Delete list"
                           >
                             {savingId === `list-${list.id}` ? (
@@ -592,6 +651,9 @@ export default function SalaryLists({ onClose }) {
                           Overtime
                         </th>
                         <th className="px-3 py-3 text-right text-xs font-semibold text-white uppercase">
+                          Tax
+                        </th>
+                        <th className="px-3 py-3 text-right text-xs font-semibold text-white uppercase">
                           Total
                         </th>
                         <th className="px-3 py-3 text-right text-xs font-semibold text-white uppercase">
@@ -634,9 +696,13 @@ export default function SalaryLists({ onClose }) {
                 existingStaffIds={attendances.map((r) => Number(r.staffId))}
                 onAdded={(newRows) => {
                   // Append new rows locally so the user sees them immediately
-                  setAttendances((prev) => [...prev, ...newRows]);
+                  setAttendances((prev) => [
+                    ...prev,
+                    ...newRows.map((r) => ({ ...r, tax: r.tax ?? 0 })),
+                  ]);
                   // Refresh the parent list so total/staffCount update
                   fetchLists();
+                  refreshSelectedList();
                   setSuccessMessage("Staff added to the list");
                   setTimeout(() => setSuccessMessage(null), 2500);
                 }}

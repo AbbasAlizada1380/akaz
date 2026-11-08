@@ -1,6 +1,6 @@
 // components/SalaryListRow.jsx
 import React from "react";
-import { FaClock, FaTrash, FaUserPlus } from "react-icons/fa";
+import { FaClock, FaTrash, FaUserPlus, FaPercent } from "react-icons/fa";
 import ReceiptEditor from "./ReceiptEditor";
 import { sumReceipt } from "./ReceiptCell";
 
@@ -22,6 +22,12 @@ const DAY_LABELS_FA = {
   Thursday: "پنجشنبه",
 };
 
+const toNumber = (v) => {
+  if (v === "" || v === null || v === undefined) return 0;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
 export default function SalaryListRow({
   row,
   onChange,
@@ -40,6 +46,24 @@ export default function SalaryListRow({
     if (typeof onChangeField === "function") {
       onChangeField(row.id, field, value);
     }
+  };
+
+  /**
+   * When salary / overtime / tax changes, keep total = salary + overtime - tax
+   * (unless the user is actively editing the total field).
+   */
+  const setFieldAndRecalcTotal = (field, value) => {
+    setField(field, value);
+
+    if (field === "total") return;
+
+    const salary = field === "salary" ? toNumber(value) : toNumber(row.salary);
+    const overtime =
+      field === "overtime" ? toNumber(value) : toNumber(row.overtime);
+    const tax = field === "tax" ? toNumber(value) : toNumber(row.tax);
+
+    const total = Number((salary + overtime - tax).toFixed(2));
+    setField("total", total);
   };
 
   const numberInput = (value, onChange, opts = {}) => (
@@ -80,7 +104,7 @@ export default function SalaryListRow({
 
       {/* Salary — editable */}
       <td className="px-3 py-3 whitespace-nowrap">
-        {numberInput(row.salary, (v) => setField("salary", v), {
+        {numberInput(row.salary, (v) => setFieldAndRecalcTotal("salary", v), {
           title: "Monthly salary",
         })}
       </td>
@@ -89,16 +113,26 @@ export default function SalaryListRow({
       <td className="px-3 py-3 whitespace-nowrap">
         <div className="flex items-center gap-1">
           <FaClock className="text-gray-400 text-xs" />
-          {numberInput(row.overtime, (v) => setField("overtime", v), {
+          {numberInput(row.overtime, (v) => setFieldAndRecalcTotal("overtime", v), {
             title: "Overtime amount",
+          })}
+        </div>
+      </td>
+
+      {/* Tax — editable */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        <div className="flex items-center gap-1">
+          <FaPercent className="text-gray-400 text-xs" />
+          {numberInput(row.tax, (v) => setFieldAndRecalcTotal("tax", v), {
+            title: "Tax (deducted from salary + overtime)",
           })}
         </div>
       </td>
 
       {/* Total — editable */}
       <td className="px-3 py-3 whitespace-nowrap">
-        {numberInput(row.total, (v) => setField("total", v), {
-          title: "Total (salary + overtime)",
+        {numberInput(row.total, (v) => setFieldAndRecalcTotal("total", v), {
+          title: "Total (salary + overtime - tax)",
           className:
             "w-24 text-sm font-bold text-primary border border-gray-200 rounded px-2 py-1 text-right focus:ring-1 focus:ring-primary focus:border-primary disabled:bg-gray-100",
         })}
